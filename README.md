@@ -1,6 +1,6 @@
 # Schwab Model Context Protocol Server
 
-This is a server that implements the Schwab Model Context Protocol (MCP) for
+This is a server that implements the Model Context Protocol (MCP) for
 the Schwab API using [schwab-py](https://github.com/alexgolec/schwab-py) and
 the MCP [python-sdk](https://github.com/modelcontextprotocol/python-sdk).
 
@@ -64,15 +64,29 @@ Token age is validated - if older than 5 days, you will be prompted to re-authen
 
 The server exposes the following MCP tools:
 
-1. `get_account_numbers` - Get mapping of account IDs to account hashes
-2. `get_accounts` - Get information for all linked Schwab accounts
-3. `get_accounts_with_positions` - Get accounts with position information
-4. `get_account` - Get information for a specific account
-5. `get_account_with_positions` - Get specific account with position information
-6. `get_user_preferences` - Get user preferences for all accounts including nicknames
-7. `get_quotes` - Get quotes for specified symbols
-8. `get_orders` - Get orders for a specific account
-9. `get_transactions` - Get transactions for a specific account
+### Date and Market Information
+1. `get_datetime` - Get the current datetime in ISO format
+2. `get_market_hours` - Get market hours for a specific market
+3. `get_movers` - Get movers for a specific index
+
+### Account Information
+4. `get_account_numbers` - Get mapping of account IDs to account hashes
+5. `get_accounts` - Get information for all linked Schwab accounts
+6. `get_accounts_with_positions` - Get accounts with position information
+7. `get_account` - Get information for a specific account
+8. `get_account_with_positions` - Get specific account with position information
+9. `get_user_preferences` - Get user preferences for all accounts including nicknames
+
+### Orders
+10. `get_order` - Get details for a specific order
+11. `get_orders` - Get orders for a specific account
+
+### Quotes
+12. `get_quotes` - Get quotes for specified symbols
+
+### Transactions
+13. `get_transactions` - Get transactions for a specific account
+14. `get_transaction` - Get details for a specific transaction
 
 ## Development
 
