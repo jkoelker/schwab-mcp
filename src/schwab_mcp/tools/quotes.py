@@ -11,7 +11,9 @@ from schwab_mcp.tools.utils import call
 async def get_quotes(
     client: schwab.client.AsyncClient,
     symbols: Annotated[list[str] | str, "List of stock symbols to get quotes for"],
-    fields: Annotated[list[str] | str | None, "Fields to include in the response"] = None,
+    fields: Annotated[
+        list[str] | str | None, "Fields to include in the response"
+    ] = None,
     indicative: Annotated[bool | None, "Include indicative quotes"] = None,
 ) -> str:
     """

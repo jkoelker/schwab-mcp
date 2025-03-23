@@ -14,7 +14,9 @@ async def get_transactions(
     account_hash: Annotated[str, "Account hash for the Schwab account"],
     start_date: Annotated[str | None, "Start date for transactions"] = None,
     end_date: Annotated[str | None, "End date for transactions"] = None,
-    transaction_type: Annotated[list[str] | str | None, "Transaction type to filter by"] = None,
+    transaction_type: Annotated[
+        list[str] | str | None, "Transaction type to filter by"
+    ] = None,
     symbol: Annotated[str | None, "Symbol to filter by"] = None,
 ) -> str:
     """
@@ -54,7 +56,9 @@ async def get_transactions(
     if transaction_type is not None:
         if isinstance(transaction_type, str):
             transaction_type = [transaction_type]
-        transaction_type = [client.Transaction.TransactionType[t] for t in transaction_type]
+        transaction_type = [
+            client.Transaction.TransactionType[t] for t in transaction_type
+        ]
 
     return await call(
         client.get_transactions_for_account,

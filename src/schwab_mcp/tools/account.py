@@ -17,6 +17,7 @@ async def get_account_numbers(
     API calls."""
     return await call(client.get_account_numbers)
 
+
 @register
 async def get_accounts(
     client: schwab.client.AsyncClient,
@@ -27,6 +28,7 @@ async def get_accounts(
     to get the mapping from account IDs to account hashes.
     """
     return await call(client.get_accounts)
+
 
 @register
 async def get_accounts_with_positions(
@@ -39,6 +41,7 @@ async def get_accounts_with_positions(
     """
     return await call(client.get_accounts, fields=[client.Account.Fields.POSITIONS])
 
+
 @register
 async def get_account(
     client: schwab.client.AsyncClient,
@@ -46,6 +49,7 @@ async def get_account(
 ) -> str:
     """Get account balance and information for a specific Schwab account"""
     return await call(client.get_account, account_hash)
+
 
 @register
 async def get_account_with_positions(
@@ -56,7 +60,10 @@ async def get_account_with_positions(
     Get account balance and information for a specific Schwab account,
     including positions
     """
-    return await call(client.get_account, account_hash, fields=[client.Account.Fields.POSITIONS])
+    return await call(
+        client.get_account, account_hash, fields=[client.Account.Fields.POSITIONS]
+    )
+
 
 @register
 async def get_user_preferences(

@@ -45,7 +45,9 @@ async def get_movers(
     client: schwab.client.AsyncClient,
     index: Annotated[str, "Index to get movers for"],
     sort: Annotated[str, "Sort by a particular attribute"] = None,
-    frequency: Annotated[str, "Only return movers that saw this magnitude of change or greater"] = None,
+    frequency: Annotated[
+        str, "Only return movers that saw this magnitude of change or greater"
+    ] = None,
 ) -> str:
     """
     Get movers for a specific index.
