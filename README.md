@@ -8,8 +8,10 @@ the MCP [python-sdk](https://github.com/modelcontextprotocol/python-sdk).
 
 - Expose Schwab API functionality through Model Context Protocol
 - Get account information and positions
-- Retrieve stock quotes
-- Get order and transaction history
+- Retrieve stock quotes and price history
+- Get market information and movers
+- Fetch option chains and expiration data
+- Access order and transaction history
 - Designed to integrate with Large Language Models (LLMs)
 
 ## Installation
@@ -68,25 +70,41 @@ The server exposes the following MCP tools:
 1. `get_datetime` - Get the current datetime in ISO format
 2. `get_market_hours` - Get market hours for a specific market
 3. `get_movers` - Get movers for a specific index
+4. `get_instruments` - Search for instruments with a specific symbol
 
 ### Account Information
-4. `get_account_numbers` - Get mapping of account IDs to account hashes
-5. `get_accounts` - Get information for all linked Schwab accounts
-6. `get_accounts_with_positions` - Get accounts with position information
-7. `get_account` - Get information for a specific account
-8. `get_account_with_positions` - Get specific account with position information
-9. `get_user_preferences` - Get user preferences for all accounts including nicknames
+5. `get_account_numbers` - Get mapping of account IDs to account hashes
+6. `get_accounts` - Get information for all linked Schwab accounts
+7. `get_accounts_with_positions` - Get accounts with position information
+8. `get_account` - Get information for a specific account
+9. `get_account_with_positions` - Get specific account with position information
+10. `get_user_preferences` - Get user preferences for all accounts including nicknames
 
 ### Orders
-10. `get_order` - Get details for a specific order
-11. `get_orders` - Get orders for a specific account
+11. `get_order` - Get details for a specific order
+12. `get_orders` - Get orders for a specific account
 
 ### Quotes
-12. `get_quotes` - Get quotes for specified symbols
+13. `get_quotes` - Get quotes for specified symbols
+
+### Price History
+14. `get_advanced_price_history` - Get advanced price history for a specific symbol
+15. `get_price_history_every_minute` - Get price history with minute frequency
+16. `get_price_history_every_five_minutes` - Get price history with five minute frequency
+17. `get_price_history_every_ten_minutes` - Get price history with ten minute frequency
+18. `get_price_history_every_fifteen_minutes` - Get price history with fifteen minute frequency
+19. `get_price_history_every_thirty_minutes` - Get price history with thirty minute frequency
+20. `get_price_history_every_day` - Get price history with daily frequency
+21. `get_price_history_every_week` - Get price history with weekly frequency
+
+### Options
+22. `get_option_chain` - Get option chain for a specific symbol
+23. `get_advanced_option_chain` - Get advanced option chain for a specific symbol
+24. `get_option_expiration_chain` - Get option expiration information for a symbol
 
 ### Transactions
-13. `get_transactions` - Get transactions for a specific account
-14. `get_transaction` - Get details for a specific transaction
+25. `get_transactions` - Get transactions for a specific account
+26. `get_transaction` - Get details for a specific transaction
 
 ## Development
 

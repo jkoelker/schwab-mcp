@@ -85,3 +85,43 @@ async def get_movers(
         sort=client.Movers.SortOrder[sort] if sort else None,
         frequency=client.Movers.Frequency[frequency] if frequency else None,
     )
+
+
+@register
+async def get_instruments(
+    client: schwab.client.AsyncClient,
+    symbol: Annotated[str, "Symbol to search for"],
+    projection: Annotated[str, "Projection to return"] = "symbol-search",
+) -> str:
+    """
+    Search for instruments with a specific symbol.
+
+    Projection can be one of the following:
+      SYMBOL_SEARCH
+      SYMBOL_REGEX
+      DESCRIPTION_SEARCH
+      DESCRIPTION_REGEX
+      SEARCH
+      FUNDAMENTAL
+
+    <example>
+    # Search for instruments with the symbol "AAPL"
+    get_instruments("AAPL")
+    </example>
+
+    <example>
+    # Search for AAPL options
+    get_instruments("AAPL .*", "symbol-regex")
+    </example>
+
+    <example>
+    # Return the fundamental data for AAPL
+    get_instruments("AAPL", "fundamental")
+    </example>
+
+    """
+    return await call(
+        client.get_instruments,
+        symbol,
+        projection=client.Instrument.Projection[projection],
+    )
