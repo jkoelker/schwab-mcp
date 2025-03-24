@@ -74,3 +74,13 @@ async def get_orders(
         to_entered_datetime=to_date,
         status=client.Order.Status[status] if status else None,
     )
+
+
+@register(write=True)
+async def cancel_order(
+    client: schwab.client.AsyncClient,
+    account_hash: Annotated[str, "Account hash for the Schwab account"],
+    order_id: Annotated[str, "Order ID to cancel"],
+) -> str:
+    """Cancel a specific order"""
+    return await call(client.cancel_order, order_id=order_id, account_hash=account_hash)

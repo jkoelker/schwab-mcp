@@ -257,25 +257,42 @@ class Registry:
     """Registry of available tools with auto-discovery"""
 
     client: AsyncClient
+    write: bool = False
     _tools: List[types.Tool] = field(default_factory=list)
     _instances: Dict[str, BaseSchwabTool] = field(default_factory=dict)
 
     @classmethod
-    def register(cls, tool: Callable[Any, Any] | BaseSchwabTool):
+    def register(cls, tool: Callable[Any, Any] | BaseSchwabTool = None, **kwargs):
         """Class decorator to register a tool class or function for auto-discovery"""
         if not hasattr(cls, "_registered_tools"):
             cls._registered_tools = []
 
-        if inspect.isfunction(tool):
-            tool = FunctionTool(tool)
+        def _register(tool: Callable[Any, Any] | BaseSchwabTool, write: bool = False):
+            if inspect.isfunction(tool):
+                wrapped = FunctionTool(tool)
+            else:
+                wrapped = tool
 
-        cls._registered_tools.append(tool)
+            wrapped.__write = write
 
-        return tool
+            cls._registered_tools.append(wrapped)
+
+            return tool
+
+        if tool is not None and len(kwargs) == 0:
+            return _register(tool, write=False)
+
+        def _decorator(func: Callable[Callable[Any, Any] | BaseSchwabTool, Any]):
+            return _register(func, **kwargs)
+
+        return _decorator
 
     def __post_init__(self):
         """Initialize the registry by discovering and registering tools"""
         for tool in getattr(Registry, "_registered_tools", []):
+            if getattr(tool, "__write", False) and not self.write:
+                continue
+
             instance = tool(self.client)
 
             if not isinstance(instance, BaseSchwabTool):

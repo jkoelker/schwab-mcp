@@ -12,6 +12,7 @@ the MCP [python-sdk](https://github.com/modelcontextprotocol/python-sdk).
 - Get market information and movers
 - Fetch option chains and expiration data
 - Access order and transaction history
+- Modify account state with special tools (requires `--jesus-take-the-wheel` flag)
 - Designed to integrate with Large Language Models (LLMs)
 
 ## Installation
@@ -58,9 +59,14 @@ uv run schwab-mcp server --client-id YOUR_CLIENT_ID --client-secret YOUR_CLIENT_
 
 # Run with a custom token path
 uv run schwab-mcp server --token-path /path/to/token.json --client-id YOUR_CLIENT_ID --client-secret YOUR_CLIENT_SECRET --callback-url YOUR_CALLBACK_URL
+
+# Run with account modification tools enabled
+uv run schwab-mcp server --jesus-take-the-wheel --client-id YOUR_CLIENT_ID --client-secret YOUR_CLIENT_SECRET --callback-url YOUR_CALLBACK_URL
 ```
 
 Token age is validated - if older than 5 days, you will be prompted to re-authenticate.
+
+> **WARNING**: Using the `--jesus-take-the-wheel` flag enables tools that can modify your account state. Use with caution as this allows LLMs to cancel orders and potentially perform other actions that change account state.
 
 ## Available Tools
 
@@ -105,6 +111,17 @@ The server exposes the following MCP tools:
 ### Transactions
 25. `get_transactions` - Get transactions for a specific account
 26. `get_transaction` - Get details for a specific transaction
+
+### Account Modification Tools (Requires `--jesus-take-the-wheel` flag)
+27. `cancel_order` - Cancel a specific order
+
+## Security Warning
+
+The `--jesus-take-the-wheel` flag enables LLMs to perform actions that can modify your account state, including:
+- Canceling orders
+- Other actions that may have financial implications (more tools to be added in future releases)
+
+Only use this flag in controlled environments and understand the risks involved.
 
 ## Development
 

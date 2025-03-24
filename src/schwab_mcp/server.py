@@ -21,12 +21,13 @@ class SchwabMCPServer:
         self,
         name: str,
         client: AsyncClient,
+        jesus_take_the_wheel: bool = False,
     ):
         self.server = Server(name)
         self.client = client
 
         # Create registry with automatic tool discovery
-        self.registry = tools.Registry(client)
+        self.registry = tools.Registry(client=client, write=jesus_take_the_wheel)
 
         # Set up the server
         self._setup_server()

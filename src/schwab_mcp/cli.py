@@ -99,11 +99,18 @@ def auth(
     default="https://127.0.0.1:8182",
     help="Schwab callback URL",
 )
+@click.option(
+    "--jesus-take-the-wheel",
+    default=False,
+    is_flag=True,
+    help="Allow tools to modify the portfolios, placing trades, etc.",
+)
 def server(
     token_path: str,
     client_id: str,
     client_secret: str,
     callback_url: str,
+    jesus_take_the_wheel: bool,
 ) -> int:
     """Run the Schwab MCP server."""
     # No logging to stderr when in MCP mode (we'll use proper MCP responses)
@@ -140,7 +147,7 @@ def server(
         return 1
 
     try:
-        server = SchwabMCPServer(APP_NAME, client)
+        server = SchwabMCPServer(APP_NAME, client, jesus_take_the_wheel=jesus_take_the_wheel)
         anyio.run(server.run)
         return 0
     except Exception as e:
