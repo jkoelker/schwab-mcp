@@ -40,9 +40,9 @@ async def get_option_chain(
     return await call(
         client.get_option_chain,
         symbol,
-        contract_type=client.Option.ContractType[contract_type] if contract_type else None,
+        contract_type=client.Options.ContractType[contract_type] if contract_type else None,
         strike_count=strike_count,
-        include_quotes=include_quotes,
+        include_underlying_quote=include_quotes,
         from_date=from_date,
         to_date=to_date,
     )
@@ -92,6 +92,8 @@ async def get_advanced_option_chain(
     option_type: Annotated[str | None, "Types of options to return"] = None,
 ) -> str:
     """
+    IMPORTANT you should use this function only if you need to use advanced parameters.
+
     Get advanced option chain for a specific symbol.
 
     Contract type can be one of the following, if not provided all contracts will be returned:
@@ -134,15 +136,15 @@ async def get_advanced_option_chain(
         to_date = datetime.datetime.strptime(to_date, "%Y-%m-%d").date()
 
     return await call(
-        client.get_advanced_option_chain,
+        client.get_option_chain,
         symbol,
-        contract_type=client.Option.ContractType[contract_type] if contract_type else None,
+        contract_type=client.Options.ContractType[contract_type] if contract_type else None,
         strike_count=strike_count,
-        include_quotes=include_quotes,
-        strategy=client.Option.Strategy[strategy] if strategy else None,
+        include_underlying_quote=include_quotes,
+        strategy=client.Options.Strategy[strategy] if strategy else None,
         interval=interval,
         strike=strike,
-        strike_range=client.Option.StrikeRange[strike_range] if strike_range else None,
+        strike_range=client.Options.StrikeRange[strike_range] if strike_range else None,
         from_date=from_date,
         to_date=to_date,
         volatility=volatility,
@@ -150,7 +152,7 @@ async def get_advanced_option_chain(
         interest_rate=interest_rate,
         days_to_expiration=days_to_expiration,
         exp_month=exp_month,
-        option_type=client.Option.Type[option_type] if option_type else None,
+        option_type=client.Options.Type[option_type] if option_type else None,
     )
 
 
