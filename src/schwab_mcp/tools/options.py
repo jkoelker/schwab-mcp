@@ -14,9 +14,9 @@ async def get_option_chain(
     symbol: Annotated[str, "Symbol of the underlying security"],
     contract_type: Annotated[str | None, "Type of contracts to return"] = None,
     strike_count: Annotated[
-        int | None,
+        int,
         "The Number of strikes to return above or below the at-the-money price",
-    ] = None,
+    ] = 25,
     include_quotes: Annotated[bool | None, "Include quotes for the options"] = None,
     from_date: Annotated[str | None, "Start date for options"] = None,
     to_date: Annotated[str | None, "End date for options"] = None,
@@ -30,6 +30,10 @@ async def get_option_chain(
       CALL
       PUT
       ALL
+
+    IMPORTANT: This function may return a large amount of data, you should always
+    use the strike_count and from_date/to_date parameters to limit the amount of data
+    returned.
     """
     if from_date is not None:
         from_date = datetime.datetime.strptime(from_date, "%Y-%m-%d").date()
@@ -53,9 +57,9 @@ async def get_advanced_option_chain(
     symbol: Annotated[str, "Symbol of the underlying security"],
     contract_type: Annotated[str | None, "Type of contracts to return"] = None,
     strike_count: Annotated[
-        int | None,
+        int,
         "The Number of strikes to return above or below the at-the-money price",
-    ] = None,
+    ] = 25,
     include_quotes: Annotated[bool | None, "Include quotes for the options"] = None,
     strategy: Annotated[
         str | None,
@@ -128,6 +132,10 @@ async def get_advanced_option_chain(
       STANDARD
       NON_STANDARD
       ALL
+
+    IMPORTANT: This function may return a large amount of data, you should always
+    use the strike_count and from_date/to_date parameters to limit the amount of data
+    returned.
     """
     if from_date is not None:
         from_date = datetime.datetime.strptime(from_date, "%Y-%m-%d").date()
