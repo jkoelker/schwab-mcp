@@ -10,15 +10,23 @@ from schwab_mcp.tools.utils import call
 
 @register
 async def get_datetime() -> str:
-    """Get the current datetime in ISO format"""
+    """
+    Get the current datetime in ISO format
+    """
     return datetime.datetime.now().isoformat()
 
 
 @register
 async def get_market_hours(
     client: schwab.client.AsyncClient,
-    markets: Annotated[list[str] | str, "Market to get hours for"],
-    date: Annotated[str | None, "Date to get hours for"] = None,
+    markets: Annotated[
+        list[str] | str,
+        "Markets to get hours for (EQUITY, OPTION, BOND, FUTURE, FOREX)",
+    ],
+    date: Annotated[
+        str | None,
+        "Date to get hours for in 'YYYY-MM-DD' format. Accepts values up to one year from today.",
+    ] = None,
 ) -> str:
     """
     Get market hours for a specific market.
@@ -43,14 +51,20 @@ async def get_market_hours(
 @register
 async def get_movers(
     client: schwab.client.AsyncClient,
-    index: Annotated[str, "Index to get movers for"],
-    sort: Annotated[str, "Sort by a particular attribute"] = None,
+    index: Annotated[
+        str,
+        "Index or market segment to get top movers for (DJI, COMPX, SPX, NYSE, etc.)",
+    ],
+    sort: Annotated[
+        str,
+        "Sort criteria for ranking movers (VOLUME, TRADES, PERCENT_CHANGE_UP, PERCENT_CHANGE_DOWN)",
+    ] = None,
     frequency: Annotated[
-        str, "Only return movers that saw this magnitude of change or greater"
+        str, "Minimum percentage change threshold (ZERO, ONE, FIVE, TEN, THIRTY, SIXTY)"
     ] = None,
 ) -> str:
     """
-    Get movers for a specific index.
+    Get a list of the top ten movers for a specific index.
 
     Index can be one of the following:
       DJI
@@ -90,8 +104,14 @@ async def get_movers(
 @register
 async def get_instruments(
     client: schwab.client.AsyncClient,
-    symbol: Annotated[str, "Symbol to search for"],
-    projection: Annotated[str, "Projection to return"] = "symbol-search",
+    symbol: Annotated[str, "Symbol or search term to find instruments"],
+    projection: Annotated[
+        str,
+        (
+            "Search method or data type to return (SYMBOL_SEARCH, SYMBOL_REGEX, "
+            "DESCRIPTION_SEARCH, DESCRIPTION_REGEX, SEARCH, FUNDAMENTAL)"
+        ),
+    ] = "symbol-search",
 ) -> str:
     """
     Search for instruments with a specific symbol.
@@ -118,7 +138,6 @@ async def get_instruments(
     # Return the fundamental data for AAPL
     get_instruments("AAPL", "fundamental")
     </example>
-
     """
     return await call(
         client.get_instruments,

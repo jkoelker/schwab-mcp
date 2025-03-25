@@ -14,51 +14,78 @@ async def get_order(
     account_hash: Annotated[str, "Account hash for the Schwab account"],
     order_id: Annotated[str, "Order ID to get details for"],
 ) -> str:
-    """Get details for a specific order"""
+    """
+    Returns details for a specific order.
+
+    Fetches comprehensive information about an order identified by order_id
+    and account_hash. Returns full execution details, status, price, quantity,
+    and other order-specific information.
+
+    Parameters:
+    - account_hash: Hash identifying the account (from get_account_numbers)
+    - order_id: ID of the order to retrieve details for
+
+    Use to examine the current state and execution details of a specific order.
+    """
     return await call(client.get_order, order_id=order_id, account_hash=account_hash)
 
 
 @register
 async def get_orders(
     client: schwab.client.AsyncClient,
-    account_hash: Annotated[str, "Account hash for the Schwab account"],
-    max_results: Annotated[int | None, "Maximum number of orders to return"] = None,
-    from_date: Annotated[str | None, "Start date for orders"] = None,
-    to_date: Annotated[str | None, "End date for orders"] = None,
-    status: Annotated[list[str] | str | None, "Order status to filter by"] = None,
+    account_hash: Annotated[
+        str, "Account hash for the Schwab account (from get_account_numbers)"
+    ],
+    max_results: Annotated[
+        int | None, "Maximum number of orders to return (limit results)"
+    ] = None,
+    from_date: Annotated[
+        str | None,
+        "Start date for orders in 'YYYY-MM-DD' format (up to 60 days in past)",
+    ] = None,
+    to_date: Annotated[str | None, "End date for orders in 'YYYY-MM-DD' format"] = None,
+    status: Annotated[
+        list[str] | str | None, "Filter by specific order status (see options below)"
+    ] = None,
 ) -> str:
     """
-    Get orders for a specific Schwab account.
+    Returns order history for a specific account.
 
-    From and to dates should be in the format 'YYYY-MM-DD'.
-    From date can be up to 60 days in the past.
-    If you want to see today's orders, pass tomorrow's date as the 'to_date'.
+    Retrieves orders with status, execution details, and specifications.
+    Filter by date range and order status.
 
-    Status can be one of the following:
-      AWAITING_PARENT_ORDER
-      AWAITING_CONDITION
-      AWAITING_STOP_CONDITION
-      AWAITING_MANUAL_REVIEW
-      ACCEPTED
-      AWAITING_UR_OUT
-      PENDING_ACTIVATION
-      QUEUED
-      WORKING
-      REJECTED
-      PENDING_CANCEL
-      CANCELED
-      PENDING_REPLACE
-      REPLACED
-      FILLED
-      EXPIRED
-      NEW
-      AWAITING_RELEASE_TIME
-      PENDING_ACKNOWLEDGEMENT
-      PENDING_RECALL
+    Parameters:
+    - account_hash: Hash identifying the account (from get_account_numbers)
+    - max_results: Optional limit on number of orders to return
+    - from_date: Start date in 'YYYY-MM-DD' format (up to 60 days in past)
+    - to_date: End date in 'YYYY-MM-DD' format
+    - status: Filter by specific order status, options:
+      - AWAITING_PARENT_ORDER: Waiting for parent order conditions
+      - AWAITING_CONDITION: Waiting for specified conditions
+      - AWAITING_STOP_CONDITION: Waiting for stop price to trigger
+      - AWAITING_MANUAL_REVIEW: Being reviewed by broker
+      - ACCEPTED: Order accepted but not processed
+      - AWAITING_UR_OUT: Waiting for broker response
+      - PENDING_ACTIVATION: Ready to activate (e.g., at market open)
+      - QUEUED: In queue for processing
+      - WORKING: Order is active and working
+      - REJECTED: Order was rejected
+      - PENDING_CANCEL: Cancellation requested but not confirmed
+      - CANCELED: Order successfully canceled
+      - PENDING_REPLACE: Modification requested but not confirmed
+      - REPLACED: Order successfully modified
+      - FILLED: Order fully executed
+      - EXPIRED: Order expired without full execution
+      - NEW: New order being processed
+      - AWAITING_RELEASE_TIME: Waiting for scheduled release time
+      - PENDING_ACKNOWLEDGEMENT: Waiting for acknowledgement
+      - PENDING_RECALL: Pending recall from execution venue
 
-    If status is not provided, all orders will be returned.
-    To get all open orders if the market is open send status='WORKING'.
-    To get all open orders if the market is closed send status='PENDING_ACTIVATION'.
+    Notes:
+    - For today's orders, use tomorrow's date as to_date
+    - Without status filter, returns all orders
+    - Use WORKING to get all open orders if market is open
+    - Use PENDING_ACTIVATION to get all open orders if market is closed
     """
     if from_date is not None:
         from_date = datetime.datetime.strptime(from_date, "%Y-%m-%d").date()
@@ -82,5 +109,21 @@ async def cancel_order(
     account_hash: Annotated[str, "Account hash for the Schwab account"],
     order_id: Annotated[str, "Order ID to cancel"],
 ) -> str:
-    """Cancel a specific order"""
+    """
+    Cancels a pending order.
+
+    Sends a cancellation request for an order that hasn't been executed yet.
+    Orders that have already been executed (FILLED) or are in certain terminal
+    states cannot be canceled.
+
+    Parameters:
+    - account_hash: Hash identifying the account (from get_account_numbers)
+    - order_id: ID of the order to cancel
+
+    Returns confirmation of cancellation request. The actual cancellation
+    process may be asynchronous, so check order status after calling this
+    function to confirm final cancellation state.
+
+    Note: This is a write operation that will modify your account state.
+    """
     return await call(client.cancel_order, order_id=order_id, account_hash=account_hash)

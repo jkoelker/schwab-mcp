@@ -10,25 +10,31 @@ from schwab_mcp.tools.utils import call
 @register
 async def get_quotes(
     client: schwab.client.AsyncClient,
-    symbols: Annotated[list[str] | str, "List of stock symbols to get quotes for"],
+    symbols: Annotated[
+        list[str] | str, "List of symbols to get quotes for (comma-separated if string)"
+    ],
     fields: Annotated[
-        list[str] | str | None, "Fields to include in the response"
+        list[str] | str | None,
+        "Data fields to include (QUOTE, FUNDAMENTAL, EXTENDED, REFERENCE, REGULAR)",
     ] = None,
-    indicative: Annotated[bool | None, "Include indicative quotes"] = None,
+    indicative: Annotated[
+        bool | None, "Include indicative quotes for extended hours or futures"
+    ] = None,
 ) -> str:
     """
-    Get quotes for specified symbols
+    Returns current market quotes for specified symbols.
 
-    Fields can be one of the following:
-        QUOTE
-        FUNDAMENTAL
-        EXTENDED
-        REFERENCE
-        REGULAR
+    Retrieves real-time or delayed quote data for stocks, ETFs, indices, and options.
+    Symbols can be provided as a list or comma-separated string.
 
-    If fields is not provided, all fields will be returned.
+    Fields options:
+      QUOTE - Basic price data (bid, ask, last)
+      FUNDAMENTAL - Company fundamentals (PE ratio, dividend)
+      EXTENDED - Extended quote data
+      REFERENCE - Reference data
+      REGULAR - Regular session quotes
 
-    If indicative is True, symbols will be returned with their corresponding indicative quote.
+    Set indicative=True for extended hours or futures quotes.
     """
     if isinstance(symbols, str):
         symbols = [s.strip() for s in symbols.split(",")]

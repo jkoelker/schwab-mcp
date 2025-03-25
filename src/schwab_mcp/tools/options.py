@@ -11,29 +11,44 @@ from schwab_mcp.tools.utils import call
 @register
 async def get_option_chain(
     client: schwab.client.AsyncClient,
-    symbol: Annotated[str, "Symbol of the underlying security"],
-    contract_type: Annotated[str | None, "Type of contracts to return"] = None,
+    symbol: Annotated[str, "Symbol of the underlying security (e.g., 'AAPL', 'SPY')"],
+    contract_type: Annotated[
+        str | None, "Type of option contracts to return (CALL, PUT, ALL)"
+    ] = None,
     strike_count: Annotated[
         int,
-        "The Number of strikes to return above or below the at-the-money price",
+        "Number of strikes to return above and below the at-the-money price",
     ] = 25,
-    include_quotes: Annotated[bool | None, "Include quotes for the options"] = None,
-    from_date: Annotated[str | None, "Start date for options"] = None,
-    to_date: Annotated[str | None, "End date for options"] = None,
+    include_quotes: Annotated[
+        bool | None, "Include underlying and option market quotes"
+    ] = None,
+    from_date: Annotated[
+        str | None, "Start date for option expiration in 'YYYY-MM-DD' format"
+    ] = None,
+    to_date: Annotated[
+        str | None, "End date for option expiration in 'YYYY-MM-DD' format"
+    ] = None,
 ) -> str:
     """
-    Get option chain for a specific symbol. This function is a simplified version of the
-    `get_advanced_option_chain` function and should be used when fetching option chains
-    without the need for advanced parameters.
+    Returns option chain data for a specific symbol.
 
-    Contract type can be one of the following, if not provided all contracts will be returned:
-      CALL
-      PUT
-      ALL
+    Retrieves available option contracts with strike prices, expiration dates,
+    and price information. This is the standard option chain function for most
+    use cases. For more complex strategies, use get_advanced_option_chain().
 
-    IMPORTANT: This function may return a large amount of data, you should always
-    use the strike_count and from_date/to_date parameters to limit the amount of data
-    returned.
+    Parameters:
+    - symbol: Underlying security symbol (e.g., 'AAPL', 'SPY')
+    - contract_type: Type of option contracts to return
+      - CALL: Call option contracts only
+      - PUT: Put option contracts only
+      - ALL: Both call and put contracts (default)
+    - strike_count: Number of strikes above/below at-the-money (default: 25)
+    - include_quotes: When True, includes market data for underlying and options
+    - from_date: Start date for filtering by expiration ('YYYY-MM-DD')
+    - to_date: End date for filtering by expiration ('YYYY-MM-DD')
+
+    Note: Can return large datasets. Use strike_count and date parameters to
+    limit the amount of data returned.
     """
     if from_date is not None:
         from_date = datetime.datetime.strptime(from_date, "%Y-%m-%d").date()
@@ -44,12 +59,15 @@ async def get_option_chain(
     return await call(
         client.get_option_chain,
         symbol,
-        contract_type=client.Options.ContractType[contract_type] if contract_type else None,
+        contract_type=client.Options.ContractType[contract_type]
+        if contract_type
+        else None,
         strike_count=strike_count,
         include_underlying_quote=include_quotes,
         from_date=from_date,
         to_date=to_date,
     )
+
 
 @register
 async def get_advanced_option_chain(
@@ -96,46 +114,49 @@ async def get_advanced_option_chain(
     option_type: Annotated[str | None, "Types of options to return"] = None,
 ) -> str:
     """
-    IMPORTANT you should use this function only if you need to use advanced parameters.
+    Returns advanced option chain data with complex strategies and filtering.
 
-    Get advanced option chain for a specific symbol.
+    Use for advanced options analysis with multiple strategy types, filters, and
+    theoretical pricing calculations. For basic chains, use get_option_chain().
 
-    Contract type can be one of the following, if not provided all contracts will be returned:
-      CALL
-      PUT
-      ALL
+    Parameters:
+    - symbol: Underlying security symbol (e.g. 'SPY', 'AAPL')
+    - contract_type: Type of options to return
+      - CALL: Call option contracts only
+      - PUT: Put option contracts only
+      - ALL: Both call and put contracts (default)
+    - strike_count: Number of strikes above/below at-the-money to return (default: 25)
+    - include_quotes: When True, includes underlying and option market data
+    - strategy: Option strategy to analyze
+      - SINGLE: Single option contracts (default)
+      - ANALYTICAL: Calculate theoretical values using volatility, etc.
+      - COVERED: Covered call/put strategies
+      - VERTICAL: Vertical spread strategies
+      - CALENDAR: Calendar spread strategies
+      - STRANGLE: Strangle strategy combinations
+      - STRADDLE: Straddle strategy combinations
+      - BUTTERFLY: Butterfly spread strategies
+      - CONDOR: Condor spread strategies
+      - DIAGONAL: Diagonal spread strategies
+      - COLLAR: Collar strategy combinations
+      - ROLL: Roll option positions
+    - strike_range: Filter strikes by moneyness
+      - IN_THE_MONEY: Only ITM options
+      - NEAR_THE_MONEY: Only near-the-money options
+      - OUT_OF_THE_MONEY: Only OTM options
+      - STRIKES_ABOVE_MARKET: Only strikes above market
+      - STRIKES_BELOW_MARKET: Only strikes below market
+      - STRIKES_NEAR_MARKET: Only strikes near market
+      - ALL: All available strikes (default)
+    - option_type: Filter by option type
+      - STANDARD: Standard options only
+      - NON_STANDARD: Non-standard options only (adjusted for corporate actions)
+      - ALL: All options (default)
 
-    Strategy can be one of the following:
-      SINGLE
-      ANALYTICAL
-      COVERED
-      VERTICAL
-      CALENDAR
-      STRANGLE
-      STRADDLE
-      BUTTERFLY
-      CONDOR
-      DIAGONAL
-      COLLAR
-      ROLL
+    For ANALYTICAL strategy, add volatility, underlying_price, interest_rate,
+    and days_to_expiration to calculate theoretical values.
 
-    Strike range can be one of the following, if not provided all strikes will be returned:
-      IN_THE_MONEY
-      NEAR_THE_MONEY
-      OUT_OF_THE_MONEY
-      STRIKES_ABOVE_MARKET
-      STRIKES_BELOW_MARKET
-      STRIKES_NEAR_MARKET
-      ALL
-
-    Option type can be one of the following, if not provided all options will be returned:
-      STANDARD
-      NON_STANDARD
-      ALL
-
-    IMPORTANT: This function may return a large amount of data, you should always
-    use the strike_count and from_date/to_date parameters to limit the amount of data
-    returned.
+    Note: Returns large datasets. Use strike_count and from_date/to_date to limit data.
     """
     if from_date is not None:
         from_date = datetime.datetime.strptime(from_date, "%Y-%m-%d").date()
@@ -146,7 +167,9 @@ async def get_advanced_option_chain(
     return await call(
         client.get_option_chain,
         symbol,
-        contract_type=client.Options.ContractType[contract_type] if contract_type else None,
+        contract_type=client.Options.ContractType[contract_type]
+        if contract_type
+        else None,
         strike_count=strike_count,
         include_underlying_quote=include_quotes,
         strategy=client.Options.Strategy[strategy] if strategy else None,
@@ -170,7 +193,17 @@ async def get_option_expiration_chain(
     symbol: Annotated[str, "Symbol of the underlying security"],
 ) -> str:
     """
-    Get Option Expiration (Series) information for an optionable symbol.
-    Does not include individual options contracts for the underlying.
+    Returns option expiration dates for a symbol without contract details.
+
+    Retrieves a list of available option expiration dates for the specified symbol.
+    This is a lightweight call that's useful before requesting full option chains,
+    allowing you to discover what expiration cycles are available.
+
+    Parameters:
+    - symbol: Underlying security symbol (e.g., 'AAPL', 'SPY')
+
+    The response includes expiration dates and related information without
+    individual contract details, making it more efficient than retrieving
+    complete option chains when you only need expiration information.
     """
     return await call(client.get_option_expiration_chain, symbol)

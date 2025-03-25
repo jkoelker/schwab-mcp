@@ -12,9 +12,11 @@ async def get_account_numbers(
     client: schwab.client.AsyncClient,
 ) -> str:
     """
-    Returns a mapping from account IDs available to this token to the
-    account hash that should be passed whenever referring to that account in
-    API calls."""
+    Returns a mapping from account IDs to account hashes.
+
+    Account hashes must be used in all account-specific API calls for security.
+    This is typically the first call needed before performing account operations.
+    """
     return await call(client.get_account_numbers)
 
 
@@ -23,9 +25,10 @@ async def get_accounts(
     client: schwab.client.AsyncClient,
 ) -> str:
     """
-    Account balances and information for all linked accounts. Note this
-    method does not return account hashes, call `get_account_numbers`
-    to get the mapping from account IDs to account hashes.
+    Returns account balances and information for all linked accounts.
+
+    Includes available funds, cash balances, and margin information.
+    Note: Does not return account hashes; use `get_account_numbers` first.
     """
     return await call(client.get_accounts)
 
@@ -35,9 +38,10 @@ async def get_accounts_with_positions(
     client: schwab.client.AsyncClient,
 ) -> str:
     """
-    Account balances and information for all linked accounts, including
-    positions. Note this method does not return account hashes, call
-    `get_account_numbers` to get the mapping from account IDs to account hashes.
+    Returns account balances and current positions for all linked accounts.
+
+    Includes holdings data with quantity, cost basis, and unrealized gain/loss.
+    Note: Does not return account hashes; use `get_account_numbers` first.
     """
     return await call(client.get_accounts, fields=[client.Account.Fields.POSITIONS])
 
@@ -47,7 +51,12 @@ async def get_account(
     client: schwab.client.AsyncClient,
     account_hash: Annotated[str, "Account hash for the Schwab account"],
 ) -> str:
-    """Get account balance and information for a specific Schwab account"""
+    """
+    Returns balance and information for a specific account.
+
+    Includes available funds, cash balances, and margin information for the account
+    identified by account_hash (obtained from get_account_numbers).
+    """
     return await call(client.get_account, account_hash)
 
 
@@ -57,8 +66,10 @@ async def get_account_with_positions(
     account_hash: Annotated[str, "Account hash for the Schwab account"],
 ) -> str:
     """
-    Get account balance and information for a specific Schwab account,
-    including positions
+    Returns balance, information and positions for a specific account.
+
+    Similar to get_account() but also includes position data (holdings, quantity,
+    cost basis, unrealized gain/loss) for comprehensive portfolio analysis.
     """
     return await call(
         client.get_account, account_hash, fields=[client.Account.Fields.POSITIONS]
@@ -69,5 +80,10 @@ async def get_account_with_positions(
 async def get_user_preferences(
     client: schwab.client.AsyncClient,
 ) -> str:
-    """Get user preferences for all accounts including the account nicknames"""
+    """
+    Returns user preferences for all linked accounts.
+
+    Includes account nicknames, display preferences, and notification settings
+    that can be used for personalized UI presentation.
+    """
     return await call(client.get_user_preferences)
