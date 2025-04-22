@@ -273,7 +273,7 @@ class Registry:
             else:
                 wrapped = tool
 
-            wrapped.__write = write
+            wrapped._write = write
 
             cls._registered_tools.append(wrapped)
 
@@ -290,7 +290,7 @@ class Registry:
     def __post_init__(self):
         """Initialize the registry by discovering and registering tools"""
         for tool in getattr(Registry, "_registered_tools", []):
-            if getattr(tool, "__write", False) and not self.write:
+            if getattr(tool, "_write", False) and not self.write:
                 continue
 
             instance = tool(self.client)
