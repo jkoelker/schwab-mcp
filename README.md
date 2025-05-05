@@ -1,3 +1,5 @@
+[![MseeP.ai Security Assessment Badge](https://mseep.net/pr/jkoelker-schwab-mcp-badge.png)](https://mseep.ai/app/jkoelker-schwab-mcp)
+
 # Schwab Model Context Protocol Server
 
 This is a server that implements the Model Context Protocol (MCP) for
