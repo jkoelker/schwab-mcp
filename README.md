@@ -17,23 +17,48 @@ the MCP [python-sdk](https://github.com/modelcontextprotocol/python-sdk).
 
 ## Installation
 
+### Setting up a Local Environment
+
+First, create and activate a local environment:
+
+```bash
+# Create a new environment in the current directory
+uv venv
+
+# Activate the environment
+# On Unix/macOS:
+source .venv/bin/activate
+# On Windows:
+.venv\Scripts\activate
+```
+
+Then install the dependencies:
+
 ```bash
 # Install with all dependencies
-uv add -e .
+uv pip install -e .
 
 # Install development dependencies
-uv add -e .[dev]
+uv pip install -e .[dev]
+```
+
+To deactivate the environment when you're done:
+```bash
+deactivate
 ```
 
 ## Usage
 
 ### Authentication
 
-The first step is to authenticate with the Schwab API and generate a token:
+The first step is to authenticate with the Schwab API and generate a token. You can run the command in two ways:
 
 ```bash
-# Authenticate and generate a token
+# Method 1: Using the installed command
 uv run schwab-mcp auth --client-id YOUR_CLIENT_ID --client-secret YOUR_CLIENT_SECRET --callback-url YOUR_CALLBACK_URL
+
+# Method 2: Running directly from the repository (useful when you have multiple copies)
+uv run ./schwab-mcp auth --client-id YOUR_CLIENT_ID --client-secret YOUR_CLIENT_SECRET --callback-url YOUR_CALLBACK_URL
 ```
 
 You can set these credentials through environment variables to avoid typing them each time:
@@ -51,18 +76,28 @@ Both yaml and json token formats are supported and will be inferred from the fil
 
 ### Running the Server
 
-After authentication, you can run the server:
+After authentication, you can run the server using just the token file:
 
 ```bash
-# Run the server with default token path
-uv run schwab-mcp server --client-id YOUR_CLIENT_ID --client-secret YOUR_CLIENT_SECRET --callback-url YOUR_CALLBACK_URL
+# Method 1: Using the installed command
+uv run schwab-mcp server
+
+# Method 2: Running directly from the repository
+uv run ./schwab-mcp server
 
 # Run with a custom token path
-uv run schwab-mcp server --token-path /path/to/token.json --client-id YOUR_CLIENT_ID --client-secret YOUR_CLIENT_SECRET --callback-url YOUR_CALLBACK_URL
+uv run schwab-mcp server --token-path /path/to/token.json
 
 # Run with account modification tools enabled
-uv run schwab-mcp server --jesus-take-the-wheel --client-id YOUR_CLIENT_ID --client-secret YOUR_CLIENT_SECRET --callback-url YOUR_CALLBACK_URL
+uv run schwab-mcp server --jesus-take-the-wheel
 ```
+
+If your token becomes invalid or expires, you can either:
+1. Re-authenticate using the `auth` command, or
+2. Provide the client credentials when running the server to automatically re-authenticate:
+   ```bash
+   uv run schwab-mcp server --client-id YOUR_CLIENT_ID --client-secret YOUR_CLIENT_SECRET
+   ```
 
 Token age is validated - if older than 5 days, you will be prompted to re-authenticate.
 

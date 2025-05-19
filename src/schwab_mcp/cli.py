@@ -81,23 +81,21 @@ def auth(
 @click.option(
     "--client-id",
     type=str,
-    required=True,
     envvar="SCHWAB_CLIENT_ID",
-    help="Schwab Client ID",
+    help="Schwab Client ID (only needed if token is invalid/expired)",
 )
 @click.option(
     "--client-secret",
     type=str,
-    required=True,
     envvar="SCHWAB_CLIENT_SECRET",
-    help="Schwab Client Secret",
+    help="Schwab Client Secret (only needed if token is invalid/expired)",
 )
 @click.option(
     "--callback-url",
     type=str,
     envvar="SCHWAB_CALLBACK_URL",
     default="https://127.0.0.1:8182",
-    help="Schwab callback URL",
+    help="Schwab callback URL (only needed if token is invalid/expired)",
 )
 @click.option(
     "--jesus-take-the-wheel",
@@ -107,8 +105,8 @@ def auth(
 )
 def server(
     token_path: str,
-    client_id: str,
-    client_secret: str,
+    client_id: str | None,
+    client_secret: str | None,
     callback_url: str,
     jesus_take_the_wheel: bool,
 ) -> int:
@@ -116,23 +114,74 @@ def server(
     # No logging to stderr when in MCP mode (we'll use proper MCP responses)
     token_manager = tokens.Manager(token_path)
 
-    try:
-        client = schwab_auth.easy_client(
-            client_id=client_id,
-            client_secret=client_secret,
-            callback_url=callback_url,
-            token_manager=token_manager,
-            asyncio=True,
-            interactive=False,
-            enforce_enums=False,
-        )
-    except Exception as e:
-        send_error_response(
-            f"Error initializing Schwab client: {str(e)}",
-            code=500,
-            details={"error": str(e)},
-        )
-        return 1
+    # Check if token file exists
+    if not token_manager.exists():
+        if client_id and client_secret:
+            click.echo("No token file found. Attempting to authenticate...")
+            try:
+                client = schwab_auth.easy_client(
+                    client_id=client_id,
+                    client_secret=client_secret,
+                    callback_url=callback_url,
+                    token_manager=token_manager,
+                    asyncio=True,
+                    interactive=False,
+                    enforce_enums=False,
+                )
+            except Exception as auth_error:
+                send_error_response(
+                    f"Error during initial authentication: {str(auth_error)}",
+                    code=500,
+                    details={"error": str(auth_error)},
+                )
+                return 1
+        else:
+            send_error_response(
+                "No token file found. Please run 'schwab-mcp auth' to authenticate or provide client credentials.",
+                code=401,
+                details={"error": "No token file found"},
+            )
+            return 1
+    else:
+        try:
+            # Try to create client from existing token
+            client = schwab_auth.easy_client(
+                client_id=client_id or "",  # Empty string if not provided
+                client_secret=client_secret or "",  # Empty string if not provided
+                callback_url=callback_url,
+                token_manager=token_manager,
+                asyncio=True,
+                interactive=False,
+                enforce_enums=False,
+            )
+        except Exception as e:
+            # If token is invalid/expired and credentials are provided, try to re-authenticate
+            if client_id and client_secret:
+                click.echo("Token is invalid or expired. Attempting to re-authenticate...")
+                try:
+                    client = schwab_auth.easy_client(
+                        client_id=client_id,
+                        client_secret=client_secret,
+                        callback_url=callback_url,
+                        token_manager=token_manager,
+                        asyncio=True,
+                        interactive=False,
+                        enforce_enums=False,
+                    )
+                except Exception as auth_error:
+                    send_error_response(
+                        f"Error during re-authentication: {str(auth_error)}",
+                        code=500,
+                        details={"error": str(auth_error)},
+                    )
+                    return 1
+            else:
+                send_error_response(
+                    f"Token is invalid or expired: {str(e)}. Please run 'schwab-mcp auth' to re-authenticate or provide client credentials.",
+                    code=401,
+                    details={"error": str(e)},
+                )
+                return 1
 
     # Check token age
     if client.token_age() > 5 * 86400:
