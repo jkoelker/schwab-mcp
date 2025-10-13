@@ -96,7 +96,7 @@ async def get_movers(
     return await call(
         client.get_movers,
         index=client.Movers.Index[index],
-        sort=client.Movers.SortOrder[sort] if sort else None,
+        sort_order=client.Movers.SortOrder[sort] if sort else None,
         frequency=client.Movers.Frequency[frequency] if frequency else None,
     )
 
