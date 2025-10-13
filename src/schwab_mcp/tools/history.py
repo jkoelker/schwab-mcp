@@ -24,7 +24,7 @@ async def get_advanced_price_history(
         str | None, "Frequency type: MINUTE (for DAY), DAILY/WEEKLY (for MONTH/YTD), DAILY/WEEKLY/MONTHLY (for YEAR)"
     ] = None,
     frequency: Annotated[
-        str | None, "Number of frequencyType per candle (e.g., 1, 5, 10 for MINUTE)"
+        int | None, "Number of frequencyType per candle (e.g., 1, 5, 10 for MINUTE)"
     ] = None,
     start_datetime: Annotated[
         str | None, "Start date for history (ISO format, e.g., '2023-01-01T09:30:00')"
