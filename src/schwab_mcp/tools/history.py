@@ -57,16 +57,27 @@ async def get_advanced_price_history(
     if end_datetime is not None:
         end_datetime = datetime.datetime.fromisoformat(end_datetime)
 
+    # Normalize enum-like strings
+    period_type_enum = (
+        client.PriceHistory.PeriodType[period_type.upper()] if period_type else None
+    )
+    period_enum = client.PriceHistory.Period[period.upper()] if period else None
+    frequency_type_enum = (
+        client.PriceHistory.FrequencyType[frequency_type.upper()]
+        if frequency_type
+        else None
+    )
+
+    # Coerce frequency to int if provided as string
+    if isinstance(frequency, str):
+        frequency = int(frequency)
+
     return await call(
         client.get_advanced_price_history,
         symbol,
-        period_type=client.PriceHistory.PeriodType[period_type]
-        if period_type
-        else None,
-        period=client.PriceHistory.Period[period] if period else None,
-        frequency_type=client.PriceHistory.FrequencyType[frequency_type]
-        if frequency_type
-        else None,
+        period_type=period_type_enum,
+        period=period_enum,
+        frequency_type=frequency_type_enum,
         frequency=frequency,
         start_datetime=start_datetime,
         end_datetime=end_datetime,
