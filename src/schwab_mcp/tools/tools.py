@@ -11,7 +11,7 @@ from schwab_mcp.tools.utils import call
 @register
 async def get_datetime() -> str:
     """
-    Get the current datetime in ISO format
+    Get the current datetime in ISO format (e.g., '2023-10-27T10:30:00.123456').
     """
     return datetime.datetime.now().isoformat()
 
@@ -21,31 +21,22 @@ async def get_market_hours(
     client: schwab.client.AsyncClient,
     markets: Annotated[
         list[str] | str,
-        "Markets to get hours for (EQUITY, OPTION, BOND, FUTURE, FOREX)",
+        "Markets (list/str): EQUITY, OPTION, BOND, FUTURE, FOREX",
     ],
     date: Annotated[
         str | None,
-        "Date to get hours for in 'YYYY-MM-DD' format. Accepts values up to one year from today.",
+        "Date ('YYYY-MM-DD', default today, max 1 year future)",
     ] = None,
 ) -> str:
     """
-    Get market hours for a specific market.
-
-    Market can be one of the following:
-      EQUITY
-      OPTION
-      BOND
-      FUTURE
-      FOREX
-
-    If date is not provided, the current date will be used.
+    Get market hours for specified markets (EQUITY, OPTION, etc.) on a given date (YYYY-MM-DD, default today).
     """
     if isinstance(markets, str):
-        markets = [markets]
+        markets = [m.strip() for m in markets.split(",")]
 
-    markets = [client.MarketHours.Market[m] for m in markets]
+    market_enums = [client.MarketHours.Market[m.upper()] for m in markets]
 
-    return await call(client.get_market_hours, markets, date=date)
+    return await call(client.get_market_hours, market_enums, date=date)
 
 
 @register
@@ -53,94 +44,71 @@ async def get_movers(
     client: schwab.client.AsyncClient,
     index: Annotated[
         str,
-        "Index or market segment to get top movers for (DJI, COMPX, SPX, NYSE, etc.)",
+        "Index/market: DJI, COMPX, SPX, NYSE, NASDAQ, OTCBB, INDEX_ALL, EQUITY_ALL, OPTION_ALL, OPTION_PUT, OPTION_CALL",
     ],
     sort: Annotated[
-        str,
-        "Sort criteria for ranking movers (VOLUME, TRADES, PERCENT_CHANGE_UP, PERCENT_CHANGE_DOWN)",
+        str | None,
+        "Sort criteria: VOLUME, TRADES, PERCENT_CHANGE_UP, PERCENT_CHANGE_DOWN",
     ] = None,
     frequency: Annotated[
-        str, "Minimum percentage change threshold (ZERO, ONE, FIVE, TEN, THIRTY, SIXTY)"
+        str | None, "Min % change threshold: ZERO, ONE, FIVE, TEN, THIRTY, SIXTY"
     ] = None,
 ) -> str:
     """
-    Get a list of the top ten movers for a specific index.
-
-    Index can be one of the following:
-      DJI
-      COMPX
-      SPX
-      NYSE
-      NASDAQ
-      OTCBB
-      INDEX_ALL
-      EQUITY_ALL
-      OPTION_ALL
-      OPTION_PUT
-      OPTION_CALL
-
-    Sort can be one of the following:
-      VOLUME
-      TRADES
-      PERCENT_CHANGE_UP
-      PERCENT_CHANGE_DOWN
-
-    Frequency can be one of the following:
-      ZERO
-      ONE
-      FIVE
-      TEN
-      THIRTY
-      SIXTY
+    Get top 10 movers for an index/market (e.g., DJI, SPX, NASDAQ).
+    Params: index, sort (VOLUME/TRADES/PERCENT_CHANGE_UP/DOWN), frequency (min % change: ZERO/ONE/etc.).
     """
     return await call(
         client.get_movers,
-        index=client.Movers.Index[index],
-        sort_order=client.Movers.SortOrder[sort] if sort else None,
-        frequency=client.Movers.Frequency[frequency] if frequency else None,
+        client.Movers.Index[index.upper()],
+        sort_order=client.Movers.SortOrder[sort.upper()] if sort else None,
+        frequency=client.Movers.Frequency[frequency.upper()] if frequency else None,
     )
 
 
 @register
 async def get_instruments(
     client: schwab.client.AsyncClient,
-    symbol: Annotated[str, "Symbol or search term to find instruments"],
+    symbol: Annotated[str, "Symbol or search term"],
     projection: Annotated[
         str,
         (
-            "Search method or data type to return (SYMBOL_SEARCH, SYMBOL_REGEX, "
-            "DESCRIPTION_SEARCH, DESCRIPTION_REGEX, SEARCH, FUNDAMENTAL)"
+            "Search method/data type: SYMBOL_SEARCH (default), SYMBOL_REGEX, "
+            "DESCRIPTION_SEARCH, DESCRIPTION_REGEX, SEARCH, FUNDAMENTAL"
         ),
     ] = "symbol-search",
 ) -> str:
     """
-    Search for instruments with a specific symbol.
-
-    Projection can be one of the following:
-      SYMBOL_SEARCH
-      SYMBOL_REGEX
-      DESCRIPTION_SEARCH
-      DESCRIPTION_REGEX
-      SEARCH
-      FUNDAMENTAL
-
-    <example>
-    # Search for instruments with the symbol "AAPL"
-    get_instruments("AAPL")
-    </example>
-
-    <example>
-    # Search for AAPL options
-    get_instruments("AAPL .*", "symbol-regex")
-    </example>
-
-    <example>
-    # Return the fundamental data for AAPL
-    get_instruments("AAPL", "fundamental")
-    </example>
+    Search for instruments by symbol or description.
+    Params: symbol (search term), projection (SYMBOL_SEARCH/SYMBOL_REGEX/etc., default symbol-search).
+    Examples: get_instruments("AAPL"), get_instruments("AAPL .*", "symbol-regex"), get_instruments("AAPL", "fundamental").
     """
+    # Map common variations to the correct enum names
+    projection_map = {
+        "symbol-search": "SYMBOL_SEARCH",
+        "symbol_search": "SYMBOL_SEARCH",
+        "symbol-regex": "SYMBOL_REGEX",
+        "symbol_regex": "SYMBOL_REGEX",
+        "description-search": "DESCRIPTION_SEARCH",
+        "description_search": "DESCRIPTION_SEARCH",
+        "description-regex": "DESCRIPTION_REGEX",
+        "description_regex": "DESCRIPTION_REGEX",
+        "search": "SEARCH",
+        "fundamental": "FUNDAMENTAL",
+    }
+    proj_upper = projection.upper()
+    proj_key = projection.lower()
+
+    if proj_key in projection_map:
+        proj_enum_name = projection_map[proj_key]
+    elif proj_upper in client.Instrument.Projection.__members__:
+         proj_enum_name = proj_upper
+    else:
+        raise ValueError(f"Invalid projection value: {projection}")
+
+
     return await call(
         client.get_instruments,
         symbol,
-        projection=client.Instrument.Projection[projection],
+        projection=client.Instrument.Projection[proj_enum_name],
     )
