@@ -13,6 +13,7 @@ dependencies = [
     "mcp>=1.4.1",
     "platformdirs>=4.3.7",
     "pyyaml>=6.0.2",
+    "schwab-py>=1.5.0",
 ]
 
 [project.scripts]
