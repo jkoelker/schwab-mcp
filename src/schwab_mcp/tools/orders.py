@@ -26,7 +26,7 @@ from schwab_mcp.tools.order_helpers import (
 )
 from schwab.orders.options import OptionSymbol
 from schwab_mcp.tools.registry import register
-from schwab_mcp.tools.utils import call
+from schwab_mcp.tools.utils import call, ensure_write_access
 from schwab_mcp.tools._protocols import OrdersClient
 
 
@@ -224,6 +224,7 @@ async def cancel_order(
     """
     Cancels a pending order. Cannot cancel executed/terminal orders. Params: account_hash, order_id. Returns cancellation request confirmation; check status after. *Write operation.*
     """
+    ensure_write_access()
     return await call(
         client.cancel_order, order_id=order_id, account_hash=account_hash
     )
@@ -257,6 +258,7 @@ async def place_equity_order(
     Note: FILL_OR_KILL duration is only valid for LIMIT and STOP_LIMIT orders.
     *Write operation.*
     """
+    ensure_write_access()
     # Build the core order specification builder
     order_spec_builder = _build_equity_order_spec(
         symbol, quantity, instruction, order_type, price, stop_price
@@ -299,6 +301,7 @@ async def place_option_order(
     Note: FILL_OR_KILL duration is only valid for LIMIT orders.
     *Write operation.*
     """
+    ensure_write_access()
     # Build the core order specification builder
     order_spec_builder = _build_option_order_spec(
         symbol, quantity, instruction, order_type, price
@@ -405,6 +408,7 @@ async def place_one_cancels_other_order(
     Params: account_hash, first_order_spec (dict), second_order_spec (dict).
     *Use build_equity_order_spec() or build_option_order_spec() to create the required spec dictionaries.* *Write operation.*
     """
+    ensure_write_access()
     # Manually construct the OCO order dictionary structure
     # This structure is correct according to schwab-py's oco_builder
     oco_order_spec = {
@@ -435,6 +439,7 @@ async def place_first_triggers_second_order(
     Params: account_hash, first_order_spec (dict), second_order_spec (dict).
     *Use build_equity_order_spec() or build_option_order_spec() to create the required spec dictionaries.* *Write operation.*
     """
+    ensure_write_access()
     # Manually construct the Trigger order dictionary structure
     # According to schwab-py's trigger_builder, the second order becomes a child of the first.
     # We modify the first spec dictionary directly.
@@ -464,6 +469,7 @@ async def create_option_symbol(
     Params: underlying_symbol, expiration_date (YYMMDD), contract_type (C/CALL or P/PUT), strike_price (string).
     Does not validate market existence. Use get_option_chain() to find valid options.
     """
+    ensure_write_access()
     # The OptionSymbol helper expects YYMMDD format directly.
     option_symbol = OptionSymbol(underlying_symbol, expiration_date, contract_type, strike_price)
     return option_symbol.build()
@@ -498,6 +504,7 @@ async def place_bracket_order(
     Note: Duration applies to all legs of the order. FILL_OR_KILL is not typically used with bracket orders.
     *Write operation.*
     """
+    ensure_write_access()
     # Validate entry instruction
     entry_instruction = entry_instruction.upper()
     if entry_instruction not in ["BUY", "SELL"]:
