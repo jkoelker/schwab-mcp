@@ -106,7 +106,7 @@ async def get_instruments(
     if proj_key in projection_map:
         proj_enum_name = projection_map[proj_key]
     elif proj_upper in client.Instrument.Projection.__members__:
-         proj_enum_name = proj_upper
+        proj_enum_name = proj_upper
     else:
         raise ValueError(f"Invalid projection value: {projection}")
 
