@@ -193,13 +193,23 @@ async def get_orders(
     if to_date is not None:
         to_date_obj = datetime.datetime.strptime(to_date, "%Y-%m-%d").date()
 
+    # Map status to enums; support list via 'statuses'
+    kwargs: dict = {
+        "max_results": max_results,
+        "from_entered_datetime": from_date_obj,
+        "to_entered_datetime": to_date_obj,
+    }
+
+    if status:
+        if isinstance(status, str):
+            kwargs["status"] = client.Order.Status[status.upper()]
+        else:
+            kwargs["statuses"] = [client.Order.Status[s.upper()] for s in status]
+
     return await call(
         client.get_orders_for_account,
         account_hash,
-        max_results=max_results,
-        from_entered_datetime=from_date_obj,
-        to_entered_datetime=to_date_obj,
-        status=status,
+        **kwargs,
     )
 
 
