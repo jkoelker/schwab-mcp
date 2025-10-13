@@ -3,10 +3,20 @@
 #
 
 import logging
+import urllib.parse
+from typing import TYPE_CHECKING
 
+import multiprocess
 from schwab import auth
+from schwab.client import AsyncClient, Client
 
 from schwab_mcp import tokens
+
+if TYPE_CHECKING:
+    from multiprocessing import Process as ProcessType, Queue as QueueType
+else:  # pragma: no cover - runtime fallback for multiprocess
+    ProcessType = multiprocess.Process  # type: ignore[attr-defined]
+    QueueType = multiprocess.Queue  # type: ignore[attr-defined]
 
 
 client_from_access_functions = auth.client_from_access_functions
@@ -19,20 +29,19 @@ def easy_client(
     token_manager: tokens.Manager,
     asyncio: bool = False,
     enforce_enums: bool = True,
-    max_token_age: int = 60 * 60 * 24 * 6.5,
+    max_token_age: int | None = 60 * 60 * 24 * 13 // 2,
     callback_timeout: float = 300.0,
     interactive: bool = True,
     requested_browser: str | None = None,
-):
-    if max_token_age is None:
-        max_token_age = 0
+) -> AsyncClient | Client:
+    effective_max_token_age = 0 if max_token_age is None else max_token_age
 
-    if max_token_age < 0:
+    if effective_max_token_age < 0:
         raise ValueError("max_token_age must be positive, zero, or None")
 
     logger = logging.getLogger(__name__)
 
-    client = None
+    client: AsyncClient | Client | None = None
 
     if token_manager.exists():
         client = auth.client_from_access_functions(
@@ -43,9 +52,9 @@ def easy_client(
             asyncio=asyncio,
             enforce_enums=enforce_enums,
         )
-        logger.info(f"Loaded token from {token_manager.path}")
+        logger.info("Loaded token from %s", token_manager.path)
 
-        if max_token_age > 0 and client.token_age() >= max_token_age:
+        if effective_max_token_age > 0 and client.token_age() >= effective_max_token_age:
             logger.info("token too old, proactively creating a new one")
             client = None
 
@@ -53,7 +62,6 @@ def easy_client(
     if client is not None:
         return client
 
-    client
     client = client_from_login_flow(
         client_id,
         client_secret,
@@ -83,7 +91,7 @@ def client_from_login_flow(
     callback_timeout: float = 300.0,
     interactive: bool = True,
     requested_browser: str | None = None,
-):
+) -> AsyncClient | Client:
     if callback_timeout is None:
         callback_timeout = 0
 
@@ -91,7 +99,7 @@ def client_from_login_flow(
         raise ValueError("callback_timeout must be positive")
 
     # Start the server
-    parsed = auth.urllib.parse.urlparse(callback_url)
+    parsed = urllib.parse.urlparse(callback_url)
 
     if parsed.hostname != "127.0.0.1":
         # TODO: document this error
@@ -107,9 +115,9 @@ def client_from_login_flow(
     callback_port = parsed.port if parsed.port else 443
     callback_path = parsed.path if parsed.path else "/"
 
-    output_queue = auth.multiprocess.Queue()
+    output_queue: QueueType = QueueType()
 
-    server = auth.multiprocess.Process(
+    server: ProcessType = ProcessType(
         target=auth.__run_client_from_login_flow_server,
         args=(output_queue, callback_port, callback_path),
     )
@@ -207,7 +215,7 @@ def client_from_login_flow(
         # Wait for a response
         now = auth.__TIME_TIME()
         timeout_time = now + callback_timeout
-        received_url = None
+        received_url: str | None = None
         while True:
             now = auth.__TIME_TIME()
             if now >= timeout_time:
