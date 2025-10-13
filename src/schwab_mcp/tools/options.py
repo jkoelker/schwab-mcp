@@ -43,9 +43,7 @@ async def get_option_chain(
     return await call(
         client.get_option_chain,
         symbol,
-        contract_type=client.Options.ContractType[contract_type]
-        if contract_type
-        else None,
+        contract_type=client.Options.ContractType[contract_type.upper()] if contract_type else None,
         strike_count=strike_count,
         include_underlying_quote=include_quotes,
         from_date=from_date,
