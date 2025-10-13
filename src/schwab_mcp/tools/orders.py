@@ -544,4 +544,3 @@ async def place_bracket_order(
     return await call(
         client.place_order, account_hash=account_hash, order_spec=bracket_order_dict
     )
-
