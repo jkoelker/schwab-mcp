@@ -1,0 +1,16 @@
+{
+  "include": ["src", "tests"],
+  "exclude": [
+    "info",
+    ".venv",
+    "build",
+    "dist",
+    ".git",
+    ".mypy_cache",
+    ".pytest_cache"
+  ],
+  "venvPath": ".",
+  "venv": ".venv",
+  "reportMissingImports": false,
+  "typeCheckingMode": "basic"
+}
