@@ -36,7 +36,11 @@ async def get_market_hours(
 
     market_enums = [client.MarketHours.Market[m.upper()] for m in markets]
 
-    return await call(client.get_market_hours, market_enums, date=date)
+    date_obj = None
+    if date is not None:
+        date_obj = datetime.datetime.strptime(date, "%Y-%m-%d").date()
+
+    return await call(client.get_market_hours, market_enums, date=date_obj)
 
 
 @register
