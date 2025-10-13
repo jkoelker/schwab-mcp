@@ -1,9 +1,8 @@
 #
 
-from typing import Annotated
+from typing import Annotated, Any, cast
 
 import datetime
-import schwab.client
 from schwab.orders.common import one_cancels_other as oco_builder
 from schwab.orders.common import first_triggers_second as trigger_builder
 
@@ -28,6 +27,7 @@ from schwab_mcp.tools.order_helpers import (
 from schwab.orders.options import OptionSymbol
 from schwab_mcp.tools.registry import register
 from schwab_mcp.tools.utils import call
+from schwab_mcp.tools._protocols import OrdersClient
 
 
 # Internal helper function to apply session and duration settings
@@ -150,19 +150,21 @@ def _build_option_order_spec(
 
 @register
 async def get_order(
-    client: schwab.client.AsyncClient,
+    client: OrdersClient,
     account_hash: Annotated[str, "Account hash for the Schwab account"],
     order_id: Annotated[str, "Order ID to get details for"],
 ) -> str:
     """
     Returns details for a specific order (ID, status, price, quantity, execution details). Params: account_hash, order_id.
     """
-    return await call(client.get_order, order_id=order_id, account_hash=account_hash)
+    return await call(
+        client.get_order, order_id=order_id, account_hash=account_hash
+    )
 
 
 @register
 async def get_orders(
-    client: schwab.client.AsyncClient,
+    client: OrdersClient,
     account_hash: Annotated[
         str, "Account hash for the Schwab account (from get_account_numbers)"
     ],
@@ -194,7 +196,7 @@ async def get_orders(
         to_date_obj = datetime.datetime.strptime(to_date, "%Y-%m-%d").date()
 
     # Map status to enums; support list via 'statuses'
-    kwargs: dict = {
+    kwargs: dict[str, Any] = {
         "max_results": max_results,
         "from_entered_datetime": from_date_obj,
         "to_entered_datetime": to_date_obj,
@@ -215,19 +217,21 @@ async def get_orders(
 
 @register(write=True)
 async def cancel_order(
-    client: schwab.client.AsyncClient,
+    client: OrdersClient,
     account_hash: Annotated[str, "Account hash for the Schwab account"],
     order_id: Annotated[str, "Order ID to cancel"],
 ) -> str:
     """
     Cancels a pending order. Cannot cancel executed/terminal orders. Params: account_hash, order_id. Returns cancellation request confirmation; check status after. *Write operation.*
     """
-    return await call(client.cancel_order, order_id=order_id, account_hash=account_hash)
+    return await call(
+        client.cancel_order, order_id=order_id, account_hash=account_hash
+    )
 
 
 @register(write=True)
 async def place_equity_order(
-    client: schwab.client.AsyncClient,
+    client: OrdersClient,
     account_hash: Annotated[str, "Account hash for the Schwab account"],
     symbol: Annotated[str, "Stock symbol to trade"],
     quantity: Annotated[int, "Number of shares to trade"],
@@ -262,7 +266,7 @@ async def place_equity_order(
     order_spec_builder = _apply_order_settings(order_spec_builder, session, duration)
 
     # Build the final order dictionary
-    order_spec_dict = order_spec_builder.build()
+    order_spec_dict = cast(dict[str, Any], order_spec_builder.build())
 
     # Place the order
     return await call(
@@ -272,7 +276,7 @@ async def place_equity_order(
 
 @register(write=True)
 async def place_option_order(
-    client: schwab.client.AsyncClient,
+    client: OrdersClient,
     account_hash: Annotated[str, "Account hash for the Schwab account"],
     symbol: Annotated[str, "Option symbol (e.g., 'SPY_230616C400')"],
     quantity: Annotated[int, "Number of contracts to trade"],
@@ -304,7 +308,7 @@ async def place_option_order(
     order_spec_builder = _apply_order_settings(order_spec_builder, session, duration)
 
     # Build the final order dictionary
-    order_spec_dict = order_spec_builder.build()
+    order_spec_dict = cast(dict[str, Any], order_spec_builder.build())
 
     # Place the order
     return await call(
@@ -314,7 +318,7 @@ async def place_option_order(
 
 @register
 async def build_equity_order_spec(
-    client: schwab.client.AsyncClient, # Kept for consistency, though not used directly
+    client: OrdersClient,
     symbol: Annotated[str, "Stock symbol"],
     quantity: Annotated[int, "Number of shares"],
     instruction: Annotated[str, "BUY or SELL"],
@@ -331,7 +335,7 @@ async def build_equity_order_spec(
     duration: Annotated[
         str | None, "Order duration: DAY (default), GOOD_TILL_CANCEL, FILL_OR_KILL (Limit/StopLimit only)"
     ] = "DAY",
-) -> dict:
+) -> dict[str, Any]:
     """
     Builds an equity order specification dictionary suitable for complex orders (OCO, Trigger).
     Params: symbol, quantity, instruction (BUY/SELL), order_type (MARKET/LIMIT/STOP/STOP_LIMIT).
@@ -347,12 +351,12 @@ async def build_equity_order_spec(
     order_spec_builder = _apply_order_settings(order_spec_builder, session, duration)
 
     # Build and return the specification dictionary
-    return order_spec_builder.build()
+    return cast(dict[str, Any], order_spec_builder.build())
 
 
 @register
 async def build_option_order_spec(
-    client: schwab.client.AsyncClient, # Kept for consistency, though not used directly
+    client: OrdersClient,
     symbol: Annotated[str, "Option symbol (e.g., 'SPY_230616C400')"],
     quantity: Annotated[int, "Number of contracts"],
     instruction: Annotated[
@@ -366,7 +370,7 @@ async def build_option_order_spec(
     duration: Annotated[
         str | None, "Order duration: DAY (default), GOOD_TILL_CANCEL, FILL_OR_KILL (Limit only)"
     ] = "DAY",
-) -> dict:
+) -> dict[str, Any]:
     """
     Builds an option order specification dictionary suitable for complex orders (OCO, Trigger).
     Params: symbol, quantity, instruction (BUY_TO_OPEN/etc.), order_type (MARKET/LIMIT).
@@ -382,12 +386,12 @@ async def build_option_order_spec(
     order_spec_builder = _apply_order_settings(order_spec_builder, session, duration)
 
     # Build and return the specification dictionary
-    return order_spec_builder.build()
+    return cast(dict[str, Any], order_spec_builder.build())
 
 
 @register(write=True)
 async def place_one_cancels_other_order(
-    client: schwab.client.AsyncClient,
+    client: OrdersClient,
     account_hash: Annotated[str, "Account hash for the Schwab account"],
     first_order_spec: Annotated[
         dict, "First order specification (dict from build_equity/option_order_spec)"
@@ -416,7 +420,7 @@ async def place_one_cancels_other_order(
 
 @register(write=True)
 async def place_first_triggers_second_order(
-    client: schwab.client.AsyncClient,
+    client: OrdersClient,
     account_hash: Annotated[str, "Account hash for the Schwab account"],
     first_order_spec: Annotated[
         dict, "First (primary) order specification (dict from build_equity/option_order_spec)"
@@ -441,13 +445,15 @@ async def place_first_triggers_second_order(
 
     # Place the order
     return await call(
-        client.place_order, account_hash=account_hash, order_spec=trigger_order_spec
+        client.place_order,
+        account_hash=account_hash,
+        order_spec=trigger_order_spec,
     )
 
 
 @register(write=True)
 async def create_option_symbol(
-    client: schwab.client.AsyncClient, # Note: client is not actually used here, but kept for consistency
+    client: OrdersClient,
     underlying_symbol: Annotated[str, "Symbol of the underlying security (e.g., 'SPY', 'AAPL')"],
     expiration_date: Annotated[str, "Expiration date in YYMMDD format (e.g., '230616')"],
     contract_type: Annotated[str, "Contract type: 'C' or 'CALL' for calls, 'P' or 'PUT' for puts"],
@@ -465,7 +471,7 @@ async def create_option_symbol(
 
 @register(write=True)
 async def place_bracket_order(
-    client: schwab.client.AsyncClient,
+    client: OrdersClient,
     account_hash: Annotated[str, "Account hash for the Schwab account"],
     symbol: Annotated[str, "Stock symbol to trade"],
     quantity: Annotated[int, "Number of shares to trade"],
@@ -538,9 +544,11 @@ async def place_bracket_order(
     bracket_order_builder = trigger_builder(entry_order_builder, oco_exit_order_builder)
 
     # Build the final complex bracket order dictionary
-    bracket_order_dict = bracket_order_builder.build()
+    bracket_order_dict = cast(dict[str, Any], bracket_order_builder.build())
 
     # Place the complex bracket order
     return await call(
-        client.place_order, account_hash=account_hash, order_spec=bracket_order_dict
+        client.place_order,
+        account_hash=account_hash,
+        order_spec=bracket_order_dict,
     )

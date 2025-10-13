@@ -3,7 +3,7 @@
 from typing import Annotated
 
 import datetime
-import schwab.client
+from schwab_mcp.tools._protocols import ToolsClient
 from schwab_mcp.tools.registry import register
 from schwab_mcp.tools.utils import call
 
@@ -18,7 +18,7 @@ async def get_datetime() -> str:
 
 @register
 async def get_market_hours(
-    client: schwab.client.AsyncClient,
+    client: ToolsClient,
     markets: Annotated[
         list[str] | str,
         "Markets (list/str): EQUITY, OPTION, BOND, FUTURE, FOREX",
@@ -45,7 +45,7 @@ async def get_market_hours(
 
 @register
 async def get_movers(
-    client: schwab.client.AsyncClient,
+    client: ToolsClient,
     index: Annotated[
         str,
         "Index/market: DJI, COMPX, SPX, NYSE, NASDAQ, OTCBB, INDEX_ALL, EQUITY_ALL, OPTION_ALL, OPTION_PUT, OPTION_CALL",
@@ -72,7 +72,7 @@ async def get_movers(
 
 @register
 async def get_instruments(
-    client: schwab.client.AsyncClient,
+    client: ToolsClient,
     symbol: Annotated[str, "Symbol or search term"],
     projection: Annotated[
         str,

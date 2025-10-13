@@ -1,15 +1,15 @@
-#
+# 
 
 from typing import Annotated
 
-import schwab.client
+from schwab_mcp.tools._protocols import QuotesClient
 from schwab_mcp.tools.registry import register
 from schwab_mcp.tools.utils import call
 
 
 @register
 async def get_quotes(
-    client: schwab.client.AsyncClient,
+    client: QuotesClient,
     symbols: Annotated[
         list[str] | str, "List of symbols or comma-separated string (e.g., ['AAPL', 'MSFT'] or 'GOOG,AMZN')"
     ],

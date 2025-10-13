@@ -3,14 +3,18 @@
 from typing import Annotated
 
 import datetime
-import schwab.client
+from schwab_mcp.tools._protocols import PriceHistoryClient
 from schwab_mcp.tools.registry import register
 from schwab_mcp.tools.utils import call
 
 
+def _parse_iso_datetime(value: str | None) -> datetime.datetime | None:
+    return datetime.datetime.fromisoformat(value) if value is not None else None
+
+
 @register
 async def get_advanced_price_history(
-    client: schwab.client.AsyncClient,
+    client: PriceHistoryClient,
     symbol: Annotated[str, "Symbol of the security"],
     period_type: Annotated[str | None, "Period type: DAY, MONTH, YEAR, YEAR_TO_DATE"] = None,
     period: Annotated[
@@ -24,7 +28,8 @@ async def get_advanced_price_history(
         str | None, "Frequency type: MINUTE (for DAY), DAILY/WEEKLY (for MONTH/YTD), DAILY/WEEKLY/MONTHLY (for YEAR)"
     ] = None,
     frequency: Annotated[
-        int | None, "Number of frequencyType per candle (e.g., 1, 5, 10 for MINUTE)"
+        int | str | None,
+        "Number of frequencyType per candle (e.g., 1, 5, 10 for MINUTE). Strings are coerced to int.",
     ] = None,
     start_datetime: Annotated[
         str | None, "Start date for history (ISO format, e.g., '2023-01-01T09:30:00')"
@@ -51,15 +56,14 @@ async def get_advanced_price_history(
       YEAR_TO_DATE: DAILY, WEEKLY (default)
     Dates must be in ISO format.
     """
-    if start_datetime is not None:
-        start_datetime = datetime.datetime.fromisoformat(start_datetime)
-
-    if end_datetime is not None:
-        end_datetime = datetime.datetime.fromisoformat(end_datetime)
+    start_dt = _parse_iso_datetime(start_datetime)
+    end_dt = _parse_iso_datetime(end_datetime)
 
     # Normalize enum-like strings
     period_type_enum = (
-        client.PriceHistory.PeriodType[period_type.upper()] if period_type else None
+        client.PriceHistory.PeriodType[period_type.upper()]
+        if period_type
+        else None
     )
     period_enum = client.PriceHistory.Period[period.upper()] if period else None
     frequency_type_enum = (
@@ -79,8 +83,8 @@ async def get_advanced_price_history(
         period=period_enum,
         frequency_type=frequency_type_enum,
         frequency=frequency,
-        start_datetime=start_datetime,
-        end_datetime=end_datetime,
+        start_datetime=start_dt,
+        end_datetime=end_dt,
         need_extended_hours_data=extended_hours,
         need_previous_close=previous_close,
     )
@@ -88,7 +92,7 @@ async def get_advanced_price_history(
 
 @register
 async def get_price_history_every_minute(
-    client: schwab.client.AsyncClient,
+    client: PriceHistoryClient,
     symbol: Annotated[str, "Symbol of the security"],
     start_datetime: Annotated[
         str | None, "Start date for history (ISO format, e.g., '2023-01-01T09:30:00')"
@@ -102,17 +106,14 @@ async def get_price_history_every_minute(
     """
     Get OHLCV price history per minute. For detailed intraday analysis. Max 48 days history. Dates ISO format.
     """
-    if start_datetime is not None:
-        start_datetime = datetime.datetime.fromisoformat(start_datetime)
-
-    if end_datetime is not None:
-        end_datetime = datetime.datetime.fromisoformat(end_datetime)
+    start_dt = _parse_iso_datetime(start_datetime)
+    end_dt = _parse_iso_datetime(end_datetime)
 
     return await call(
         client.get_price_history_every_minute,
         symbol,
-        start_datetime=start_datetime,
-        end_datetime=end_datetime,
+        start_datetime=start_dt,
+        end_datetime=end_dt,
         need_extended_hours_data=extended_hours,
         need_previous_close=previous_close,
     )
@@ -120,7 +121,7 @@ async def get_price_history_every_minute(
 
 @register
 async def get_price_history_every_five_minutes(
-    client: schwab.client.AsyncClient,
+    client: PriceHistoryClient,
     symbol: Annotated[str, "Symbol of the security"],
     start_datetime: Annotated[
         str | None, "Start date for history (ISO format, e.g., '2023-01-01T09:30:00')"
@@ -134,17 +135,14 @@ async def get_price_history_every_five_minutes(
     """
     Get OHLCV price history per 5 minutes. Balance between detail and noise. Approx. 9 months history. Dates ISO format.
     """
-    if start_datetime is not None:
-        start_datetime = datetime.datetime.fromisoformat(start_datetime)
-
-    if end_datetime is not None:
-        end_datetime = datetime.datetime.fromisoformat(end_datetime)
+    start_dt = _parse_iso_datetime(start_datetime)
+    end_dt = _parse_iso_datetime(end_datetime)
 
     return await call(
         client.get_price_history_every_five_minutes,
         symbol,
-        start_datetime=start_datetime,
-        end_datetime=end_datetime,
+        start_datetime=start_dt,
+        end_datetime=end_dt,
         need_extended_hours_data=extended_hours,
         need_previous_close=previous_close,
     )
@@ -152,7 +150,7 @@ async def get_price_history_every_five_minutes(
 
 @register
 async def get_price_history_every_ten_minutes(
-    client: schwab.client.AsyncClient,
+    client: PriceHistoryClient,
     symbol: Annotated[str, "Symbol of the security"],
     start_datetime: Annotated[
         str | None, "Start date for history (ISO format, e.g., '2023-01-01T09:30:00')"
@@ -166,17 +164,14 @@ async def get_price_history_every_ten_minutes(
     """
     Get OHLCV price history per 10 minutes. Good for intraday trends/levels. Approx. 9 months history. Dates ISO format.
     """
-    if start_datetime is not None:
-        start_datetime = datetime.datetime.fromisoformat(start_datetime)
-
-    if end_datetime is not None:
-        end_datetime = datetime.datetime.fromisoformat(end_datetime)
+    start_dt = _parse_iso_datetime(start_datetime)
+    end_dt = _parse_iso_datetime(end_datetime)
 
     return await call(
         client.get_price_history_every_ten_minutes,
         symbol,
-        start_datetime=start_datetime,
-        end_datetime=end_datetime,
+        start_datetime=start_dt,
+        end_datetime=end_dt,
         need_extended_hours_data=extended_hours,
         need_previous_close=previous_close,
     )
@@ -184,7 +179,7 @@ async def get_price_history_every_ten_minutes(
 
 @register
 async def get_price_history_every_fifteen_minutes(
-    client: schwab.client.AsyncClient,
+    client: PriceHistoryClient,
     symbol: Annotated[str, "Symbol of the security"],
     start_datetime: Annotated[
         str | None, "Start date for history (ISO format, e.g., '2023-01-01T09:30:00')"
@@ -198,17 +193,14 @@ async def get_price_history_every_fifteen_minutes(
     """
     Get OHLCV price history per 15 minutes. Shows significant intraday moves, filters noise. Approx. 9 months history. Dates ISO format.
     """
-    if start_datetime is not None:
-        start_datetime = datetime.datetime.fromisoformat(start_datetime)
-
-    if end_datetime is not None:
-        end_datetime = datetime.datetime.fromisoformat(end_datetime)
+    start_dt = _parse_iso_datetime(start_datetime)
+    end_dt = _parse_iso_datetime(end_datetime)
 
     return await call(
         client.get_price_history_every_fifteen_minutes,
         symbol,
-        start_datetime=start_datetime,
-        end_datetime=end_datetime,
+        start_datetime=start_dt,
+        end_datetime=end_dt,
         need_extended_hours_data=extended_hours,
         need_previous_close=previous_close,
     )
@@ -216,7 +208,7 @@ async def get_price_history_every_fifteen_minutes(
 
 @register
 async def get_price_history_every_thirty_minutes(
-    client: schwab.client.AsyncClient,
+    client: PriceHistoryClient,
     symbol: Annotated[str, "Symbol of the security"],
     start_datetime: Annotated[
         str | None, "Start date for history (ISO format, e.g., '2023-01-01T09:30:00')"
@@ -230,17 +222,14 @@ async def get_price_history_every_thirty_minutes(
     """
     Get OHLCV price history per 30 minutes. For broader intraday trends, filters noise. Approx. 9 months history. Dates ISO format.
     """
-    if start_datetime is not None:
-        start_datetime = datetime.datetime.fromisoformat(start_datetime)
-
-    if end_datetime is not None:
-        end_datetime = datetime.datetime.fromisoformat(end_datetime)
+    start_dt = _parse_iso_datetime(start_datetime)
+    end_dt = _parse_iso_datetime(end_datetime)
 
     return await call(
         client.get_price_history_every_thirty_minutes,
         symbol,
-        start_datetime=start_datetime,
-        end_datetime=end_datetime,
+        start_datetime=start_dt,
+        end_datetime=end_dt,
         need_extended_hours_data=extended_hours,
         need_previous_close=previous_close,
     )
@@ -248,7 +237,7 @@ async def get_price_history_every_thirty_minutes(
 
 @register
 async def get_price_history_every_day(
-    client: schwab.client.AsyncClient,
+    client: PriceHistoryClient,
     symbol: Annotated[str, "Symbol of the security to fetch price history for"],
     start_datetime: Annotated[
         str | None,
@@ -268,17 +257,14 @@ async def get_price_history_every_day(
     """
     Get daily OHLCV price history. For medium/long-term analysis. Extensive history (back to 1985 possible). Dates ISO format.
     """
-    if start_datetime is not None:
-        start_datetime = datetime.datetime.fromisoformat(start_datetime)
-
-    if end_datetime is not None:
-        end_datetime = datetime.datetime.fromisoformat(end_datetime)
+    start_dt = _parse_iso_datetime(start_datetime)
+    end_dt = _parse_iso_datetime(end_datetime)
 
     return await call(
         client.get_price_history_every_day,
         symbol,
-        start_datetime=start_datetime,
-        end_datetime=end_datetime,
+        start_datetime=start_dt,
+        end_datetime=end_dt,
         need_extended_hours_data=extended_hours,
         need_previous_close=previous_close,
     )
@@ -286,7 +272,7 @@ async def get_price_history_every_day(
 
 @register
 async def get_price_history_every_week(
-    client: schwab.client.AsyncClient,
+    client: PriceHistoryClient,
     symbol: Annotated[str, "Symbol of the security"],
     start_datetime: Annotated[
         str | None, "Start date for history (ISO format, e.g., '2023-01-01T00:00:00')"
@@ -300,17 +286,14 @@ async def get_price_history_every_week(
     """
     Get weekly OHLCV price history. For long-term analysis, major cycles. Extensive history (back to 1985 possible). Dates ISO format.
     """
-    if start_datetime is not None:
-        start_datetime = datetime.datetime.fromisoformat(start_datetime)
-
-    if end_datetime is not None:
-        end_datetime = datetime.datetime.fromisoformat(end_datetime)
+    start_dt = _parse_iso_datetime(start_datetime)
+    end_dt = _parse_iso_datetime(end_datetime)
 
     return await call(
         client.get_price_history_every_week,
         symbol,
-        start_datetime=start_datetime,
-        end_datetime=end_datetime,
+        start_datetime=start_dt,
+        end_datetime=end_dt,
         need_extended_hours_data=extended_hours,
         need_previous_close=previous_close,
     )

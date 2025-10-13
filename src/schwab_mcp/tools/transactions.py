@@ -3,14 +3,14 @@
 from typing import Annotated
 
 import datetime
-import schwab.client
+from schwab_mcp.tools._protocols import TransactionsClient
 from schwab_mcp.tools.registry import register
 from schwab_mcp.tools.utils import call
 
 
 @register
 async def get_transactions(
-    client: schwab.client.AsyncClient,
+    client: TransactionsClient,
     account_hash: Annotated[
         str, "Account hash for the Schwab account (from get_account_numbers)"
     ],
@@ -62,7 +62,7 @@ async def get_transactions(
 
 @register
 async def get_transaction(
-    client: schwab.client.AsyncClient,
+    client: TransactionsClient,
     account_hash: Annotated[str, "Account hash for the Schwab account"],
     transaction_id: Annotated[str, "Transaction ID (from get_transactions)"],
 ) -> str:

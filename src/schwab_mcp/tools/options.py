@@ -3,14 +3,24 @@
 from typing import Annotated
 
 import datetime
-import schwab.client
+from schwab_mcp.tools._protocols import OptionsClient
 from schwab_mcp.tools.registry import register
 from schwab_mcp.tools.utils import call
 
 
+def _parse_date(value: str | datetime.date | None) -> datetime.date | None:
+    if value is None:
+        return None
+    if isinstance(value, datetime.date) and not isinstance(value, datetime.datetime):
+        return value
+    if isinstance(value, datetime.datetime):
+        return value.date()
+    return datetime.datetime.strptime(value, "%Y-%m-%d").date()
+
+
 @register
 async def get_option_chain(
-    client: schwab.client.AsyncClient,
+    client: OptionsClient,
     symbol: Annotated[str, "Symbol of the underlying security (e.g., 'AAPL', 'SPY')"],
     contract_type: Annotated[
         str | None, "Type of option contracts: CALL, PUT, or ALL (default)"
@@ -23,10 +33,12 @@ async def get_option_chain(
         bool | None, "Include underlying and option market quotes"
     ] = None,
     from_date: Annotated[
-        str | None, "Start date for option expiration ('YYYY-MM-DD')"
+        str | datetime.date | None,
+        "Start date for option expiration ('YYYY-MM-DD' or datetime.date)",
     ] = None,
     to_date: Annotated[
-        str | None, "End date for option expiration ('YYYY-MM-DD')"
+        str | datetime.date | None,
+        "End date for option expiration ('YYYY-MM-DD' or datetime.date)",
     ] = None,
 ) -> str:
     """
@@ -34,26 +46,26 @@ async def get_option_chain(
     Params: symbol, contract_type (CALL/PUT/ALL), strike_count (default 25), include_quotes (bool), from_date (YYYY-MM-DD), to_date (YYYY-MM-DD).
     Limit data returned using strike_count and date parameters.
     """
-    if from_date is not None:
-        from_date = datetime.datetime.strptime(from_date, "%Y-%m-%d").date()
-
-    if to_date is not None:
-        to_date = datetime.datetime.strptime(to_date, "%Y-%m-%d").date()
+    from_date_obj = _parse_date(from_date)
+    to_date_obj = _parse_date(to_date)
 
     return await call(
         client.get_option_chain,
         symbol,
-        contract_type=client.Options.ContractType[contract_type.upper()] if contract_type else None,
+        contract_type=
+        client.Options.ContractType[contract_type.upper()]
+        if contract_type
+        else None,
         strike_count=strike_count,
         include_underlying_quote=include_quotes,
-        from_date=from_date,
-        to_date=to_date,
+        from_date=from_date_obj,
+        to_date=to_date_obj,
     )
 
 
 @register
 async def get_advanced_option_chain(
-    client: schwab.client.AsyncClient,
+    client: OptionsClient,
     symbol: Annotated[str, "Symbol of the underlying security"],
     contract_type: Annotated[str | None, "Type of contracts: CALL, PUT, or ALL (default)"] = None,
     strike_count: Annotated[
@@ -75,8 +87,12 @@ async def get_advanced_option_chain(
     strike_range: Annotated[
         str | None, "Filter strikes: IN_THE_MONEY, NEAR_THE_MONEY, OUT_OF_THE_MONEY, STRIKES_ABOVE_MARKET, STRIKES_BELOW_MARKET, STRIKES_NEAR_MARKET, ALL (default)"
     ] = None,
-    from_date: Annotated[str | None, "Start date for options ('YYYY-MM-DD')"] = None,
-    to_date: Annotated[str | None, "End date for options ('YYYY-MM-DD')"] = None,
+    from_date: Annotated[
+        str | datetime.date | None, "Start date for options ('YYYY-MM-DD' or datetime.date)"
+    ] = None,
+    to_date: Annotated[
+        str | datetime.date | None, "End date for options ('YYYY-MM-DD' or datetime.date)"
+    ] = None,
     volatility: Annotated[
         float | None, "Volatility for ANALYTICAL strategy"
     ] = None,
@@ -99,36 +115,45 @@ async def get_advanced_option_chain(
     Params: symbol, contract_type, strike_count, include_quotes, strategy (SINGLE/ANALYTICAL/etc.), interval, strike, strike_range (ITM/NTM/etc.), from/to_date, volatility/underlying_price/interest_rate/days_to_expiration (for ANALYTICAL), exp_month, option_type (STANDARD/NON_STANDARD/ALL).
     Limit data returned using strike_count and date parameters.
     """
-    if from_date is not None:
-        from_date = datetime.datetime.strptime(from_date, "%Y-%m-%d").date()
-
-    if to_date is not None:
-        to_date = datetime.datetime.strptime(to_date, "%Y-%m-%d").date()
+    from_date_obj = _parse_date(from_date)
+    to_date_obj = _parse_date(to_date)
 
     return await call(
         client.get_option_chain,
         symbol,
-        contract_type=client.Options.ContractType[contract_type.upper()] if contract_type else None,
+        contract_type=
+        client.Options.ContractType[contract_type.upper()]
+        if contract_type
+        else None,
         strike_count=strike_count,
         include_underlying_quote=include_quotes,
         strategy=client.Options.Strategy[strategy.upper()] if strategy else None,
         interval=interval,
         strike=strike,
-        strike_range=client.Options.StrikeRange[strike_range.upper()] if strike_range else None,
-        from_date=from_date,
-        to_date=to_date,
+        strike_range=
+        client.Options.StrikeRange[strike_range.upper()]
+        if strike_range
+        else None,
+        from_date=from_date_obj,
+        to_date=to_date_obj,
         volatility=volatility,
         underlying_price=underlying_price,
         interest_rate=interest_rate,
         days_to_expiration=days_to_expiration,
-        exp_month=client.Options.ExpirationMonth[exp_month.upper()] if exp_month else None,
-        option_type=client.Options.Type[option_type.upper()] if option_type else None,
+        exp_month=
+        client.Options.ExpirationMonth[exp_month.upper()]
+        if exp_month
+        else None,
+        option_type=
+        client.Options.Type[option_type.upper()]
+        if option_type
+        else None,
     )
 
 
 @register
 async def get_option_expiration_chain(
-    client: schwab.client.AsyncClient,
+    client: OptionsClient,
     symbol: Annotated[str, "Symbol of the underlying security"],
 ) -> str:
     """
