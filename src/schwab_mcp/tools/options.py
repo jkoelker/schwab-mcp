@@ -13,42 +13,26 @@ async def get_option_chain(
     client: schwab.client.AsyncClient,
     symbol: Annotated[str, "Symbol of the underlying security (e.g., 'AAPL', 'SPY')"],
     contract_type: Annotated[
-        str | None, "Type of option contracts to return (CALL, PUT, ALL)"
+        str | None, "Type of option contracts: CALL, PUT, or ALL (default)"
     ] = None,
     strike_count: Annotated[
         int,
-        "Number of strikes to return above and below the at-the-money price",
+        "Number of strikes above/below the at-the-money price (default: 25)",
     ] = 25,
     include_quotes: Annotated[
         bool | None, "Include underlying and option market quotes"
     ] = None,
     from_date: Annotated[
-        str | None, "Start date for option expiration in 'YYYY-MM-DD' format"
+        str | None, "Start date for option expiration ('YYYY-MM-DD')"
     ] = None,
     to_date: Annotated[
-        str | None, "End date for option expiration in 'YYYY-MM-DD' format"
+        str | None, "End date for option expiration ('YYYY-MM-DD')"
     ] = None,
 ) -> str:
     """
-    Returns option chain data for a specific symbol.
-
-    Retrieves available option contracts with strike prices, expiration dates,
-    and price information. This is the standard option chain function for most
-    use cases. For more complex strategies, use get_advanced_option_chain().
-
-    Parameters:
-    - symbol: Underlying security symbol (e.g., 'AAPL', 'SPY')
-    - contract_type: Type of option contracts to return
-      - CALL: Call option contracts only
-      - PUT: Put option contracts only
-      - ALL: Both call and put contracts (default)
-    - strike_count: Number of strikes above/below at-the-money (default: 25)
-    - include_quotes: When True, includes market data for underlying and options
-    - from_date: Start date for filtering by expiration ('YYYY-MM-DD')
-    - to_date: End date for filtering by expiration ('YYYY-MM-DD')
-
-    Note: Can return large datasets. Use strike_count and date parameters to
-    limit the amount of data returned.
+    Returns option chain data (strikes, expirations, prices) for a symbol. Use for standard chains.
+    Params: symbol, contract_type (CALL/PUT/ALL), strike_count (default 25), include_quotes (bool), from_date (YYYY-MM-DD), to_date (YYYY-MM-DD).
+    Limit data returned using strike_count and date parameters.
     """
     if from_date is not None:
         from_date = datetime.datetime.strptime(from_date, "%Y-%m-%d").date()
