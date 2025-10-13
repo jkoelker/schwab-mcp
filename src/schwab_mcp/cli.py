@@ -1,6 +1,7 @@
 import click
 import sys
 import anyio
+from schwab.client import AsyncClient
 
 from schwab_mcp.server import SchwabMCPServer, send_error_response
 from schwab_mcp import auth as schwab_auth
@@ -126,6 +127,14 @@ def server(
             interactive=False,
             enforce_enums=False,
         )
+
+        if not isinstance(client, AsyncClient):
+            send_error_response(
+                "Async client required when starting the MCP server.",
+                code=500,
+                details={"client_type": type(client).__name__},
+            )
+            return 1
     except Exception as e:
         send_error_response(
             f"Error initializing Schwab client: {str(e)}",

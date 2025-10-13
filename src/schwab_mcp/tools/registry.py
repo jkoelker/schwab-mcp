@@ -5,15 +5,18 @@ import json
 import functools
 from dataclasses import dataclass, field
 from typing import (
+    Annotated,
     Any,
     Awaitable,
     Callable,
+    ClassVar,
     Dict,
     List,
     TypeVar,
-    get_type_hints,
+    cast,
     get_origin,
-    Annotated,
+    get_type_hints,
+    overload,
 )
 
 import httpx
@@ -24,6 +27,7 @@ from schwab.client import AsyncClient
 
 # Type variable for the decorated async function
 T = TypeVar("T")
+ToolCallable = Callable[..., Awaitable[Any]]
 
 
 def responsify(
@@ -38,7 +42,10 @@ def responsify(
         return [types.TextContent(type="text", text=data)]
 
     if isinstance(data, list):
-        return [responsify(item) for item in data]
+        items: list[types.TextContent | types.ImageContent | types.EmbeddedResource] = []
+        for item in data:
+            items.extend(responsify(item))
+        return items
 
     raise ValueError(f"Invalid response type: {type(data)}")
 
@@ -168,6 +175,9 @@ class BaseSchwabTool:
         return wrapper
 
 
+RegisteredToolFactory = Callable[[AsyncClient], BaseSchwabTool]
+
+
 class _FunctionTool(BaseSchwabTool):
     """Tool implementation that wraps a function"""
 
@@ -193,11 +203,11 @@ class _FunctionTool(BaseSchwabTool):
         # Process each parameter
         for param_name, param in sig.parameters.items():
             # Skip client parameter
-            if param.annotation is AsyncClient:
+            if param_name == "client":
                 self._client_param = param_name
                 continue
 
-            if param_name == "client" and param.annotation == inspect.Parameter.empty:
+            if param.annotation is AsyncClient:
                 self._client_param = param_name
                 continue
 
@@ -247,53 +257,57 @@ class _FunctionTool(BaseSchwabTool):
         return responsify(await self.func(**arguments))
 
 
-def FunctionTool(func: Callable) -> Callable[AsyncClient, _FunctionTool]:
+def FunctionTool(func: ToolCallable) -> RegisteredToolFactory:
     """Factory function for creating a FunctionBasedTool"""
-    return functools.partial(_FunctionTool, func=func)
+    return cast(RegisteredToolFactory, functools.partial(_FunctionTool, func=func))
 
 
 @dataclass
 class Registry:
     """Registry of available tools with auto-discovery"""
 
+    _registered_tools: ClassVar[list[RegisteredToolFactory]] = []
     client: AsyncClient
     write: bool = False
     _tools: List[types.Tool] = field(default_factory=list)
     _instances: Dict[str, BaseSchwabTool] = field(default_factory=dict)
 
+    @overload
     @classmethod
-    def register(cls, tool: Callable[Any, Any] | BaseSchwabTool = None, **kwargs):
-        """Class decorator to register a tool class or function for auto-discovery"""
-        if not hasattr(cls, "_registered_tools"):
-            cls._registered_tools = []
+    def register(cls, tool: ToolCallable, *, write: bool = False) -> ToolCallable:
+        ...
 
-        def _register(tool: Callable[Any, Any] | BaseSchwabTool, write: bool = False):
-            if inspect.isfunction(tool):
-                wrapped = FunctionTool(tool)
-            else:
-                wrapped = tool
+    @overload
+    @classmethod
+    def register(
+        cls, tool: None = None, *, write: bool = False
+    ) -> Callable[[ToolCallable], ToolCallable]:
+        ...
 
-            wrapped._write = write
+    @classmethod
+    def register(
+        cls, tool: ToolCallable | None = None, *, write: bool = False
+    ) -> ToolCallable | Callable[[ToolCallable], ToolCallable]:
+        """Decorator to register Schwab tool implementations."""
 
+        def _register(func: ToolCallable) -> ToolCallable:
+            wrapped = FunctionTool(func)
+            setattr(wrapped, "_write", write)
             cls._registered_tools.append(wrapped)
+            return func
 
-            return tool
+        if tool is not None:
+            return _register(tool)
 
-        if tool is not None and len(kwargs) == 0:
-            return _register(tool, write=False)
-
-        def _decorator(func: Callable[Callable[Any, Any] | BaseSchwabTool, Any]):
-            return _register(func, **kwargs)
-
-        return _decorator
+        return _register
 
     def __post_init__(self):
         """Initialize the registry by discovering and registering tools"""
-        for tool in getattr(Registry, "_registered_tools", []):
-            if getattr(tool, "_write", False) and not self.write:
+        for tool_factory in Registry._registered_tools:
+            if getattr(tool_factory, "_write", False) and not self.write:
                 continue
 
-            instance = tool(self.client)
+            instance = tool_factory(self.client)
 
             if not isinstance(instance, BaseSchwabTool):
                 raise ValueError("Invalid tool class")

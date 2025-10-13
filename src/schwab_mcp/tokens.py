@@ -3,7 +3,7 @@
 import json
 import pathlib
 import os
-from typing import Any, Callable
+from typing import Any, Callable, Protocol
 
 import yaml
 from platformdirs import user_data_dir
@@ -27,7 +27,12 @@ def token_path(app_name: str, filename: str = "token.yaml") -> str:
     return os.path.join(data_dir, filename)
 
 
-def token_writer(token_path: str) -> Callable[[dict[str, Any], ...], None]:
+class TokenWriter(Protocol):
+    def __call__(self, token: dict[str, Any], *args: Any, **kwargs: Any) -> None:
+        ...
+
+
+def token_writer(token_path: str) -> TokenWriter:
     """Create a function that writes token data to a file.
 
     This function creates a token writer that supports both JSON and YAML formats
@@ -41,7 +46,7 @@ def token_writer(token_path: str) -> Callable[[dict[str, Any], ...], None]:
         A function that takes a token dictionary and writes it to the file
     """
 
-    def write_token(token: dict[str, Any], *args, **kwargs) -> None:
+    def write_token(token: dict[str, Any], *args: Any, **kwargs: Any) -> None:
         """Write the token data to a file.
 
         Args:

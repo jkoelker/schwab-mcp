@@ -1,47 +1,43 @@
-#
+# 
 
 from typing import Annotated
 
-import schwab.client
+from schwab_mcp.tools._protocols import QuotesClient
 from schwab_mcp.tools.registry import register
 from schwab_mcp.tools.utils import call
 
 
 @register
 async def get_quotes(
-    client: schwab.client.AsyncClient,
+    client: QuotesClient,
     symbols: Annotated[
-        list[str] | str, "List of symbols to get quotes for (comma-separated if string)"
+        list[str] | str, "List of symbols or comma-separated string (e.g., ['AAPL', 'MSFT'] or 'GOOG,AMZN')"
     ],
     fields: Annotated[
         list[str] | str | None,
-        "Data fields to include (QUOTE, FUNDAMENTAL, EXTENDED, REFERENCE, REGULAR)",
+        "Data fields (list/str): QUOTE, FUNDAMENTAL, EXTENDED, REFERENCE, REGULAR. Default is QUOTE.",
     ] = None,
     indicative: Annotated[
-        bool | None, "Include indicative quotes for extended hours or futures"
+        bool | None, "True for indicative quotes (extended hours/futures)"
     ] = None,
 ) -> str:
     """
-    Returns current market quotes for specified symbols.
-
-    Retrieves real-time or delayed quote data for stocks, ETFs, indices, and options.
-    Symbols can be provided as a list or comma-separated string.
-
-    Fields options:
-      QUOTE - Basic price data (bid, ask, last)
-      FUNDAMENTAL - Company fundamentals (PE ratio, dividend)
-      EXTENDED - Extended quote data
-      REFERENCE - Reference data
-      REGULAR - Regular session quotes
-
-    Set indicative=True for extended hours or futures quotes.
+    Returns current market quotes for specified symbols (stocks, ETFs, indices, options).
+    Params: symbols (list or comma-separated string), fields (list/str: QUOTE/FUNDAMENTAL/etc.), indicative (bool).
     """
     if isinstance(symbols, str):
         symbols = [s.strip() for s in symbols.split(",")]
 
+    field_enums = None
+    if fields:
+        if isinstance(fields, str):
+            fields = [f.strip() for f in fields.split(",")]
+        field_enums = [client.Quote.Fields[f.upper()] for f in fields]
+
+
     return await call(
         client.get_quotes,
         symbols,
-        fields=[client.Quote.Fields[f] for f in fields] if fields else None,
+        fields=field_enums,
         indicative=indicative if indicative is not None else None,
     )

@@ -12,6 +12,8 @@ the MCP [python-sdk](https://github.com/modelcontextprotocol/python-sdk).
 - Get market information and movers
 - Fetch option chains and expiration data
 - Access order and transaction history
+- Comprehensive order building and placement capabilities
+- Advanced order strategies (OCO, trigger-based, and bracket orders)
 - Modify account state with special tools (requires `--jesus-take-the-wheel` flag)
 - Designed to integrate with Large Language Models (LLMs)
 
@@ -72,6 +74,8 @@ Token age is validated - if older than 5 days, you will be prompted to re-authen
 
 The server exposes the following MCP tools:
 
+> **Note**: Tools 28-35 require the `--jesus-take-the-wheel` flag as they can modify account state by placing orders.
+
 ### Date and Market Information
 1. `get_datetime` - Get the current datetime in ISO format
 2. `get_market_hours` - Get market hours for a specific market
@@ -115,13 +119,32 @@ The server exposes the following MCP tools:
 ### Account Modification Tools (Requires `--jesus-take-the-wheel` flag)
 27. `cancel_order` - Cancel a specific order
 
+#### Equity Orders
+28. `place_equity_market_order` - Place a market order for a stock or ETF
+29. `place_equity_limit_order` - Place a limit order for a stock or ETF
+30. `place_equity_stop_order` - Place a stop order for a stock or ETF
+31. `place_equity_stop_limit_order` - Place a stop-limit order for a stock or ETF
+32. `place_equity_order` - Unified function for placing any equity order type
+
+#### Option Orders
+33. `create_option_symbol` - Create a properly formatted option symbol from components
+34. `place_option_market_order` - Place a market order for an option contract
+35. `place_option_limit_order` - Place a limit order for an option contract
+36. `place_option_order` - Unified function for placing any option order type
+
+#### Complex Order Strategies
+37. `place_one_cancels_other_order` - Create an OCO order pair where execution of one cancels the other
+38. `place_first_triggers_second_order` - Create a sequence where one order triggers another upon execution
+39. `place_bracket_order` - Create a complete strategy with entry order and OCO exit orders
+
 ## Security Warning
 
 The `--jesus-take-the-wheel` flag enables LLMs to perform actions that can modify your account state, including:
 - Canceling orders
-- Other actions that may have financial implications (more tools to be added in future releases)
+- Placing market, limit, stop, and stop-limit orders
+- Creating complex order strategies (OCO, trigger-based, and bracket orders)
 
-Only use this flag in controlled environments and understand the risks involved.
+These actions have direct financial implications. Only use this flag in controlled environments and with a complete understanding of the risks involved. Consider testing with small positions or in a paper trading account if available.
 
 ## Development
 

@@ -8,11 +8,13 @@ authors = [
 ]
 requires-python = ">=3.10"
 dependencies = [
-    "anyio>=4.9.0",
-    "click>=8.1.8",
-    "mcp>=1.4.1",
-    "platformdirs>=4.3.7",
-    "pyyaml>=6.0.2",
+    "anyio>=4.11.0",
+    "click>=8.3.0",
+    "httpx>=0.27.2",
+    "mcp>=1.17.0",
+    "platformdirs>=4.5.0",
+    "pyyaml>=6.0.3",
+    "schwab-py>=1.5.1",
 ]
 
 [project.scripts]
@@ -24,8 +26,28 @@ build-backend = "hatchling.build"
 
 [dependency-groups]
 dev = [
-    "mcp[cli]>=1.4.1",
-    "pyright>=1.1.397",
-    "pytest>=8.3.5",
-    "ruff>=0.11.0",
+    "mcp[cli]>=1.17.0",
+    "pyright>=1.1.406",
+    "pytest>=8.4.2",
+    "ruff>=0.14.0",
 ]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["src"]
+
+[tool.pyright]
+include = ["src", "tests"]
+exclude = [
+    "info",
+    ".venv",
+    "build",
+    "dist",
+    ".git",
+    ".mypy_cache",
+    ".pytest_cache",
+]
+venvPath = "."
+venv = ".venv"
+reportMissingImports = false
+typeCheckingMode = "basic"
