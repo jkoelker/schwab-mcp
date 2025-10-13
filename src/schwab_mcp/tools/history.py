@@ -77,8 +77,8 @@ async def get_advanced_price_history(
         frequency=frequency,
         start_datetime=start_datetime,
         end_datetime=end_datetime,
-        extended_hours=extended_hours,
-        previous_close=previous_close,
+        need_extended_hours_data=extended_hours,
+        need_previous_close=previous_close,
     )
 
 
@@ -115,8 +115,8 @@ async def get_price_history_every_minute(
         symbol,
         start_datetime=start_datetime,
         end_datetime=end_datetime,
-        extended_hours=extended_hours,
-        previous_close=previous_close,
+        need_extended_hours_data=extended_hours,
+        need_previous_close=previous_close,
     )
 
 
@@ -153,8 +153,8 @@ async def get_price_history_every_five_minutes(
         symbol,
         start_datetime=start_datetime,
         end_datetime=end_datetime,
-        extended_hours=extended_hours,
-        previous_close=previous_close,
+        need_extended_hours_data=extended_hours,
+        need_previous_close=previous_close,
     )
 
 
@@ -191,8 +191,8 @@ async def get_price_history_every_ten_minutes(
         symbol,
         start_datetime=start_datetime,
         end_datetime=end_datetime,
-        extended_hours=extended_hours,
-        previous_close=previous_close,
+        need_extended_hours_data=extended_hours,
+        need_previous_close=previous_close,
     )
 
 
@@ -229,8 +229,8 @@ async def get_price_history_every_fifteen_minutes(
         symbol,
         start_datetime=start_datetime,
         end_datetime=end_datetime,
-        extended_hours=extended_hours,
-        previous_close=previous_close,
+        need_extended_hours_data=extended_hours,
+        need_previous_close=previous_close,
     )
 
 
@@ -267,8 +267,8 @@ async def get_price_history_every_thirty_minutes(
         symbol,
         start_datetime=start_datetime,
         end_datetime=end_datetime,
-        extended_hours=extended_hours,
-        previous_close=previous_close,
+        need_extended_hours_data=extended_hours,
+        need_previous_close=previous_close,
     )
 
 
@@ -311,8 +311,8 @@ async def get_price_history_every_day(
         symbol,
         start_datetime=start_datetime,
         end_datetime=end_datetime,
-        extended_hours=extended_hours,
-        previous_close=previous_close,
+        need_extended_hours_data=extended_hours,
+        need_previous_close=previous_close,
     )
 
 
@@ -349,6 +349,6 @@ async def get_price_history_every_week(
         symbol,
         start_datetime=start_datetime,
         end_datetime=end_datetime,
-        extended_hours=extended_hours,
-        previous_close=previous_close,
+        need_extended_hours_data=extended_hours,
+        need_previous_close=previous_close,
     )
