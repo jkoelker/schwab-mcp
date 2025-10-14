@@ -6,7 +6,7 @@ import datetime
 
 from schwab_mcp.context import SchwabContext, SchwabServerContext
 from schwab_mcp.tools.registry import register
-from schwab_mcp.tools.utils import call
+from schwab_mcp.tools.utils import JSONType, call
 
 
 def _parse_date(value: str | datetime.date | None) -> datetime.date | None:
@@ -41,7 +41,7 @@ async def get_option_chain(
         str | datetime.date | None,
         "End date for option expiration ('YYYY-MM-DD' or datetime.date)",
     ] = None,
-) -> str:
+) -> JSONType:
     """
     Returns option chain data (strikes, expirations, prices) for a symbol. Use for standard chains.
     Params: symbol, contract_type (CALL/PUT/ALL), strike_count (default 25), include_quotes (bool), from_date (YYYY-MM-DD), to_date (YYYY-MM-DD).
@@ -117,7 +117,7 @@ async def get_advanced_option_chain(
     option_type: Annotated[
         str | None, "Filter option type: STANDARD, NON_STANDARD, ALL (default)"
     ] = None,
-) -> str:
+) -> JSONType:
     """
     Returns advanced option chain data with strategies, filters, and theoretical calculations. Use for complex analysis.
     Params: symbol, contract_type, strike_count, include_quotes, strategy (SINGLE/ANALYTICAL/etc.), interval, strike, strike_range (ITM/NTM/etc.), from/to_date, volatility/underlying_price/interest_rate/days_to_expiration (for ANALYTICAL), exp_month, option_type (STANDARD/NON_STANDARD/ALL).
@@ -160,7 +160,7 @@ async def get_advanced_option_chain(
 async def get_option_expiration_chain(
     ctx: SchwabContext,
     symbol: Annotated[str, "Symbol of the underlying security"],
-) -> str:
+) -> JSONType:
     """
     Returns available option expiration dates for a symbol, without contract details. Lightweight call to find available cycles. Param: symbol.
     """

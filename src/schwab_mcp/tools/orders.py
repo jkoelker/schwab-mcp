@@ -27,7 +27,7 @@ from schwab_mcp.tools.order_helpers import (
 from schwab.orders.options import OptionSymbol
 from schwab_mcp.context import SchwabContext, SchwabServerContext
 from schwab_mcp.tools.registry import register
-from schwab_mcp.tools.utils import call
+from schwab_mcp.tools.utils import JSONType, call
 
 
 # Internal helper function to apply session and duration settings
@@ -170,7 +170,7 @@ async def get_order(
     ctx: SchwabContext,
     account_hash: Annotated[str, "Account hash for the Schwab account"],
     order_id: Annotated[str, "Order ID to get details for"],
-) -> str:
+) -> JSONType:
     """
     Returns details for a specific order (ID, status, price, quantity, execution details). Params: account_hash, order_id.
     """
@@ -195,7 +195,7 @@ async def get_orders(
         list[str] | str | None,
         "Filter by order status (e.g., WORKING, FILLED, CANCELED). See full list below.",
     ] = None,
-) -> str:
+) -> JSONType:
     """
     Returns order history for an account. Filter by date range (max 60 days past) and status.
     Params: account_hash, max_results, from_date (YYYY-MM-DD), to_date (YYYY-MM-DD), status (list/str).
@@ -239,7 +239,7 @@ async def cancel_order(
     ctx: SchwabContext,
     account_hash: Annotated[str, "Account hash for the Schwab account"],
     order_id: Annotated[str, "Order ID to cancel"],
-) -> str:
+) -> JSONType:
     """
     Cancels a pending order. Cannot cancel executed/terminal orders. Params: account_hash, order_id. Returns cancellation request confirmation; check status after. *Write operation.*
     """
@@ -267,7 +267,7 @@ async def place_equity_order(
         str | None,
         "Order duration: DAY (default), GOOD_TILL_CANCEL, FILL_OR_KILL (Limit/StopLimit only)",
     ] = "DAY",
-) -> str:
+) -> JSONType:
     """
     Places a single equity order (MARKET, LIMIT, STOP, STOP_LIMIT).
     Params: account_hash, symbol, quantity, instruction (BUY/SELL), order_type.
@@ -315,7 +315,7 @@ async def place_option_order(
         str | None,
         "Order duration: DAY (default), GOOD_TILL_CANCEL, FILL_OR_KILL (Limit only)",
     ] = "DAY",
-) -> str:
+) -> JSONType:
     """
     Places a single option order (MARKET, LIMIT).
     Params: account_hash, symbol, quantity, instruction (BUY_TO_OPEN/etc.), order_type.
@@ -426,7 +426,7 @@ async def place_one_cancels_other_order(
     second_order_spec: Annotated[
         dict, "Second order specification (dict from build_equity/option_order_spec)"
     ],
-) -> str:
+) -> JSONType:
     """
     Creates OCO order: execution of one cancels the other. Use for take-profit/stop-loss pairs.
     Params: account_hash, first_order_spec (dict), second_order_spec (dict).
@@ -460,7 +460,7 @@ async def place_first_triggers_second_order(
         dict,
         "Second (triggered) order specification (dict from build_equity/option_order_spec)",
     ],
-) -> str:
+) -> JSONType:
     """
     Creates conditional order: second order placed only after first executes. Use for activating exits after entry.
     Params: account_hash, first_order_spec (dict), second_order_spec (dict).
@@ -533,7 +533,7 @@ async def place_bracket_order(
     duration: Annotated[
         str | None, "Order duration: DAY (default), GOOD_TILL_CANCEL"
     ] = "DAY",
-) -> str:
+) -> JSONType:
     """
     Creates a bracket order: entry + OCO take-profit/stop-loss. Exits trigger after entry executes.
     Params: account_hash, symbol, quantity, entry_instruction (BUY/SELL), entry_type (MARKET/LIMIT/STOP/STOP_LIMIT), profit_price, loss_price.

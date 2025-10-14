@@ -6,7 +6,7 @@ import datetime
 
 from schwab_mcp.context import SchwabContext, SchwabServerContext
 from schwab_mcp.tools.registry import register
-from schwab_mcp.tools.utils import call
+from schwab_mcp.tools.utils import JSONType, call
 
 
 @register
@@ -25,7 +25,7 @@ async def get_transactions(
         "Filter by type(s) (list/str): TRADE, DIVIDEND_OR_INTEREST, ACH_RECEIPT, etc. Default all.",
     ] = None,
     symbol: Annotated[str | None, "Filter transactions by security symbol"] = None,
-) -> str:
+) -> JSONType:
     """
     Get transaction history (trades, deposits, dividends, etc.) for an account. Filter by date range (max 60 days past), type, symbol.
     Params: account_hash, start_date (YYYY-MM-DD), end_date (YYYY-MM-DD), transaction_type (list/str: TRADE/DIVIDEND_OR_INTEREST/etc.), symbol.
@@ -67,7 +67,7 @@ async def get_transaction(
     ctx: SchwabContext,
     account_hash: Annotated[str, "Account hash for the Schwab account"],
     transaction_id: Annotated[str, "Transaction ID (from get_transactions)"],
-) -> str:
+) -> JSONType:
     """
     Get detailed info for a specific transaction by ID.
     Params: account_hash, transaction_id (from get_transactions).
