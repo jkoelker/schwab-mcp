@@ -3,10 +3,9 @@
 from typing import Annotated
 
 import datetime
-from mcp.server.fastmcp import Context
-
+from schwab_mcp.context import SchwabContext, SchwabServerContext
 from schwab_mcp.tools.registry import register
-from schwab_mcp.tools.utils import call, get_context
+from schwab_mcp.tools.utils import call
 
 
 @register
@@ -19,7 +18,7 @@ async def get_datetime() -> str:
 
 @register
 async def get_market_hours(
-    ctx: Context,
+    ctx: SchwabContext,
     markets: Annotated[
         list[str] | str,
         "Markets (list/str): EQUITY, OPTION, BOND, FUTURE, FOREX",
@@ -32,7 +31,7 @@ async def get_market_hours(
     """
     Get market hours for specified markets (EQUITY, OPTION, etc.) on a given date (YYYY-MM-DD, default today).
     """
-    context = get_context(ctx)
+    context: SchwabServerContext = ctx.request_context.lifespan_context
     client = context.tools
 
     if isinstance(markets, str):
@@ -49,7 +48,7 @@ async def get_market_hours(
 
 @register
 async def get_movers(
-    ctx: Context,
+    ctx: SchwabContext,
     index: Annotated[
         str,
         "Index/market: DJI, COMPX, SPX, NYSE, NASDAQ, OTCBB, INDEX_ALL, EQUITY_ALL, OPTION_ALL, OPTION_PUT, OPTION_CALL",
@@ -66,7 +65,7 @@ async def get_movers(
     Get top 10 movers for an index/market (e.g., DJI, SPX, NASDAQ).
     Params: index, sort (VOLUME/TRADES/PERCENT_CHANGE_UP/DOWN), frequency (min % change: ZERO/ONE/etc.).
     """
-    context = get_context(ctx)
+    context: SchwabServerContext = ctx.request_context.lifespan_context
     client = context.tools
 
     return await call(
@@ -79,7 +78,7 @@ async def get_movers(
 
 @register
 async def get_instruments(
-    ctx: Context,
+    ctx: SchwabContext,
     symbol: Annotated[str, "Symbol or search term"],
     projection: Annotated[
         str,
@@ -110,7 +109,7 @@ async def get_instruments(
     proj_upper = projection.upper()
     proj_key = projection.lower()
 
-    context = get_context(ctx)
+    context: SchwabServerContext = ctx.request_context.lifespan_context
     client = context.tools
 
     if proj_key in projection_map:

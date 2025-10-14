@@ -2,15 +2,14 @@
 
 from typing import Annotated
 
-from mcp.server.fastmcp import Context
-
+from schwab_mcp.context import SchwabContext, SchwabServerContext
 from schwab_mcp.tools.registry import register
-from schwab_mcp.tools.utils import call, get_context
+from schwab_mcp.tools.utils import call
 
 
 @register
 async def get_quotes(
-    ctx: Context,
+    ctx: SchwabContext,
     symbols: Annotated[
         list[str] | str,
         "List of symbols or comma-separated string (e.g., ['AAPL', 'MSFT'] or 'GOOG,AMZN')",
@@ -27,7 +26,7 @@ async def get_quotes(
     Returns current market quotes for specified symbols (stocks, ETFs, indices, options).
     Params: symbols (list or comma-separated string), fields (list/str: QUOTE/FUNDAMENTAL/etc.), indicative (bool).
     """
-    context = get_context(ctx)
+    context: SchwabServerContext = ctx.request_context.lifespan_context
     client = context.quotes
 
     if isinstance(symbols, str):

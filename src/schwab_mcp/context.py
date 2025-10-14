@@ -4,6 +4,7 @@ from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Any, cast
 
 from schwab.client import AsyncClient
+from mcp.server.fastmcp import Context as MCPContext
 
 if TYPE_CHECKING:
     from schwab_mcp.tools._protocols import (
@@ -44,4 +45,7 @@ class SchwabServerContext:
         self.transactions = cast(TransactionsClient, self.client)
 
 
-__all__ = ["SchwabServerContext"]
+SchwabContext = MCPContext[Any, SchwabServerContext, Any]
+
+
+__all__ = ["SchwabServerContext", "SchwabContext"]

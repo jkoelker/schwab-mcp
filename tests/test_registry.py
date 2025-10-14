@@ -1,94 +1,69 @@
-import pytest
-from mcp.types import ToolAnnotations
-from mcp.server.fastmcp import FastMCP
-from schwab.client import AsyncClient
+from types import SimpleNamespace
 from typing import cast
+
+import pytest
+from mcp.server.fastmcp import FastMCP
+from mcp.types import ToolAnnotations
+from schwab.client import AsyncClient
 
 import schwab_mcp.tools as tools_module
 from schwab_mcp.tools import registry as tool_registry
-from schwab_mcp.tools import utils as tool_utils
-
-
-def _pop_registered(count_before: int) -> None:
-    """Helper to remove any tools appended during a test."""
-    while len(tool_registry._REGISTERED_TOOLS) > count_before:
-        tool_registry._REGISTERED_TOOLS.pop()
 
 
 def test_register_sets_readonly_annotations() -> None:
-    count_before = len(tool_registry._REGISTERED_TOOLS)
-
+    @tool_registry.register()
     async def sample_tool() -> str:
         return "ok"
 
-    registered = tool_registry.register(sample_tool)
-    try:
-        annotations = getattr(registered, "_tool_annotations")
-        assert isinstance(annotations, ToolAnnotations)
-        assert annotations.readOnlyHint is True
-        assert annotations.destructiveHint is None
-        assert getattr(registered, "_write") is False
-    finally:
-        _pop_registered(count_before)
+    annotations = getattr(sample_tool, "_tool_annotations")
+    assert isinstance(annotations, ToolAnnotations)
+    assert annotations.readOnlyHint is True
+    assert annotations.destructiveHint is None
+    assert getattr(sample_tool, "_write") is False
+    assert getattr(sample_tool, "_registered_tool") is True
 
 
 def test_register_sets_write_annotations() -> None:
-    count_before = len(tool_registry._REGISTERED_TOOLS)
-
+    @tool_registry.register(write=True)
     async def write_tool() -> str:
         return "ok"
 
-    registered = tool_registry.register(write_tool, write=True)
-    try:
-        annotations = getattr(registered, "_tool_annotations")
-        assert isinstance(annotations, ToolAnnotations)
-        assert annotations.readOnlyHint is False
-        assert annotations.destructiveHint is True
-        assert getattr(registered, "_write") is True
-    finally:
-        _pop_registered(count_before)
+    annotations = getattr(write_tool, "_tool_annotations")
+    assert isinstance(annotations, ToolAnnotations)
+    assert annotations.readOnlyHint is False
+    assert annotations.destructiveHint is True
+    assert getattr(write_tool, "_write") is True
+    assert getattr(write_tool, "_registered_tool") is True
 
 
 def test_register_tools_uses_annotations(monkeypatch: pytest.MonkeyPatch) -> None:
+    @tool_registry.register()
     async def read_tool() -> str:
         return "read"
 
+    @tool_registry.register(write=True)
     async def write_tool() -> str:
         return "write"
 
-    read_annotations = ToolAnnotations(readOnlyHint=True)
-    write_annotations = ToolAnnotations(readOnlyHint=False, destructiveHint=True)
+    read_tool.__doc__ = "read tool"
+    write_tool.__doc__ = "write tool"
 
-    setattr(read_tool, "__doc__", "read tool")
-    setattr(write_tool, "__doc__", "write tool")
-    setattr(read_tool, "_write", False)
-    setattr(write_tool, "_write", True)
-    setattr(read_tool, "_tool_annotations", read_annotations)
-    setattr(write_tool, "_tool_annotations", write_annotations)
-
-    monkeypatch.setattr(
-        tools_module,
-        "iter_registered_tools",
-        lambda: [read_tool, write_tool],
-    )
+    dummy_module = SimpleNamespace(read_tool=read_tool, write_tool=write_tool)
+    monkeypatch.setattr(tools_module, "_TOOL_MODULES", (dummy_module,))
 
     class DummyServer:
         def __init__(self) -> None:
             self.tools: list[dict[str, object]] = []
 
-        def tool(self, *, name=None, description=None, annotations=None):
-            def decorator(fn):
-                self.tools.append(
-                    {
-                        "fn": fn,
-                        "name": name,
-                        "description": description,
-                        "annotations": annotations,
-                    }
-                )
-                return fn
-
-            return decorator
+        def add_tool(self, fn, *, name=None, description=None, annotations=None):
+            self.tools.append(
+                {
+                    "fn": fn,
+                    "name": name,
+                    "description": description,
+                    "annotations": annotations,
+                }
+            )
 
     dummy_client = object()
 
@@ -120,6 +95,3 @@ def test_register_tools_uses_annotations(monkeypatch: pytest.MonkeyPatch) -> Non
     assert isinstance(write_entry["annotations"], ToolAnnotations)
     assert write_entry["annotations"].readOnlyHint is False
     assert write_entry["annotations"].destructiveHint is True
-
-    # Reset write access flag for other tests
-    tool_utils.set_write_enabled(False)

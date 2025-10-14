@@ -3,15 +3,15 @@
 from typing import Annotated
 
 import datetime
-from mcp.server.fastmcp import Context
 
+from schwab_mcp.context import SchwabContext, SchwabServerContext
 from schwab_mcp.tools.registry import register
-from schwab_mcp.tools.utils import call, get_context
+from schwab_mcp.tools.utils import call
 
 
 @register
 async def get_transactions(
-    ctx: Context,
+    ctx: SchwabContext,
     account_hash: Annotated[
         str, "Account hash for the Schwab account (from get_account_numbers)"
     ],
@@ -31,7 +31,7 @@ async def get_transactions(
     Params: account_hash, start_date (YYYY-MM-DD), end_date (YYYY-MM-DD), transaction_type (list/str: TRADE/DIVIDEND_OR_INTEREST/etc.), symbol.
     Use tomorrow's date as end_date for today's transactions. See full type list in original docstring if needed.
     """
-    context = get_context(ctx)
+    context: SchwabServerContext = ctx.request_context.lifespan_context
     client = context.transactions
 
     start_date_obj = None
@@ -64,7 +64,7 @@ async def get_transactions(
 
 @register
 async def get_transaction(
-    ctx: Context,
+    ctx: SchwabContext,
     account_hash: Annotated[str, "Account hash for the Schwab account"],
     transaction_id: Annotated[str, "Transaction ID (from get_transactions)"],
 ) -> str:
@@ -72,6 +72,6 @@ async def get_transaction(
     Get detailed info for a specific transaction by ID.
     Params: account_hash, transaction_id (from get_transactions).
     """
-    context = get_context(ctx)
+    context: SchwabServerContext = ctx.request_context.lifespan_context
     client = context.transactions
     return await call(client.get_transaction, account_hash, transaction_id)

@@ -3,10 +3,10 @@
 from typing import Annotated
 
 import datetime
-from mcp.server.fastmcp import Context
 
+from schwab_mcp.context import SchwabContext, SchwabServerContext
 from schwab_mcp.tools.registry import register
-from schwab_mcp.tools.utils import call, get_context
+from schwab_mcp.tools.utils import call
 
 
 def _parse_date(value: str | datetime.date | None) -> datetime.date | None:
@@ -21,7 +21,7 @@ def _parse_date(value: str | datetime.date | None) -> datetime.date | None:
 
 @register
 async def get_option_chain(
-    ctx: Context,
+    ctx: SchwabContext,
     symbol: Annotated[str, "Symbol of the underlying security (e.g., 'AAPL', 'SPY')"],
     contract_type: Annotated[
         str | None, "Type of option contracts: CALL, PUT, or ALL (default)"
@@ -47,7 +47,7 @@ async def get_option_chain(
     Params: symbol, contract_type (CALL/PUT/ALL), strike_count (default 25), include_quotes (bool), from_date (YYYY-MM-DD), to_date (YYYY-MM-DD).
     Limit data returned using strike_count and date parameters.
     """
-    context = get_context(ctx)
+    context: SchwabServerContext = ctx.request_context.lifespan_context
     client = context.options
 
     from_date_obj = _parse_date(from_date)
@@ -68,7 +68,7 @@ async def get_option_chain(
 
 @register
 async def get_advanced_option_chain(
-    ctx: Context,
+    ctx: SchwabContext,
     symbol: Annotated[str, "Symbol of the underlying security"],
     contract_type: Annotated[
         str | None, "Type of contracts: CALL, PUT, or ALL (default)"
@@ -123,7 +123,7 @@ async def get_advanced_option_chain(
     Params: symbol, contract_type, strike_count, include_quotes, strategy (SINGLE/ANALYTICAL/etc.), interval, strike, strike_range (ITM/NTM/etc.), from/to_date, volatility/underlying_price/interest_rate/days_to_expiration (for ANALYTICAL), exp_month, option_type (STANDARD/NON_STANDARD/ALL).
     Limit data returned using strike_count and date parameters.
     """
-    context = get_context(ctx)
+    context: SchwabServerContext = ctx.request_context.lifespan_context
     client = context.options
 
     from_date_obj = _parse_date(from_date)
@@ -158,12 +158,12 @@ async def get_advanced_option_chain(
 
 @register
 async def get_option_expiration_chain(
-    ctx: Context,
+    ctx: SchwabContext,
     symbol: Annotated[str, "Symbol of the underlying security"],
 ) -> str:
     """
     Returns available option expiration dates for a symbol, without contract details. Lightweight call to find available cycles. Param: symbol.
     """
-    context = get_context(ctx)
+    context: SchwabServerContext = ctx.request_context.lifespan_context
     client = context.options
     return await call(client.get_option_expiration_chain, symbol)
