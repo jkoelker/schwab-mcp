@@ -4,6 +4,7 @@ from collections.abc import Awaitable, Callable
 from typing import Any, ParamSpec, TypeVar, overload
 
 from mcp.types import ToolAnnotations
+
 P = ParamSpec("P")
 R = TypeVar("R")
 
@@ -18,8 +19,7 @@ def register(
     *,
     write: bool = False,
     annotations: ToolAnnotations | None = None,
-) -> RegisteredTool:
-    ...
+) -> RegisteredTool: ...
 
 
 @overload
@@ -28,8 +28,7 @@ def register(
     *,
     write: bool = False,
     annotations: ToolAnnotations | None = None,
-) -> Callable[[RegisteredTool], RegisteredTool]:
-    ...
+) -> Callable[[RegisteredTool], RegisteredTool]: ...
 
 
 def register(

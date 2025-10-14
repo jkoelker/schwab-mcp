@@ -1,9 +1,11 @@
 import asyncio
 from enum import Enum
 from types import SimpleNamespace
-from typing import Any
+from typing import Any, cast
 
+from schwab.client import AsyncClient
 from schwab_mcp.tools import quotes
+from schwab_mcp.context import SchwabServerContext
 
 
 class DummyQuotesClient:
@@ -19,7 +21,9 @@ def run(coro):
 
 
 def make_ctx(client: Any) -> Any:
-    return SimpleNamespace(fastmcp=SimpleNamespace(_schwab_client=client))
+    lifespan_context = SchwabServerContext(client=cast(AsyncClient, client))
+    request_context = SimpleNamespace(lifespan_context=lifespan_context)
+    return SimpleNamespace(fastmcp=SimpleNamespace(), request_context=request_context)
 
 
 def test_get_quotes_parses_symbols_and_fields(monkeypatch):
