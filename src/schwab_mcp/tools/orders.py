@@ -27,7 +27,7 @@ from schwab_mcp.tools.order_helpers import (
 )
 from schwab.orders.options import OptionSymbol
 from schwab_mcp.tools.registry import register
-from schwab_mcp.tools.utils import call, ensure_write_access, get_orders_client
+from schwab_mcp.tools.utils import call, ensure_write_access, get_context
 
 
 # Internal helper function to apply session and duration settings
@@ -40,6 +40,7 @@ def _apply_order_settings(order_spec, session: str | None, duration: str | None)
     if duration:
         order_spec = order_spec.set_duration(duration)
     return order_spec
+
 
 # Internal helper function to build the core equity order spec builder
 def _build_equity_order_spec(
@@ -63,7 +64,9 @@ def _build_equity_order_spec(
         elif instruction == "SELL":
             return equity_sell_market(symbol, quantity)
         else:
-             raise ValueError(f"Invalid instruction for MARKET order: {instruction}. Use BUY or SELL.")
+            raise ValueError(
+                f"Invalid instruction for MARKET order: {instruction}. Use BUY or SELL."
+            )
 
     elif order_type == "LIMIT":
         if price is None:
@@ -75,7 +78,9 @@ def _build_equity_order_spec(
         elif instruction == "SELL":
             return equity_sell_limit(symbol, quantity, price)
         else:
-             raise ValueError(f"Invalid instruction for LIMIT order: {instruction}. Use BUY or SELL.")
+            raise ValueError(
+                f"Invalid instruction for LIMIT order: {instruction}. Use BUY or SELL."
+            )
 
     elif order_type == "STOP":
         if stop_price is None:
@@ -87,7 +92,9 @@ def _build_equity_order_spec(
         elif instruction == "SELL":
             return equity_sell_stop(symbol, quantity, stop_price)
         else:
-             raise ValueError(f"Invalid instruction for STOP order: {instruction}. Use BUY or SELL.")
+            raise ValueError(
+                f"Invalid instruction for STOP order: {instruction}. Use BUY or SELL."
+            )
 
     elif order_type == "STOP_LIMIT":
         if stop_price is None or price is None:
@@ -97,10 +104,14 @@ def _build_equity_order_spec(
         elif instruction == "SELL":
             return equity_sell_stop_limit(symbol, quantity, stop_price, price)
         else:
-             raise ValueError(f"Invalid instruction for STOP_LIMIT order: {instruction}. Use BUY or SELL.")
+            raise ValueError(
+                f"Invalid instruction for STOP_LIMIT order: {instruction}. Use BUY or SELL."
+            )
 
     else:
-        raise ValueError(f"Invalid order_type: {order_type}. Must be one of: MARKET, LIMIT, STOP, STOP_LIMIT")
+        raise ValueError(
+            f"Invalid order_type: {order_type}. Must be one of: MARKET, LIMIT, STOP, STOP_LIMIT"
+        )
 
 
 # Internal helper function to build the core option order spec builder
@@ -128,7 +139,9 @@ def _build_option_order_spec(
         elif instruction == "SELL_TO_CLOSE":
             return option_sell_to_close_market(symbol, quantity)
         else:
-            raise ValueError(f"Invalid instruction for MARKET option order: {instruction}. Use BUY_TO_OPEN, SELL_TO_OPEN, BUY_TO_CLOSE, or SELL_TO_CLOSE.")
+            raise ValueError(
+                f"Invalid instruction for MARKET option order: {instruction}. Use BUY_TO_OPEN, SELL_TO_OPEN, BUY_TO_CLOSE, or SELL_TO_CLOSE."
+            )
 
     elif order_type == "LIMIT":
         if price is None:
@@ -142,10 +155,14 @@ def _build_option_order_spec(
         elif instruction == "SELL_TO_CLOSE":
             return option_sell_to_close_limit(symbol, quantity, price)
         else:
-            raise ValueError(f"Invalid instruction for LIMIT option order: {instruction}. Use BUY_TO_OPEN, SELL_TO_OPEN, BUY_TO_CLOSE, or SELL_TO_CLOSE.")
+            raise ValueError(
+                f"Invalid instruction for LIMIT option order: {instruction}. Use BUY_TO_OPEN, SELL_TO_OPEN, BUY_TO_CLOSE, or SELL_TO_CLOSE."
+            )
 
     else:
-        raise ValueError(f"Invalid order_type: {order_type}. Must be one of: MARKET, LIMIT")
+        raise ValueError(
+            f"Invalid order_type: {order_type}. Must be one of: MARKET, LIMIT"
+        )
 
 
 @register
@@ -157,10 +174,9 @@ async def get_order(
     """
     Returns details for a specific order (ID, status, price, quantity, execution details). Params: account_hash, order_id.
     """
-    client = get_orders_client(ctx)
-    return await call(
-        client.get_order, order_id=order_id, account_hash=account_hash
-    )
+    context = get_context(ctx)
+    client = context.orders
+    return await call(client.get_order, order_id=order_id, account_hash=account_hash)
 
 
 @register
@@ -169,16 +185,15 @@ async def get_orders(
     account_hash: Annotated[
         str, "Account hash for the Schwab account (from get_account_numbers)"
     ],
-    max_results: Annotated[
-        int | None, "Maximum number of orders to return"
-    ] = None,
+    max_results: Annotated[int | None, "Maximum number of orders to return"] = None,
     from_date: Annotated[
         str | None,
         "Start date for orders ('YYYY-MM-DD', max 60 days past)",
     ] = None,
     to_date: Annotated[str | None, "End date for orders ('YYYY-MM-DD')"] = None,
     status: Annotated[
-        list[str] | str | None, "Filter by order status (e.g., WORKING, FILLED, CANCELED). See full list below."
+        list[str] | str | None,
+        "Filter by order status (e.g., WORKING, FILLED, CANCELED). See full list below.",
     ] = None,
 ) -> str:
     """
@@ -187,7 +202,8 @@ async def get_orders(
     Status options: AWAITING_PARENT_ORDER, AWAITING_CONDITION, AWAITING_STOP_CONDITION, AWAITING_MANUAL_REVIEW, ACCEPTED, AWAITING_UR_OUT, PENDING_ACTIVATION, QUEUED, WORKING, REJECTED, PENDING_CANCEL, CANCELED, PENDING_REPLACE, REPLACED, FILLED, EXPIRED, NEW, AWAITING_RELEASE_TIME, PENDING_ACKNOWLEDGEMENT, PENDING_RECALL.
     Use tomorrow's date as to_date for today's orders. Use WORKING/PENDING_ACTIVATION for open orders.
     """
-    client = get_orders_client(ctx)
+    context = get_context(ctx)
+    client = context.orders
 
     from_date_obj = None
     to_date_obj = None
@@ -228,10 +244,9 @@ async def cancel_order(
     Cancels a pending order. Cannot cancel executed/terminal orders. Params: account_hash, order_id. Returns cancellation request confirmation; check status after. *Write operation.*
     """
     ensure_write_access()
-    client = get_orders_client(ctx)
-    return await call(
-        client.cancel_order, order_id=order_id, account_hash=account_hash
-    )
+    context = get_context(ctx)
+    client = context.orders
+    return await call(client.cancel_order, order_id=order_id, account_hash=account_hash)
 
 
 @register(write=True)
@@ -245,14 +260,13 @@ async def place_equity_order(
     price: Annotated[
         float | None, "Required for LIMIT; Limit price for STOP_LIMIT"
     ] = None,
-    stop_price: Annotated[
-        float | None, "Required for STOP and STOP_LIMIT"
-    ] = None,
+    stop_price: Annotated[float | None, "Required for STOP and STOP_LIMIT"] = None,
     session: Annotated[
         str | None, "Trading session: NORMAL (default), AM, PM, or SEAMLESS"
     ] = "NORMAL",
     duration: Annotated[
-        str | None, "Order duration: DAY (default), GOOD_TILL_CANCEL, FILL_OR_KILL (Limit/StopLimit only)"
+        str | None,
+        "Order duration: DAY (default), GOOD_TILL_CANCEL, FILL_OR_KILL (Limit/StopLimit only)",
     ] = "DAY",
 ) -> str:
     """
@@ -264,7 +278,8 @@ async def place_equity_order(
     """
     ensure_write_access()
     # Build the core order specification builder
-    client = get_orders_client(ctx)
+    context = get_context(ctx)
+    client = context.orders
 
     order_spec_builder = _build_equity_order_spec(
         symbol, quantity, instruction, order_type, price, stop_price
@@ -292,12 +307,15 @@ async def place_option_order(
         str, "BUY_TO_OPEN, SELL_TO_OPEN, BUY_TO_CLOSE, or SELL_TO_CLOSE"
     ],
     order_type: Annotated[str, "Order type: MARKET or LIMIT"],
-    price: Annotated[float | None, "Required for LIMIT orders (price per contract)"] = None,
+    price: Annotated[
+        float | None, "Required for LIMIT orders (price per contract)"
+    ] = None,
     session: Annotated[
         str | None, "Trading session: NORMAL (default), AM, PM, or SEAMLESS"
     ] = "NORMAL",
     duration: Annotated[
-        str | None, "Order duration: DAY (default), GOOD_TILL_CANCEL, FILL_OR_KILL (Limit only)"
+        str | None,
+        "Order duration: DAY (default), GOOD_TILL_CANCEL, FILL_OR_KILL (Limit only)",
     ] = "DAY",
 ) -> str:
     """
@@ -309,7 +327,8 @@ async def place_option_order(
     """
     ensure_write_access()
     # Build the core order specification builder
-    client = get_orders_client(ctx)
+    context = get_context(ctx)
+    client = context.orders
 
     order_spec_builder = _build_option_order_spec(
         symbol, quantity, instruction, order_type, price
@@ -336,14 +355,13 @@ async def build_equity_order_spec(
     price: Annotated[
         float | None, "Required for LIMIT; Limit price for STOP_LIMIT"
     ] = None,
-    stop_price: Annotated[
-        float | None, "Required for STOP and STOP_LIMIT"
-    ] = None,
+    stop_price: Annotated[float | None, "Required for STOP and STOP_LIMIT"] = None,
     session: Annotated[
         str | None, "Trading session: NORMAL (default), AM, PM, or SEAMLESS"
     ] = "NORMAL",
     duration: Annotated[
-        str | None, "Order duration: DAY (default), GOOD_TILL_CANCEL, FILL_OR_KILL (Limit/StopLimit only)"
+        str | None,
+        "Order duration: DAY (default), GOOD_TILL_CANCEL, FILL_OR_KILL (Limit/StopLimit only)",
     ] = "DAY",
 ) -> dict[str, Any]:
     """
@@ -372,12 +390,15 @@ async def build_option_order_spec(
         str, "BUY_TO_OPEN, SELL_TO_OPEN, BUY_TO_CLOSE, or SELL_TO_CLOSE"
     ],
     order_type: Annotated[str, "Order type: MARKET or LIMIT"],
-    price: Annotated[float | None, "Required for LIMIT orders (price per contract)"] = None,
+    price: Annotated[
+        float | None, "Required for LIMIT orders (price per contract)"
+    ] = None,
     session: Annotated[
         str | None, "Trading session: NORMAL (default), AM, PM, or SEAMLESS"
     ] = "NORMAL",
     duration: Annotated[
-        str | None, "Order duration: DAY (default), GOOD_TILL_CANCEL, FILL_OR_KILL (Limit only)"
+        str | None,
+        "Order duration: DAY (default), GOOD_TILL_CANCEL, FILL_OR_KILL (Limit only)",
     ] = "DAY",
 ) -> dict[str, Any]:
     """
@@ -423,7 +444,8 @@ async def place_one_cancels_other_order(
     }
 
     # Place the order
-    client = get_orders_client(ctx)
+    context = get_context(ctx)
+    client = context.orders
 
     return await call(
         client.place_order, account_hash=account_hash, order_spec=oco_order_spec
@@ -435,7 +457,8 @@ async def place_first_triggers_second_order(
     ctx: Context,
     account_hash: Annotated[str, "Account hash for the Schwab account"],
     first_order_spec: Annotated[
-        dict, "First (primary) order specification (dict from build_equity/option_order_spec)"
+        dict,
+        "First (primary) order specification (dict from build_equity/option_order_spec)",
     ],
     second_order_spec: Annotated[
         dict,
@@ -451,12 +474,14 @@ async def place_first_triggers_second_order(
     # Manually construct the Trigger order dictionary structure
     # According to schwab-py's trigger_builder, the second order becomes a child of the first.
     # We modify the first spec dictionary directly.
-    client = get_orders_client(ctx)
+    context = get_context(ctx)
+    client = context.orders
 
-    trigger_order_spec = first_order_spec.copy() # Avoid modifying the original input dict
+    trigger_order_spec = (
+        first_order_spec.copy()
+    )  # Avoid modifying the original input dict
     trigger_order_spec["orderStrategyType"] = "TRIGGER"
     trigger_order_spec["childOrderStrategies"] = [second_order_spec]
-
 
     # Place the order
     return await call(
@@ -468,10 +493,16 @@ async def place_first_triggers_second_order(
 
 @register(write=True)
 async def create_option_symbol(
-    underlying_symbol: Annotated[str, "Symbol of the underlying security (e.g., 'SPY', 'AAPL')"],
-    expiration_date: Annotated[str, "Expiration date in YYMMDD format (e.g., '230616')"],
-    contract_type: Annotated[str, "Contract type: 'C' or 'CALL' for calls, 'P' or 'PUT' for puts"],
-    strike_price: Annotated[str, "Strike price as a string (e.g., '400', '150.5')"]
+    underlying_symbol: Annotated[
+        str, "Symbol of the underlying security (e.g., 'SPY', 'AAPL')"
+    ],
+    expiration_date: Annotated[
+        str, "Expiration date in YYMMDD format (e.g., '230616')"
+    ],
+    contract_type: Annotated[
+        str, "Contract type: 'C' or 'CALL' for calls, 'P' or 'PUT' for puts"
+    ],
+    strike_price: Annotated[str, "Strike price as a string (e.g., '400', '150.5')"],
 ) -> str:
     """
     Creates formatted option symbol string from components (e.g., 'SPY 230616C400').
@@ -480,7 +511,9 @@ async def create_option_symbol(
     """
     ensure_write_access()
     # The OptionSymbol helper expects YYMMDD format directly.
-    option_symbol = OptionSymbol(underlying_symbol, expiration_date, contract_type, strike_price)
+    option_symbol = OptionSymbol(
+        underlying_symbol, expiration_date, contract_type, strike_price
+    )
     return option_symbol.build()
 
 
@@ -494,7 +527,9 @@ async def place_bracket_order(
     entry_type: Annotated[str, "Entry order type: MARKET, LIMIT, STOP, or STOP_LIMIT"],
     profit_price: Annotated[float, "Take-profit limit price"],
     loss_price: Annotated[float, "Stop-loss trigger price"],
-    entry_price: Annotated[float | None, "Required for LIMIT entry; Limit price for STOP_LIMIT entry"] = None,
+    entry_price: Annotated[
+        float | None, "Required for LIMIT entry; Limit price for STOP_LIMIT entry"
+    ] = None,
     entry_stop_price: Annotated[
         float | None, "Required for STOP and STOP_LIMIT entry orders"
     ] = None,
@@ -515,11 +550,14 @@ async def place_bracket_order(
     """
     ensure_write_access()
     # Validate entry instruction
-    client = get_orders_client(ctx)
+    context = get_context(ctx)
+    client = context.orders
 
     entry_instruction = entry_instruction.upper()
     if entry_instruction not in ["BUY", "SELL"]:
-        raise ValueError(f"Invalid entry_instruction: {entry_instruction}. Use BUY or SELL.")
+        raise ValueError(
+            f"Invalid entry_instruction: {entry_instruction}. Use BUY or SELL."
+        )
 
     # Determine exit instructions (opposite of entry)
     exit_instruction = "SELL" if entry_instruction == "BUY" else "BUY"
@@ -536,24 +574,23 @@ async def place_bracket_order(
     # Apply settings to entry order builder
     entry_order_builder = _apply_order_settings(entry_order_builder, session, duration)
 
-
     # Create take-profit (limit) order spec builder
     if exit_instruction == "BUY":
         profit_order_builder = equity_buy_limit(symbol, quantity, profit_price)
-    else: # SELL
+    else:  # SELL
         profit_order_builder = equity_sell_limit(symbol, quantity, profit_price)
     # Apply settings to profit order builder
-    profit_order_builder = _apply_order_settings(profit_order_builder, session, duration)
-
+    profit_order_builder = _apply_order_settings(
+        profit_order_builder, session, duration
+    )
 
     # Create stop-loss (stop) order spec builder
     if exit_instruction == "BUY":
         loss_order_builder = equity_buy_stop(symbol, quantity, loss_price)
-    else: # SELL
+    else:  # SELL
         loss_order_builder = equity_sell_stop(symbol, quantity, loss_price)
     # Apply settings to loss order builder
     loss_order_builder = _apply_order_settings(loss_order_builder, session, duration)
-
 
     # Create OCO order builder for take-profit and stop-loss using the builder helper
     oco_exit_order_builder = oco_builder(profit_order_builder, loss_order_builder)

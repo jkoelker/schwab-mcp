@@ -15,10 +15,10 @@ from schwab_mcp.tools import orders as _orders  # noqa: F401
 from schwab_mcp.tools import quotes as _quotes  # noqa: F401
 from schwab_mcp.tools import transactions as _txns  # noqa: F401
 
+
 def register_tools(server: FastMCP, client: AsyncClient, *, allow_write: bool) -> None:
     """Register all Schwab tools with the provided FastMCP server."""
     tool_utils.set_write_enabled(allow_write)
-    setattr(server, "_schwab_client", client)
 
     for func in iter_registered_tools():
         if getattr(func, "_write", False) and not allow_write:

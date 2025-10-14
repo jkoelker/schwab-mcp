@@ -5,7 +5,7 @@ from typing import Annotated
 from mcp.server.fastmcp import Context
 
 from schwab_mcp.tools.registry import register
-from schwab_mcp.tools.utils import call, get_account_client
+from schwab_mcp.tools.utils import call, get_context
 
 
 @register
@@ -15,8 +15,8 @@ async def get_account_numbers(
     """
     Returns mapping of account IDs to account hashes. Hashes required for account-specific calls. Use first.
     """
-    client = get_account_client(ctx)
-    return await call(client.get_account_numbers)
+    context = get_context(ctx)
+    return await call(context.accounts.get_account_numbers)
 
 
 @register
@@ -26,8 +26,8 @@ async def get_accounts(
     """
     Returns balances/info for all linked accounts (funds, cash, margin). Does not return hashes; use get_account_numbers first.
     """
-    client = get_account_client(ctx)
-    return await call(client.get_accounts)
+    context = get_context(ctx)
+    return await call(context.accounts.get_accounts)
 
 
 @register
@@ -37,8 +37,11 @@ async def get_accounts_with_positions(
     """
     Returns balances, info, and positions (holdings, cost, gain/loss) for all linked accounts. Does not return hashes; use get_account_numbers first.
     """
-    client = get_account_client(ctx)
-    return await call(client.get_accounts, fields=[client.Account.Fields.POSITIONS])
+    context = get_context(ctx)
+    return await call(
+        context.accounts.get_accounts,
+        fields=[context.accounts.Account.Fields.POSITIONS],
+    )
 
 
 @register
@@ -49,8 +52,8 @@ async def get_account(
     """
     Returns balance/info for a specific account via account_hash (from get_account_numbers). Includes funds, cash, margin info.
     """
-    client = get_account_client(ctx)
-    return await call(client.get_account, account_hash)
+    context = get_context(ctx)
+    return await call(context.accounts.get_account, account_hash)
 
 
 @register
@@ -61,9 +64,11 @@ async def get_account_with_positions(
     """
     Returns balance, info, and positions for a specific account via account_hash. Includes holdings, quantity, cost basis, unrealized gain/loss.
     """
-    client = get_account_client(ctx)
+    context = get_context(ctx)
     return await call(
-        client.get_account, account_hash, fields=[client.Account.Fields.POSITIONS]
+        context.accounts.get_account,
+        account_hash,
+        fields=[context.accounts.Account.Fields.POSITIONS],
     )
 
 
@@ -74,5 +79,5 @@ async def get_user_preferences(
     """
     Returns user preferences (nicknames, display settings, notifications) for all linked accounts.
     """
-    client = get_account_client(ctx)
-    return await call(client.get_user_preferences)
+    context = get_context(ctx)
+    return await call(context.accounts.get_user_preferences)

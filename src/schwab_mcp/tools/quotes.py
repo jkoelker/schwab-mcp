@@ -1,18 +1,19 @@
-# 
+#
 
 from typing import Annotated
 
 from mcp.server.fastmcp import Context
 
 from schwab_mcp.tools.registry import register
-from schwab_mcp.tools.utils import call, get_quotes_client
+from schwab_mcp.tools.utils import call, get_context
 
 
 @register
 async def get_quotes(
     ctx: Context,
     symbols: Annotated[
-        list[str] | str, "List of symbols or comma-separated string (e.g., ['AAPL', 'MSFT'] or 'GOOG,AMZN')"
+        list[str] | str,
+        "List of symbols or comma-separated string (e.g., ['AAPL', 'MSFT'] or 'GOOG,AMZN')",
     ],
     fields: Annotated[
         list[str] | str | None,
@@ -26,7 +27,8 @@ async def get_quotes(
     Returns current market quotes for specified symbols (stocks, ETFs, indices, options).
     Params: symbols (list or comma-separated string), fields (list/str: QUOTE/FUNDAMENTAL/etc.), indicative (bool).
     """
-    client = get_quotes_client(ctx)
+    context = get_context(ctx)
+    client = context.quotes
 
     if isinstance(symbols, str):
         symbols = [s.strip() for s in symbols.split(",")]
@@ -36,7 +38,6 @@ async def get_quotes(
         if isinstance(fields, str):
             fields = [f.strip() for f in fields.split(",")]
         field_enums = [client.Quote.Fields[f.upper()] for f in fields]
-
 
     return await call(
         client.get_quotes,

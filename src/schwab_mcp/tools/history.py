@@ -6,7 +6,7 @@ import datetime
 from mcp.server.fastmcp import Context
 
 from schwab_mcp.tools.registry import register
-from schwab_mcp.tools.utils import call, get_price_history_client
+from schwab_mcp.tools.utils import call, get_context
 
 
 def _parse_iso_datetime(value: str | None) -> datetime.datetime | None:
@@ -17,7 +17,9 @@ def _parse_iso_datetime(value: str | None) -> datetime.datetime | None:
 async def get_advanced_price_history(
     ctx: Context,
     symbol: Annotated[str, "Symbol of the security"],
-    period_type: Annotated[str | None, "Period type: DAY, MONTH, YEAR, YEAR_TO_DATE"] = None,
+    period_type: Annotated[
+        str | None, "Period type: DAY, MONTH, YEAR, YEAR_TO_DATE"
+    ] = None,
     period: Annotated[
         str | None,
         (
@@ -26,7 +28,8 @@ async def get_advanced_price_history(
         ),
     ] = None,
     frequency_type: Annotated[
-        str | None, "Frequency type: MINUTE (for DAY), DAILY/WEEKLY (for MONTH/YTD), DAILY/WEEKLY/MONTHLY (for YEAR)"
+        str | None,
+        "Frequency type: MINUTE (for DAY), DAILY/WEEKLY (for MONTH/YTD), DAILY/WEEKLY/MONTHLY (for YEAR)",
     ] = None,
     frequency: Annotated[
         int | str | None,
@@ -57,16 +60,15 @@ async def get_advanced_price_history(
       YEAR_TO_DATE: DAILY, WEEKLY (default)
     Dates must be in ISO format.
     """
-    client = get_price_history_client(ctx)
+    context = get_context(ctx)
+    client = context.price_history
 
     start_dt = _parse_iso_datetime(start_datetime)
     end_dt = _parse_iso_datetime(end_datetime)
 
     # Normalize enum-like strings
     period_type_enum = (
-        client.PriceHistory.PeriodType[period_type.upper()]
-        if period_type
-        else None
+        client.PriceHistory.PeriodType[period_type.upper()] if period_type else None
     )
     period_enum = client.PriceHistory.Period[period.upper()] if period else None
     frequency_type_enum = (
@@ -109,7 +111,8 @@ async def get_price_history_every_minute(
     """
     Get OHLCV price history per minute. For detailed intraday analysis. Max 48 days history. Dates ISO format.
     """
-    client = get_price_history_client(ctx)
+    context = get_context(ctx)
+    client = context.price_history
 
     start_dt = _parse_iso_datetime(start_datetime)
     end_dt = _parse_iso_datetime(end_datetime)
@@ -140,7 +143,8 @@ async def get_price_history_every_five_minutes(
     """
     Get OHLCV price history per 5 minutes. Balance between detail and noise. Approx. 9 months history. Dates ISO format.
     """
-    client = get_price_history_client(ctx)
+    context = get_context(ctx)
+    client = context.price_history
 
     start_dt = _parse_iso_datetime(start_datetime)
     end_dt = _parse_iso_datetime(end_datetime)
@@ -171,7 +175,8 @@ async def get_price_history_every_ten_minutes(
     """
     Get OHLCV price history per 10 minutes. Good for intraday trends/levels. Approx. 9 months history. Dates ISO format.
     """
-    client = get_price_history_client(ctx)
+    context = get_context(ctx)
+    client = context.price_history
 
     start_dt = _parse_iso_datetime(start_datetime)
     end_dt = _parse_iso_datetime(end_datetime)
@@ -202,7 +207,8 @@ async def get_price_history_every_fifteen_minutes(
     """
     Get OHLCV price history per 15 minutes. Shows significant intraday moves, filters noise. Approx. 9 months history. Dates ISO format.
     """
-    client = get_price_history_client(ctx)
+    context = get_context(ctx)
+    client = context.price_history
 
     start_dt = _parse_iso_datetime(start_datetime)
     end_dt = _parse_iso_datetime(end_datetime)
@@ -233,7 +239,8 @@ async def get_price_history_every_thirty_minutes(
     """
     Get OHLCV price history per 30 minutes. For broader intraday trends, filters noise. Approx. 9 months history. Dates ISO format.
     """
-    client = get_price_history_client(ctx)
+    context = get_context(ctx)
+    client = context.price_history
 
     start_dt = _parse_iso_datetime(start_datetime)
     end_dt = _parse_iso_datetime(end_datetime)
@@ -270,7 +277,8 @@ async def get_price_history_every_day(
     """
     Get daily OHLCV price history. For medium/long-term analysis. Extensive history (back to 1985 possible). Dates ISO format.
     """
-    client = get_price_history_client(ctx)
+    context = get_context(ctx)
+    client = context.price_history
 
     start_dt = _parse_iso_datetime(start_datetime)
     end_dt = _parse_iso_datetime(end_datetime)
@@ -301,7 +309,8 @@ async def get_price_history_every_week(
     """
     Get weekly OHLCV price history. For long-term analysis, major cycles. Extensive history (back to 1985 possible). Dates ISO format.
     """
-    client = get_price_history_client(ctx)
+    context = get_context(ctx)
+    client = context.price_history
 
     start_dt = _parse_iso_datetime(start_datetime)
     end_dt = _parse_iso_datetime(end_datetime)

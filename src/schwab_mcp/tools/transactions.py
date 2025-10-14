@@ -6,7 +6,7 @@ import datetime
 from mcp.server.fastmcp import Context
 
 from schwab_mcp.tools.registry import register
-from schwab_mcp.tools.utils import call, get_transactions_client
+from schwab_mcp.tools.utils import call, get_context
 
 
 @register
@@ -19,9 +19,7 @@ async def get_transactions(
         str | None,
         "Start date ('YYYY-MM-DD', max 60 days past, default 60 days ago)",
     ] = None,
-    end_date: Annotated[
-        str | None, "End date ('YYYY-MM-DD', default today)"
-    ] = None,
+    end_date: Annotated[str | None, "End date ('YYYY-MM-DD', default today)"] = None,
     transaction_type: Annotated[
         list[str] | str | None,
         "Filter by type(s) (list/str): TRADE, DIVIDEND_OR_INTEREST, ACH_RECEIPT, etc. Default all.",
@@ -33,7 +31,8 @@ async def get_transactions(
     Params: account_hash, start_date (YYYY-MM-DD), end_date (YYYY-MM-DD), transaction_type (list/str: TRADE/DIVIDEND_OR_INTEREST/etc.), symbol.
     Use tomorrow's date as end_date for today's transactions. See full type list in original docstring if needed.
     """
-    client = get_transactions_client(ctx)
+    context = get_context(ctx)
+    client = context.transactions
 
     start_date_obj = None
     end_date_obj = None
@@ -58,7 +57,7 @@ async def get_transactions(
         account_hash,
         start_date=start_date_obj,
         end_date=end_date_obj,
-        transaction_types=transaction_type_enums, # Corrected keyword argument
+        transaction_types=transaction_type_enums,  # Corrected keyword argument
         symbol=symbol,
     )
 
@@ -73,5 +72,6 @@ async def get_transaction(
     Get detailed info for a specific transaction by ID.
     Params: account_hash, transaction_id (from get_transactions).
     """
-    client = get_transactions_client(ctx)
+    context = get_context(ctx)
+    client = context.transactions
     return await call(client.get_transaction, account_hash, transaction_id)

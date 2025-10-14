@@ -114,7 +114,9 @@ def test_register_tools_uses_annotations(monkeypatch: pytest.MonkeyPatch) -> Non
     registered_functions = {entry["fn"] for entry in server_read_write.tools}
     assert registered_functions == {read_tool, write_tool}
 
-    write_entry = next(entry for entry in server_read_write.tools if entry["fn"] is write_tool)
+    write_entry = next(
+        entry for entry in server_read_write.tools if entry["fn"] is write_tool
+    )
     assert isinstance(write_entry["annotations"], ToolAnnotations)
     assert write_entry["annotations"].readOnlyHint is False
     assert write_entry["annotations"].destructiveHint is True

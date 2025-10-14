@@ -22,9 +22,8 @@ def __equity_base_builder(session=Session.NORMAL, duration=Duration.DAY):
         .set_order_strategy_type(OrderStrategyType.SINGLE)
     )
 
-def equity_buy_market(
-    symbol, quantity, duration=Duration.DAY, session=Session.NORMAL
-):
+
+def equity_buy_market(symbol, quantity, duration=Duration.DAY, session=Session.NORMAL):
     """
     Returns a pre-filled OrderBuilder for an equity buy market order.
     """
@@ -35,9 +34,7 @@ def equity_buy_market(
     )
 
 
-def equity_sell_market(
-    symbol, quantity, duration=Duration.DAY, session=Session.NORMAL
-):
+def equity_sell_market(symbol, quantity, duration=Duration.DAY, session=Session.NORMAL):
     """
     Returns a pre-filled OrderBuilder for an equity sell market order.
     """
@@ -74,6 +71,7 @@ def equity_sell_limit(
         .set_price(price)
         .add_equity_leg(EquityInstruction.SELL, symbol, quantity)
     )
+
 
 def equity_buy_stop(
     symbol, quantity, stop_price, duration=Duration.DAY, session=Session.NORMAL

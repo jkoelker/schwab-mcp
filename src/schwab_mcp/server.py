@@ -1,13 +1,41 @@
 from __future__ import annotations
 
+import logging
 import sys
-from typing import Optional
+from collections.abc import AsyncGenerator
+from contextlib import asynccontextmanager
+from typing import AsyncContextManager, Callable, Optional
 
 import mcp.types as types
 from mcp.server.fastmcp import FastMCP
 from schwab.client import AsyncClient
 
 from schwab_mcp.tools import register_tools
+from schwab_mcp.context import SchwabServerContext
+
+
+logger = logging.getLogger(__name__)
+
+
+def _client_lifespan(
+    client: AsyncClient,
+) -> Callable[[FastMCP], AsyncContextManager[SchwabServerContext]]:
+    """Create a FastMCP lifespan context that exposes the Schwab async client."""
+
+    @asynccontextmanager
+    async def lifespan(_: FastMCP) -> AsyncGenerator[SchwabServerContext, None]:
+        context = SchwabServerContext(client=client)
+        try:
+            yield context
+        finally:
+            try:
+                await client.close_async_session()
+            except Exception:
+                logger.exception(
+                    "Failed to close Schwab async client session during shutdown."
+                )
+
+    return lifespan
 
 
 class SchwabMCPServer:
@@ -19,7 +47,7 @@ class SchwabMCPServer:
         client: AsyncClient,
         jesus_take_the_wheel: bool = False,
     ) -> None:
-        self._server = FastMCP(name=name)
+        self._server = FastMCP(name=name, lifespan=_client_lifespan(client))
         register_tools(self._server, client, allow_write=jesus_take_the_wheel)
 
     async def run(self) -> None:

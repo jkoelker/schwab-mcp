@@ -2,9 +2,11 @@ import asyncio
 import datetime
 from enum import Enum
 from types import SimpleNamespace
-from typing import Any
+from typing import Any, cast
 
+from schwab.client import AsyncClient
 from schwab_mcp.tools import history
+from schwab_mcp.context import SchwabServerContext
 
 
 class DummyHistoryClient:
@@ -26,7 +28,9 @@ def run(coro):
 
 
 def make_ctx(client: Any) -> Any:
-    return SimpleNamespace(fastmcp=SimpleNamespace(_schwab_client=client))
+    lifespan_context = SchwabServerContext(client=cast(AsyncClient, client))
+    request_context = SimpleNamespace(lifespan_context=lifespan_context)
+    return SimpleNamespace(fastmcp=SimpleNamespace(), request_context=request_context)
 
 
 def test_get_advanced_price_history_normalizes_inputs(monkeypatch):

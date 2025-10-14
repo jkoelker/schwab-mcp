@@ -6,7 +6,7 @@ import datetime
 from mcp.server.fastmcp import Context
 
 from schwab_mcp.tools.registry import register
-from schwab_mcp.tools.utils import call, get_options_client
+from schwab_mcp.tools.utils import call, get_context
 
 
 def _parse_date(value: str | datetime.date | None) -> datetime.date | None:
@@ -47,7 +47,8 @@ async def get_option_chain(
     Params: symbol, contract_type (CALL/PUT/ALL), strike_count (default 25), include_quotes (bool), from_date (YYYY-MM-DD), to_date (YYYY-MM-DD).
     Limit data returned using strike_count and date parameters.
     """
-    client = get_options_client(ctx)
+    context = get_context(ctx)
+    client = context.options
 
     from_date_obj = _parse_date(from_date)
     to_date_obj = _parse_date(to_date)
@@ -55,8 +56,7 @@ async def get_option_chain(
     return await call(
         client.get_option_chain,
         symbol,
-        contract_type=
-        client.Options.ContractType[contract_type.upper()]
+        contract_type=client.Options.ContractType[contract_type.upper()]
         if contract_type
         else None,
         strike_count=strike_count,
@@ -70,7 +70,9 @@ async def get_option_chain(
 async def get_advanced_option_chain(
     ctx: Context,
     symbol: Annotated[str, "Symbol of the underlying security"],
-    contract_type: Annotated[str | None, "Type of contracts: CALL, PUT, or ALL (default)"] = None,
+    contract_type: Annotated[
+        str | None, "Type of contracts: CALL, PUT, or ALL (default)"
+    ] = None,
     strike_count: Annotated[
         int,
         "Number of strikes above/below the at-the-money price (default: 25)",
@@ -88,17 +90,18 @@ async def get_advanced_option_chain(
     ] = None,
     strike: Annotated[float | None, "Only return options with the given strike"] = None,
     strike_range: Annotated[
-        str | None, "Filter strikes: IN_THE_MONEY, NEAR_THE_MONEY, OUT_OF_THE_MONEY, STRIKES_ABOVE_MARKET, STRIKES_BELOW_MARKET, STRIKES_NEAR_MARKET, ALL (default)"
+        str | None,
+        "Filter strikes: IN_THE_MONEY, NEAR_THE_MONEY, OUT_OF_THE_MONEY, STRIKES_ABOVE_MARKET, STRIKES_BELOW_MARKET, STRIKES_NEAR_MARKET, ALL (default)",
     ] = None,
     from_date: Annotated[
-        str | datetime.date | None, "Start date for options ('YYYY-MM-DD' or datetime.date)"
+        str | datetime.date | None,
+        "Start date for options ('YYYY-MM-DD' or datetime.date)",
     ] = None,
     to_date: Annotated[
-        str | datetime.date | None, "End date for options ('YYYY-MM-DD' or datetime.date)"
+        str | datetime.date | None,
+        "End date for options ('YYYY-MM-DD' or datetime.date)",
     ] = None,
-    volatility: Annotated[
-        float | None, "Volatility for ANALYTICAL strategy"
-    ] = None,
+    volatility: Annotated[float | None, "Volatility for ANALYTICAL strategy"] = None,
     underlying_price: Annotated[
         float | None, "Underlying price for ANALYTICAL strategy"
     ] = None,
@@ -111,14 +114,17 @@ async def get_advanced_option_chain(
     exp_month: Annotated[
         str | None, "Expiration month (e.g., JAN) for ANALYTICAL strategy"
     ] = None,
-    option_type: Annotated[str | None, "Filter option type: STANDARD, NON_STANDARD, ALL (default)"] = None,
+    option_type: Annotated[
+        str | None, "Filter option type: STANDARD, NON_STANDARD, ALL (default)"
+    ] = None,
 ) -> str:
     """
     Returns advanced option chain data with strategies, filters, and theoretical calculations. Use for complex analysis.
     Params: symbol, contract_type, strike_count, include_quotes, strategy (SINGLE/ANALYTICAL/etc.), interval, strike, strike_range (ITM/NTM/etc.), from/to_date, volatility/underlying_price/interest_rate/days_to_expiration (for ANALYTICAL), exp_month, option_type (STANDARD/NON_STANDARD/ALL).
     Limit data returned using strike_count and date parameters.
     """
-    client = get_options_client(ctx)
+    context = get_context(ctx)
+    client = context.options
 
     from_date_obj = _parse_date(from_date)
     to_date_obj = _parse_date(to_date)
@@ -126,8 +132,7 @@ async def get_advanced_option_chain(
     return await call(
         client.get_option_chain,
         symbol,
-        contract_type=
-        client.Options.ContractType[contract_type.upper()]
+        contract_type=client.Options.ContractType[contract_type.upper()]
         if contract_type
         else None,
         strike_count=strike_count,
@@ -135,8 +140,7 @@ async def get_advanced_option_chain(
         strategy=client.Options.Strategy[strategy.upper()] if strategy else None,
         interval=interval,
         strike=strike,
-        strike_range=
-        client.Options.StrikeRange[strike_range.upper()]
+        strike_range=client.Options.StrikeRange[strike_range.upper()]
         if strike_range
         else None,
         from_date=from_date_obj,
@@ -145,14 +149,10 @@ async def get_advanced_option_chain(
         underlying_price=underlying_price,
         interest_rate=interest_rate,
         days_to_expiration=days_to_expiration,
-        exp_month=
-        client.Options.ExpirationMonth[exp_month.upper()]
+        exp_month=client.Options.ExpirationMonth[exp_month.upper()]
         if exp_month
         else None,
-        option_type=
-        client.Options.Type[option_type.upper()]
-        if option_type
-        else None,
+        option_type=client.Options.Type[option_type.upper()] if option_type else None,
     )
 
 
@@ -164,5 +164,6 @@ async def get_option_expiration_chain(
     """
     Returns available option expiration dates for a symbol, without contract details. Lightweight call to find available cycles. Param: symbol.
     """
-    client = get_options_client(ctx)
+    context = get_context(ctx)
+    client = context.options
     return await call(client.get_option_expiration_chain, symbol)
