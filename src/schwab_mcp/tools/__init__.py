@@ -23,7 +23,14 @@ def register_tools(server: FastMCP, client: AsyncClient, *, allow_write: bool) -
     for func in iter_registered_tools():
         if getattr(func, "_write", False) and not allow_write:
             continue
-        server.tool(name=func.__name__, description=func.__doc__)(func)
+        annotations = getattr(func, "_tool_annotations", None)
+        tool_kwargs = {
+            "name": func.__name__,
+            "description": func.__doc__,
+        }
+        if annotations is not None:
+            tool_kwargs["annotations"] = annotations
+        server.tool(**tool_kwargs)(func)
 
 
 __all__ = ["register_tools", "register"]
