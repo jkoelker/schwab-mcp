@@ -2,12 +2,13 @@
 
 from typing import Annotated
 
+from mcp.server.fastmcp import FastMCP
+
 from schwab_mcp.context import SchwabContext, SchwabServerContext
-from schwab_mcp.tools.registry import register
+from schwab_mcp.tools._registration import register_tool
 from schwab_mcp.tools.utils import JSONType, call
 
 
-@register
 async def get_account_numbers(
     ctx: SchwabContext,
 ) -> JSONType:
@@ -18,7 +19,6 @@ async def get_account_numbers(
     return await call(context.accounts.get_account_numbers)
 
 
-@register
 async def get_accounts(
     ctx: SchwabContext,
 ) -> JSONType:
@@ -29,7 +29,6 @@ async def get_accounts(
     return await call(context.accounts.get_accounts)
 
 
-@register
 async def get_accounts_with_positions(
     ctx: SchwabContext,
 ) -> JSONType:
@@ -43,7 +42,6 @@ async def get_accounts_with_positions(
     )
 
 
-@register
 async def get_account(
     ctx: SchwabContext,
     account_hash: Annotated[str, "Account hash for the Schwab account"],
@@ -55,7 +53,6 @@ async def get_account(
     return await call(context.accounts.get_account, account_hash)
 
 
-@register
 async def get_account_with_positions(
     ctx: SchwabContext,
     account_hash: Annotated[str, "Account hash for the Schwab account"],
@@ -71,7 +68,6 @@ async def get_account_with_positions(
     )
 
 
-@register
 async def get_user_preferences(
     ctx: SchwabContext,
 ) -> JSONType:
@@ -80,3 +76,19 @@ async def get_user_preferences(
     """
     context: SchwabServerContext = ctx.request_context.lifespan_context
     return await call(context.accounts.get_user_preferences)
+
+
+_READ_ONLY_TOOLS = (
+    get_account_numbers,
+    get_accounts,
+    get_accounts_with_positions,
+    get_account,
+    get_account_with_positions,
+    get_user_preferences,
+)
+
+
+def register(server: FastMCP, *, allow_write: bool) -> None:
+    _ = allow_write
+    for func in _READ_ONLY_TOOLS:
+        register_tool(server, func)

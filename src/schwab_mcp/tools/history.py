@@ -3,9 +3,10 @@
 from typing import Annotated
 
 import datetime
+from mcp.server.fastmcp import FastMCP
 
 from schwab_mcp.context import SchwabContext, SchwabServerContext
-from schwab_mcp.tools.registry import register
+from schwab_mcp.tools._registration import register_tool
 from schwab_mcp.tools.utils import JSONType, call
 
 
@@ -13,7 +14,6 @@ def _parse_iso_datetime(value: str | None) -> datetime.datetime | None:
     return datetime.datetime.fromisoformat(value) if value is not None else None
 
 
-@register
 async def get_advanced_price_history(
     ctx: SchwabContext,
     symbol: Annotated[str, "Symbol of the security"],
@@ -95,7 +95,6 @@ async def get_advanced_price_history(
     )
 
 
-@register
 async def get_price_history_every_minute(
     ctx: SchwabContext,
     symbol: Annotated[str, "Symbol of the security"],
@@ -127,7 +126,6 @@ async def get_price_history_every_minute(
     )
 
 
-@register
 async def get_price_history_every_five_minutes(
     ctx: SchwabContext,
     symbol: Annotated[str, "Symbol of the security"],
@@ -159,7 +157,6 @@ async def get_price_history_every_five_minutes(
     )
 
 
-@register
 async def get_price_history_every_ten_minutes(
     ctx: SchwabContext,
     symbol: Annotated[str, "Symbol of the security"],
@@ -191,7 +188,6 @@ async def get_price_history_every_ten_minutes(
     )
 
 
-@register
 async def get_price_history_every_fifteen_minutes(
     ctx: SchwabContext,
     symbol: Annotated[str, "Symbol of the security"],
@@ -223,7 +219,6 @@ async def get_price_history_every_fifteen_minutes(
     )
 
 
-@register
 async def get_price_history_every_thirty_minutes(
     ctx: SchwabContext,
     symbol: Annotated[str, "Symbol of the security"],
@@ -255,7 +250,6 @@ async def get_price_history_every_thirty_minutes(
     )
 
 
-@register
 async def get_price_history_every_day(
     ctx: SchwabContext,
     symbol: Annotated[str, "Symbol of the security to fetch price history for"],
@@ -293,7 +287,6 @@ async def get_price_history_every_day(
     )
 
 
-@register
 async def get_price_history_every_week(
     ctx: SchwabContext,
     symbol: Annotated[str, "Symbol of the security"],
@@ -323,3 +316,21 @@ async def get_price_history_every_week(
         need_extended_hours_data=extended_hours,
         need_previous_close=previous_close,
     )
+
+
+_READ_ONLY_TOOLS = (
+    get_advanced_price_history,
+    get_price_history_every_minute,
+    get_price_history_every_five_minutes,
+    get_price_history_every_ten_minutes,
+    get_price_history_every_fifteen_minutes,
+    get_price_history_every_thirty_minutes,
+    get_price_history_every_day,
+    get_price_history_every_week,
+)
+
+
+def register(server: FastMCP, *, allow_write: bool) -> None:
+    _ = allow_write
+    for func in _READ_ONLY_TOOLS:
+        register_tool(server, func)

@@ -3,30 +3,31 @@
 from typing import Annotated, Any, cast
 
 import datetime
-from schwab.orders.common import one_cancels_other as oco_builder
+from mcp.server.fastmcp import FastMCP
 from schwab.orders.common import first_triggers_second as trigger_builder
-
-from schwab_mcp.tools.order_helpers import (
-    equity_buy_market,
-    equity_sell_market,
-    equity_buy_limit,
-    equity_sell_limit,
-    equity_buy_stop,
-    equity_sell_stop,
-    equity_buy_stop_limit,
-    equity_sell_stop_limit,
-    option_buy_to_open_market,
-    option_sell_to_open_market,
-    option_buy_to_close_market,
-    option_sell_to_close_market,
-    option_buy_to_open_limit,
-    option_sell_to_open_limit,
-    option_buy_to_close_limit,
-    option_sell_to_close_limit,
-)
+from schwab.orders.common import one_cancels_other as oco_builder
 from schwab.orders.options import OptionSymbol
+
 from schwab_mcp.context import SchwabContext, SchwabServerContext
-from schwab_mcp.tools.registry import register
+from schwab_mcp.tools._registration import register_tool
+from schwab_mcp.tools.order_helpers import (
+    equity_buy_limit,
+    equity_buy_market,
+    equity_buy_stop,
+    equity_buy_stop_limit,
+    equity_sell_limit,
+    equity_sell_market,
+    equity_sell_stop,
+    equity_sell_stop_limit,
+    option_buy_to_close_limit,
+    option_buy_to_close_market,
+    option_buy_to_open_limit,
+    option_buy_to_open_market,
+    option_sell_to_close_limit,
+    option_sell_to_close_market,
+    option_sell_to_open_limit,
+    option_sell_to_open_market,
+)
 from schwab_mcp.tools.utils import JSONType, call
 
 
@@ -165,7 +166,6 @@ def _build_option_order_spec(
         )
 
 
-@register
 async def get_order(
     ctx: SchwabContext,
     account_hash: Annotated[str, "Account hash for the Schwab account"],
@@ -179,7 +179,6 @@ async def get_order(
     return await call(client.get_order, order_id=order_id, account_hash=account_hash)
 
 
-@register
 async def get_orders(
     ctx: SchwabContext,
     account_hash: Annotated[
@@ -234,7 +233,6 @@ async def get_orders(
     )
 
 
-@register(write=True)
 async def cancel_order(
     ctx: SchwabContext,
     account_hash: Annotated[str, "Account hash for the Schwab account"],
@@ -248,7 +246,6 @@ async def cancel_order(
     return await call(client.cancel_order, order_id=order_id, account_hash=account_hash)
 
 
-@register(write=True)
 async def place_equity_order(
     ctx: SchwabContext,
     account_hash: Annotated[str, "Account hash for the Schwab account"],
@@ -295,7 +292,6 @@ async def place_equity_order(
     )
 
 
-@register(write=True)
 async def place_option_order(
     ctx: SchwabContext,
     account_hash: Annotated[str, "Account hash for the Schwab account"],
@@ -343,7 +339,6 @@ async def place_option_order(
     )
 
 
-@register
 async def build_equity_order_spec(
     symbol: Annotated[str, "Stock symbol"],
     quantity: Annotated[int, "Number of shares"],
@@ -379,7 +374,6 @@ async def build_equity_order_spec(
     return cast(dict[str, Any], order_spec_builder.build())
 
 
-@register
 async def build_option_order_spec(
     symbol: Annotated[str, "Option symbol (e.g., 'SPY_230616C400')"],
     quantity: Annotated[int, "Number of contracts"],
@@ -416,7 +410,6 @@ async def build_option_order_spec(
     return cast(dict[str, Any], order_spec_builder.build())
 
 
-@register(write=True)
 async def place_one_cancels_other_order(
     ctx: SchwabContext,
     account_hash: Annotated[str, "Account hash for the Schwab account"],
@@ -448,7 +441,6 @@ async def place_one_cancels_other_order(
     )
 
 
-@register(write=True)
 async def place_first_triggers_second_order(
     ctx: SchwabContext,
     account_hash: Annotated[str, "Account hash for the Schwab account"],
@@ -486,7 +478,6 @@ async def place_first_triggers_second_order(
     )
 
 
-@register(write=True)
 async def create_option_symbol(
     underlying_symbol: Annotated[
         str, "Symbol of the underlying security (e.g., 'SPY', 'AAPL')"
@@ -511,7 +502,6 @@ async def create_option_symbol(
     return option_symbol.build()
 
 
-@register(write=True)
 async def place_bracket_order(
     ctx: SchwabContext,
     account_hash: Annotated[str, "Account hash for the Schwab account"],
@@ -600,3 +590,30 @@ async def place_bracket_order(
         account_hash=account_hash,
         order_spec=bracket_order_dict,
     )
+
+
+_READ_ONLY_TOOLS = (
+    get_order,
+    get_orders,
+    build_equity_order_spec,
+    build_option_order_spec,
+)
+
+_WRITE_TOOLS = (
+    cancel_order,
+    place_equity_order,
+    place_option_order,
+    place_one_cancels_other_order,
+    place_first_triggers_second_order,
+    create_option_symbol,
+    place_bracket_order,
+)
+
+
+def register(server: FastMCP, *, allow_write: bool) -> None:
+    for func in _READ_ONLY_TOOLS:
+        register_tool(server, func)
+
+    if allow_write:
+        for func in _WRITE_TOOLS:
+            register_tool(server, func, write=True)

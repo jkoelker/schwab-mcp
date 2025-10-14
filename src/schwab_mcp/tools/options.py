@@ -3,9 +3,10 @@
 from typing import Annotated
 
 import datetime
+from mcp.server.fastmcp import FastMCP
 
 from schwab_mcp.context import SchwabContext, SchwabServerContext
-from schwab_mcp.tools.registry import register
+from schwab_mcp.tools._registration import register_tool
 from schwab_mcp.tools.utils import JSONType, call
 
 
@@ -19,7 +20,6 @@ def _parse_date(value: str | datetime.date | None) -> datetime.date | None:
     return datetime.datetime.strptime(value, "%Y-%m-%d").date()
 
 
-@register
 async def get_option_chain(
     ctx: SchwabContext,
     symbol: Annotated[str, "Symbol of the underlying security (e.g., 'AAPL', 'SPY')"],
@@ -66,7 +66,6 @@ async def get_option_chain(
     )
 
 
-@register
 async def get_advanced_option_chain(
     ctx: SchwabContext,
     symbol: Annotated[str, "Symbol of the underlying security"],
@@ -156,7 +155,6 @@ async def get_advanced_option_chain(
     )
 
 
-@register
 async def get_option_expiration_chain(
     ctx: SchwabContext,
     symbol: Annotated[str, "Symbol of the underlying security"],
@@ -167,3 +165,16 @@ async def get_option_expiration_chain(
     context: SchwabServerContext = ctx.request_context.lifespan_context
     client = context.options
     return await call(client.get_option_expiration_chain, symbol)
+
+
+_READ_ONLY_TOOLS = (
+    get_option_chain,
+    get_advanced_option_chain,
+    get_option_expiration_chain,
+)
+
+
+def register(server: FastMCP, *, allow_write: bool) -> None:
+    _ = allow_write
+    for func in _READ_ONLY_TOOLS:
+        register_tool(server, func)
