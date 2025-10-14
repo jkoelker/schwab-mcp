@@ -3,6 +3,7 @@
 from typing import Annotated, Any, cast
 
 import datetime
+from mcp.server.fastmcp import Context
 from schwab.orders.common import one_cancels_other as oco_builder
 from schwab.orders.common import first_triggers_second as trigger_builder
 
@@ -26,8 +27,7 @@ from schwab_mcp.tools.order_helpers import (
 )
 from schwab.orders.options import OptionSymbol
 from schwab_mcp.tools.registry import register
-from schwab_mcp.tools.utils import call, ensure_write_access
-from schwab_mcp.tools._protocols import OrdersClient
+from schwab_mcp.tools.utils import call, ensure_write_access, get_orders_client
 
 
 # Internal helper function to apply session and duration settings
@@ -150,13 +150,14 @@ def _build_option_order_spec(
 
 @register
 async def get_order(
-    client: OrdersClient,
+    ctx: Context,
     account_hash: Annotated[str, "Account hash for the Schwab account"],
     order_id: Annotated[str, "Order ID to get details for"],
 ) -> str:
     """
     Returns details for a specific order (ID, status, price, quantity, execution details). Params: account_hash, order_id.
     """
+    client = get_orders_client(ctx)
     return await call(
         client.get_order, order_id=order_id, account_hash=account_hash
     )
@@ -164,7 +165,7 @@ async def get_order(
 
 @register
 async def get_orders(
-    client: OrdersClient,
+    ctx: Context,
     account_hash: Annotated[
         str, "Account hash for the Schwab account (from get_account_numbers)"
     ],
@@ -186,6 +187,8 @@ async def get_orders(
     Status options: AWAITING_PARENT_ORDER, AWAITING_CONDITION, AWAITING_STOP_CONDITION, AWAITING_MANUAL_REVIEW, ACCEPTED, AWAITING_UR_OUT, PENDING_ACTIVATION, QUEUED, WORKING, REJECTED, PENDING_CANCEL, CANCELED, PENDING_REPLACE, REPLACED, FILLED, EXPIRED, NEW, AWAITING_RELEASE_TIME, PENDING_ACKNOWLEDGEMENT, PENDING_RECALL.
     Use tomorrow's date as to_date for today's orders. Use WORKING/PENDING_ACTIVATION for open orders.
     """
+    client = get_orders_client(ctx)
+
     from_date_obj = None
     to_date_obj = None
 
@@ -217,7 +220,7 @@ async def get_orders(
 
 @register(write=True)
 async def cancel_order(
-    client: OrdersClient,
+    ctx: Context,
     account_hash: Annotated[str, "Account hash for the Schwab account"],
     order_id: Annotated[str, "Order ID to cancel"],
 ) -> str:
@@ -225,6 +228,7 @@ async def cancel_order(
     Cancels a pending order. Cannot cancel executed/terminal orders. Params: account_hash, order_id. Returns cancellation request confirmation; check status after. *Write operation.*
     """
     ensure_write_access()
+    client = get_orders_client(ctx)
     return await call(
         client.cancel_order, order_id=order_id, account_hash=account_hash
     )
@@ -232,7 +236,7 @@ async def cancel_order(
 
 @register(write=True)
 async def place_equity_order(
-    client: OrdersClient,
+    ctx: Context,
     account_hash: Annotated[str, "Account hash for the Schwab account"],
     symbol: Annotated[str, "Stock symbol to trade"],
     quantity: Annotated[int, "Number of shares to trade"],
@@ -260,6 +264,8 @@ async def place_equity_order(
     """
     ensure_write_access()
     # Build the core order specification builder
+    client = get_orders_client(ctx)
+
     order_spec_builder = _build_equity_order_spec(
         symbol, quantity, instruction, order_type, price, stop_price
     )
@@ -278,7 +284,7 @@ async def place_equity_order(
 
 @register(write=True)
 async def place_option_order(
-    client: OrdersClient,
+    ctx: Context,
     account_hash: Annotated[str, "Account hash for the Schwab account"],
     symbol: Annotated[str, "Option symbol (e.g., 'SPY_230616C400')"],
     quantity: Annotated[int, "Number of contracts to trade"],
@@ -303,6 +309,8 @@ async def place_option_order(
     """
     ensure_write_access()
     # Build the core order specification builder
+    client = get_orders_client(ctx)
+
     order_spec_builder = _build_option_order_spec(
         symbol, quantity, instruction, order_type, price
     )
@@ -321,7 +329,6 @@ async def place_option_order(
 
 @register
 async def build_equity_order_spec(
-    client: OrdersClient,
     symbol: Annotated[str, "Stock symbol"],
     quantity: Annotated[int, "Number of shares"],
     instruction: Annotated[str, "BUY or SELL"],
@@ -359,7 +366,6 @@ async def build_equity_order_spec(
 
 @register
 async def build_option_order_spec(
-    client: OrdersClient,
     symbol: Annotated[str, "Option symbol (e.g., 'SPY_230616C400')"],
     quantity: Annotated[int, "Number of contracts"],
     instruction: Annotated[
@@ -394,7 +400,7 @@ async def build_option_order_spec(
 
 @register(write=True)
 async def place_one_cancels_other_order(
-    client: OrdersClient,
+    ctx: Context,
     account_hash: Annotated[str, "Account hash for the Schwab account"],
     first_order_spec: Annotated[
         dict, "First order specification (dict from build_equity/option_order_spec)"
@@ -417,6 +423,8 @@ async def place_one_cancels_other_order(
     }
 
     # Place the order
+    client = get_orders_client(ctx)
+
     return await call(
         client.place_order, account_hash=account_hash, order_spec=oco_order_spec
     )
@@ -424,7 +432,7 @@ async def place_one_cancels_other_order(
 
 @register(write=True)
 async def place_first_triggers_second_order(
-    client: OrdersClient,
+    ctx: Context,
     account_hash: Annotated[str, "Account hash for the Schwab account"],
     first_order_spec: Annotated[
         dict, "First (primary) order specification (dict from build_equity/option_order_spec)"
@@ -443,6 +451,8 @@ async def place_first_triggers_second_order(
     # Manually construct the Trigger order dictionary structure
     # According to schwab-py's trigger_builder, the second order becomes a child of the first.
     # We modify the first spec dictionary directly.
+    client = get_orders_client(ctx)
+
     trigger_order_spec = first_order_spec.copy() # Avoid modifying the original input dict
     trigger_order_spec["orderStrategyType"] = "TRIGGER"
     trigger_order_spec["childOrderStrategies"] = [second_order_spec]
@@ -458,7 +468,6 @@ async def place_first_triggers_second_order(
 
 @register(write=True)
 async def create_option_symbol(
-    client: OrdersClient,
     underlying_symbol: Annotated[str, "Symbol of the underlying security (e.g., 'SPY', 'AAPL')"],
     expiration_date: Annotated[str, "Expiration date in YYMMDD format (e.g., '230616')"],
     contract_type: Annotated[str, "Contract type: 'C' or 'CALL' for calls, 'P' or 'PUT' for puts"],
@@ -477,7 +486,7 @@ async def create_option_symbol(
 
 @register(write=True)
 async def place_bracket_order(
-    client: OrdersClient,
+    ctx: Context,
     account_hash: Annotated[str, "Account hash for the Schwab account"],
     symbol: Annotated[str, "Stock symbol to trade"],
     quantity: Annotated[int, "Number of shares to trade"],
@@ -506,6 +515,8 @@ async def place_bracket_order(
     """
     ensure_write_access()
     # Validate entry instruction
+    client = get_orders_client(ctx)
+
     entry_instruction = entry_instruction.upper()
     if entry_instruction not in ["BUY", "SELL"]:
         raise ValueError(f"Invalid entry_instruction: {entry_instruction}. Use BUY or SELL.")

@@ -3,9 +3,10 @@
 from typing import Annotated
 
 import datetime
-from schwab_mcp.tools._protocols import ToolsClient
+from mcp.server.fastmcp import Context
+
 from schwab_mcp.tools.registry import register
-from schwab_mcp.tools.utils import call
+from schwab_mcp.tools.utils import call, get_tools_client
 
 
 @register
@@ -18,7 +19,7 @@ async def get_datetime() -> str:
 
 @register
 async def get_market_hours(
-    client: ToolsClient,
+    ctx: Context,
     markets: Annotated[
         list[str] | str,
         "Markets (list/str): EQUITY, OPTION, BOND, FUTURE, FOREX",
@@ -31,6 +32,8 @@ async def get_market_hours(
     """
     Get market hours for specified markets (EQUITY, OPTION, etc.) on a given date (YYYY-MM-DD, default today).
     """
+    client = get_tools_client(ctx)
+
     if isinstance(markets, str):
         markets = [m.strip() for m in markets.split(",")]
 
@@ -45,7 +48,7 @@ async def get_market_hours(
 
 @register
 async def get_movers(
-    client: ToolsClient,
+    ctx: Context,
     index: Annotated[
         str,
         "Index/market: DJI, COMPX, SPX, NYSE, NASDAQ, OTCBB, INDEX_ALL, EQUITY_ALL, OPTION_ALL, OPTION_PUT, OPTION_CALL",
@@ -62,6 +65,8 @@ async def get_movers(
     Get top 10 movers for an index/market (e.g., DJI, SPX, NASDAQ).
     Params: index, sort (VOLUME/TRADES/PERCENT_CHANGE_UP/DOWN), frequency (min % change: ZERO/ONE/etc.).
     """
+    client = get_tools_client(ctx)
+
     return await call(
         client.get_movers,
         client.Movers.Index[index.upper()],
@@ -72,7 +77,7 @@ async def get_movers(
 
 @register
 async def get_instruments(
-    client: ToolsClient,
+    ctx: Context,
     symbol: Annotated[str, "Symbol or search term"],
     projection: Annotated[
         str,
@@ -102,6 +107,8 @@ async def get_instruments(
     }
     proj_upper = projection.upper()
     proj_key = projection.lower()
+
+    client = get_tools_client(ctx)
 
     if proj_key in projection_map:
         proj_enum_name = projection_map[proj_key]

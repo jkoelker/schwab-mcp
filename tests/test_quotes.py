@@ -1,5 +1,6 @@
 import asyncio
 from enum import Enum
+from types import SimpleNamespace
 from typing import Any
 
 from schwab_mcp.tools import quotes
@@ -17,6 +18,10 @@ def run(coro):
     return asyncio.run(coro)
 
 
+def make_ctx(client: Any) -> Any:
+    return SimpleNamespace(fastmcp=SimpleNamespace(_schwab_client=client))
+
+
 def test_get_quotes_parses_symbols_and_fields(monkeypatch):
     captured: dict[str, Any] = {}
 
@@ -29,9 +34,10 @@ def test_get_quotes_parses_symbols_and_fields(monkeypatch):
     monkeypatch.setattr(quotes, "call", fake_call)
 
     client = DummyQuotesClient()
+    ctx = make_ctx(client)
     result = run(
         quotes.get_quotes(
-            client,
+            ctx,
             "AAPL, msft",
             fields="quote, fundamental",
             indicative=False,

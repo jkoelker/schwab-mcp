@@ -1,6 +1,7 @@
 import asyncio
 import datetime
 from enum import Enum
+from types import SimpleNamespace
 from typing import Any
 
 from schwab_mcp.tools import orders
@@ -21,6 +22,10 @@ def run(coro):
     return asyncio.run(coro)
 
 
+def make_ctx(client: Any) -> Any:
+    return SimpleNamespace(fastmcp=SimpleNamespace(_schwab_client=client))
+
+
 def test_get_orders_maps_single_status_and_dates(monkeypatch):
     captured: dict[str, Any] = {}
 
@@ -33,9 +38,10 @@ def test_get_orders_maps_single_status_and_dates(monkeypatch):
     monkeypatch.setattr(orders, "call", fake_call)
 
     client = DummyOrdersClient()
+    ctx = make_ctx(client)
     result = run(
         orders.get_orders(
-            client,
+            ctx,
             "abc123",
             max_results=25,
             from_date="2024-04-01",
@@ -71,9 +77,10 @@ def test_get_orders_maps_status_list(monkeypatch):
     monkeypatch.setattr(orders, "call", fake_call)
 
     client = DummyOrdersClient()
+    ctx = make_ctx(client)
     result = run(
         orders.get_orders(
-            client,
+            ctx,
             "xyz789",
             status=["filled", "canceled"],
         )

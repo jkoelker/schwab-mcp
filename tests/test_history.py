@@ -25,6 +25,10 @@ def run(coro):
     return asyncio.run(coro)
 
 
+def make_ctx(client: Any) -> Any:
+    return SimpleNamespace(fastmcp=SimpleNamespace(_schwab_client=client))
+
+
 def test_get_advanced_price_history_normalizes_inputs(monkeypatch):
     captured: dict[str, Any] = {}
 
@@ -37,9 +41,10 @@ def test_get_advanced_price_history_normalizes_inputs(monkeypatch):
     monkeypatch.setattr(history, "call", fake_call)
 
     client = DummyHistoryClient()
+    ctx = make_ctx(client)
     result = run(
         history.get_advanced_price_history(
-            client,
+            ctx,
             "SPY",
             period_type="day",
             period="ten_days",
@@ -83,9 +88,10 @@ def test_get_price_history_every_minute_passes_flags(monkeypatch):
     monkeypatch.setattr(history, "call", fake_call)
 
     client = DummyHistoryClient()
+    ctx = make_ctx(client)
     result = run(
         history.get_price_history_every_minute(
-            client,
+            ctx,
             "MSFT",
             start_datetime="2024-02-02T09:30:00",
             end_datetime="2024-02-02T09:35:00",

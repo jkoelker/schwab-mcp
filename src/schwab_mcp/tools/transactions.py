@@ -3,14 +3,15 @@
 from typing import Annotated
 
 import datetime
-from schwab_mcp.tools._protocols import TransactionsClient
+from mcp.server.fastmcp import Context
+
 from schwab_mcp.tools.registry import register
-from schwab_mcp.tools.utils import call
+from schwab_mcp.tools.utils import call, get_transactions_client
 
 
 @register
 async def get_transactions(
-    client: TransactionsClient,
+    ctx: Context,
     account_hash: Annotated[
         str, "Account hash for the Schwab account (from get_account_numbers)"
     ],
@@ -32,6 +33,8 @@ async def get_transactions(
     Params: account_hash, start_date (YYYY-MM-DD), end_date (YYYY-MM-DD), transaction_type (list/str: TRADE/DIVIDEND_OR_INTEREST/etc.), symbol.
     Use tomorrow's date as end_date for today's transactions. See full type list in original docstring if needed.
     """
+    client = get_transactions_client(ctx)
+
     start_date_obj = None
     end_date_obj = None
 
@@ -62,7 +65,7 @@ async def get_transactions(
 
 @register
 async def get_transaction(
-    client: TransactionsClient,
+    ctx: Context,
     account_hash: Annotated[str, "Account hash for the Schwab account"],
     transaction_id: Annotated[str, "Transaction ID (from get_transactions)"],
 ) -> str:
@@ -70,4 +73,5 @@ async def get_transaction(
     Get detailed info for a specific transaction by ID.
     Params: account_hash, transaction_id (from get_transactions).
     """
+    client = get_transactions_client(ctx)
     return await call(client.get_transaction, account_hash, transaction_id)
