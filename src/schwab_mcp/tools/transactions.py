@@ -3,13 +3,13 @@
 from typing import Annotated
 
 import datetime
+from mcp.server.fastmcp import FastMCP
 
 from schwab_mcp.context import SchwabContext, SchwabServerContext
-from schwab_mcp.tools.registry import register
+from schwab_mcp.tools._registration import register_tool
 from schwab_mcp.tools.utils import JSONType, call
 
 
-@register
 async def get_transactions(
     ctx: SchwabContext,
     account_hash: Annotated[
@@ -62,7 +62,6 @@ async def get_transactions(
     )
 
 
-@register
 async def get_transaction(
     ctx: SchwabContext,
     account_hash: Annotated[str, "Account hash for the Schwab account"],
@@ -75,3 +74,15 @@ async def get_transaction(
     context: SchwabServerContext = ctx.request_context.lifespan_context
     client = context.transactions
     return await call(client.get_transaction, account_hash, transaction_id)
+
+
+_READ_ONLY_TOOLS = (
+    get_transactions,
+    get_transaction,
+)
+
+
+def register(server: FastMCP, *, allow_write: bool) -> None:
+    _ = allow_write
+    for func in _READ_ONLY_TOOLS:
+        register_tool(server, func)

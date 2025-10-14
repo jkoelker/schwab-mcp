@@ -3,12 +3,13 @@
 from typing import Annotated
 
 import datetime
+from mcp.server.fastmcp import FastMCP
+
 from schwab_mcp.context import SchwabContext, SchwabServerContext
-from schwab_mcp.tools.registry import register
+from schwab_mcp.tools._registration import register_tool
 from schwab_mcp.tools.utils import JSONType, call
 
 
-@register
 async def get_datetime() -> str:
     """
     Get the current datetime in ISO format (e.g., '2023-10-27T10:30:00.123456').
@@ -16,7 +17,6 @@ async def get_datetime() -> str:
     return datetime.datetime.now().isoformat()
 
 
-@register
 async def get_market_hours(
     ctx: SchwabContext,
     markets: Annotated[
@@ -46,7 +46,6 @@ async def get_market_hours(
     return await call(client.get_market_hours, market_enums, date=date_obj)
 
 
-@register
 async def get_movers(
     ctx: SchwabContext,
     index: Annotated[
@@ -76,7 +75,6 @@ async def get_movers(
     )
 
 
-@register
 async def get_instruments(
     ctx: SchwabContext,
     symbol: Annotated[str, "Symbol or search term"],
@@ -124,3 +122,17 @@ async def get_instruments(
         symbol,
         projection=client.Instrument.Projection[proj_enum_name],
     )
+
+
+_READ_ONLY_TOOLS = (
+    get_datetime,
+    get_market_hours,
+    get_movers,
+    get_instruments,
+)
+
+
+def register(server: FastMCP, *, allow_write: bool) -> None:
+    _ = allow_write
+    for func in _READ_ONLY_TOOLS:
+        register_tool(server, func)

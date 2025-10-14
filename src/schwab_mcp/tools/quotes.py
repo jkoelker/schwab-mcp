@@ -2,12 +2,13 @@
 
 from typing import Annotated
 
+from mcp.server.fastmcp import FastMCP
+
 from schwab_mcp.context import SchwabContext, SchwabServerContext
-from schwab_mcp.tools.registry import register
+from schwab_mcp.tools._registration import register_tool
 from schwab_mcp.tools.utils import JSONType, call
 
 
-@register
 async def get_quotes(
     ctx: SchwabContext,
     symbols: Annotated[
@@ -44,3 +45,12 @@ async def get_quotes(
         fields=field_enums,
         indicative=indicative if indicative is not None else None,
     )
+
+
+_READ_ONLY_TOOLS = (get_quotes,)
+
+
+def register(server: FastMCP, *, allow_write: bool) -> None:
+    _ = allow_write
+    for func in _READ_ONLY_TOOLS:
+        register_tool(server, func)
