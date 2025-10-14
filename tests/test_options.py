@@ -1,6 +1,7 @@
 import asyncio
 import datetime
 from enum import Enum
+from types import SimpleNamespace
 from typing import Any
 
 from schwab_mcp.tools import options
@@ -28,6 +29,10 @@ def run(coro):
     return asyncio.run(coro)
 
 
+def make_ctx(client: Any) -> Any:
+    return SimpleNamespace(fastmcp=SimpleNamespace(_schwab_client=client))
+
+
 def test_get_advanced_option_chain_parses_and_maps_parameters(monkeypatch):
     captured: dict[str, Any] = {}
 
@@ -40,9 +45,10 @@ def test_get_advanced_option_chain_parses_and_maps_parameters(monkeypatch):
     monkeypatch.setattr(options, "call", fake_call)
 
     client = DummyOptionsClient()
+    ctx = make_ctx(client)
     result = run(
         options.get_advanced_option_chain(
-            client,
+            ctx,
             "SPY",
             contract_type="put",
             strike_count=10,

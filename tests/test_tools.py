@@ -1,6 +1,7 @@
 import asyncio
 import datetime
 from enum import Enum
+from types import SimpleNamespace
 from typing import Any
 
 from schwab_mcp.tools import tools
@@ -35,6 +36,10 @@ def run(coro):
     return asyncio.run(coro)
 
 
+def make_ctx(client: Any) -> Any:
+    return SimpleNamespace(fastmcp=SimpleNamespace(_schwab_client=client))
+
+
 def test_get_market_hours_handles_string_inputs(monkeypatch):
     captured: dict[str, Any] = {}
 
@@ -47,9 +52,10 @@ def test_get_market_hours_handles_string_inputs(monkeypatch):
     monkeypatch.setattr(tools, "call", fake_call)
 
     client = DummyToolsClient()
+    ctx = make_ctx(client)
     result = run(
         tools.get_market_hours(
-            client,
+            ctx,
             "equity, option",
             date="2024-03-01",
         )
@@ -84,9 +90,10 @@ def test_get_movers_maps_enums(monkeypatch):
     monkeypatch.setattr(tools, "call", fake_call)
 
     client = DummyToolsClient()
+    ctx = make_ctx(client)
     result = run(
         tools.get_movers(
-            client,
+            ctx,
             "spx",
             sort="percent_change_up",
             frequency="five",
@@ -118,9 +125,10 @@ def test_get_instruments_supports_aliases(monkeypatch):
     monkeypatch.setattr(tools, "call", fake_call)
 
     client = DummyToolsClient()
+    ctx = make_ctx(client)
     result = run(
         tools.get_instruments(
-            client,
+            ctx,
             "AAPL",
             projection="symbol-search",
         )
