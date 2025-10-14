@@ -3,10 +3,10 @@
 from typing import Annotated
 
 import datetime
-from mcp.server.fastmcp import Context
 
+from schwab_mcp.context import SchwabContext, SchwabServerContext
 from schwab_mcp.tools.registry import register
-from schwab_mcp.tools.utils import call, get_context
+from schwab_mcp.tools.utils import call
 
 
 def _parse_iso_datetime(value: str | None) -> datetime.datetime | None:
@@ -15,7 +15,7 @@ def _parse_iso_datetime(value: str | None) -> datetime.datetime | None:
 
 @register
 async def get_advanced_price_history(
-    ctx: Context,
+    ctx: SchwabContext,
     symbol: Annotated[str, "Symbol of the security"],
     period_type: Annotated[
         str | None, "Period type: DAY, MONTH, YEAR, YEAR_TO_DATE"
@@ -60,7 +60,7 @@ async def get_advanced_price_history(
       YEAR_TO_DATE: DAILY, WEEKLY (default)
     Dates must be in ISO format.
     """
-    context = get_context(ctx)
+    context: SchwabServerContext = ctx.request_context.lifespan_context
     client = context.price_history
 
     start_dt = _parse_iso_datetime(start_datetime)
@@ -97,7 +97,7 @@ async def get_advanced_price_history(
 
 @register
 async def get_price_history_every_minute(
-    ctx: Context,
+    ctx: SchwabContext,
     symbol: Annotated[str, "Symbol of the security"],
     start_datetime: Annotated[
         str | None, "Start date for history (ISO format, e.g., '2023-01-01T09:30:00')"
@@ -111,7 +111,7 @@ async def get_price_history_every_minute(
     """
     Get OHLCV price history per minute. For detailed intraday analysis. Max 48 days history. Dates ISO format.
     """
-    context = get_context(ctx)
+    context: SchwabServerContext = ctx.request_context.lifespan_context
     client = context.price_history
 
     start_dt = _parse_iso_datetime(start_datetime)
@@ -129,7 +129,7 @@ async def get_price_history_every_minute(
 
 @register
 async def get_price_history_every_five_minutes(
-    ctx: Context,
+    ctx: SchwabContext,
     symbol: Annotated[str, "Symbol of the security"],
     start_datetime: Annotated[
         str | None, "Start date for history (ISO format, e.g., '2023-01-01T09:30:00')"
@@ -143,7 +143,7 @@ async def get_price_history_every_five_minutes(
     """
     Get OHLCV price history per 5 minutes. Balance between detail and noise. Approx. 9 months history. Dates ISO format.
     """
-    context = get_context(ctx)
+    context: SchwabServerContext = ctx.request_context.lifespan_context
     client = context.price_history
 
     start_dt = _parse_iso_datetime(start_datetime)
@@ -161,7 +161,7 @@ async def get_price_history_every_five_minutes(
 
 @register
 async def get_price_history_every_ten_minutes(
-    ctx: Context,
+    ctx: SchwabContext,
     symbol: Annotated[str, "Symbol of the security"],
     start_datetime: Annotated[
         str | None, "Start date for history (ISO format, e.g., '2023-01-01T09:30:00')"
@@ -175,7 +175,7 @@ async def get_price_history_every_ten_minutes(
     """
     Get OHLCV price history per 10 minutes. Good for intraday trends/levels. Approx. 9 months history. Dates ISO format.
     """
-    context = get_context(ctx)
+    context: SchwabServerContext = ctx.request_context.lifespan_context
     client = context.price_history
 
     start_dt = _parse_iso_datetime(start_datetime)
@@ -193,7 +193,7 @@ async def get_price_history_every_ten_minutes(
 
 @register
 async def get_price_history_every_fifteen_minutes(
-    ctx: Context,
+    ctx: SchwabContext,
     symbol: Annotated[str, "Symbol of the security"],
     start_datetime: Annotated[
         str | None, "Start date for history (ISO format, e.g., '2023-01-01T09:30:00')"
@@ -207,7 +207,7 @@ async def get_price_history_every_fifteen_minutes(
     """
     Get OHLCV price history per 15 minutes. Shows significant intraday moves, filters noise. Approx. 9 months history. Dates ISO format.
     """
-    context = get_context(ctx)
+    context: SchwabServerContext = ctx.request_context.lifespan_context
     client = context.price_history
 
     start_dt = _parse_iso_datetime(start_datetime)
@@ -225,7 +225,7 @@ async def get_price_history_every_fifteen_minutes(
 
 @register
 async def get_price_history_every_thirty_minutes(
-    ctx: Context,
+    ctx: SchwabContext,
     symbol: Annotated[str, "Symbol of the security"],
     start_datetime: Annotated[
         str | None, "Start date for history (ISO format, e.g., '2023-01-01T09:30:00')"
@@ -239,7 +239,7 @@ async def get_price_history_every_thirty_minutes(
     """
     Get OHLCV price history per 30 minutes. For broader intraday trends, filters noise. Approx. 9 months history. Dates ISO format.
     """
-    context = get_context(ctx)
+    context: SchwabServerContext = ctx.request_context.lifespan_context
     client = context.price_history
 
     start_dt = _parse_iso_datetime(start_datetime)
@@ -257,7 +257,7 @@ async def get_price_history_every_thirty_minutes(
 
 @register
 async def get_price_history_every_day(
-    ctx: Context,
+    ctx: SchwabContext,
     symbol: Annotated[str, "Symbol of the security to fetch price history for"],
     start_datetime: Annotated[
         str | None,
@@ -277,7 +277,7 @@ async def get_price_history_every_day(
     """
     Get daily OHLCV price history. For medium/long-term analysis. Extensive history (back to 1985 possible). Dates ISO format.
     """
-    context = get_context(ctx)
+    context: SchwabServerContext = ctx.request_context.lifespan_context
     client = context.price_history
 
     start_dt = _parse_iso_datetime(start_datetime)
@@ -295,7 +295,7 @@ async def get_price_history_every_day(
 
 @register
 async def get_price_history_every_week(
-    ctx: Context,
+    ctx: SchwabContext,
     symbol: Annotated[str, "Symbol of the security"],
     start_datetime: Annotated[
         str | None, "Start date for history (ISO format, e.g., '2023-01-01T00:00:00')"
@@ -309,7 +309,7 @@ async def get_price_history_every_week(
     """
     Get weekly OHLCV price history. For long-term analysis, major cycles. Extensive history (back to 1985 possible). Dates ISO format.
     """
-    context = get_context(ctx)
+    context: SchwabServerContext = ctx.request_context.lifespan_context
     client = context.price_history
 
     start_dt = _parse_iso_datetime(start_datetime)

@@ -4,9 +4,10 @@ from enum import Enum
 from types import SimpleNamespace
 from typing import Any, cast
 
+from mcp.server.fastmcp import Context
 from schwab.client import AsyncClient
 from schwab_mcp.tools import options
-from schwab_mcp.context import SchwabServerContext
+from schwab_mcp.context import SchwabContext, SchwabServerContext
 
 
 class DummyOptionsClient:
@@ -31,10 +32,10 @@ def run(coro):
     return asyncio.run(coro)
 
 
-def make_ctx(client: Any) -> Any:
+def make_ctx(client: Any) -> SchwabContext:
     lifespan_context = SchwabServerContext(client=cast(AsyncClient, client))
     request_context = SimpleNamespace(lifespan_context=lifespan_context)
-    return SimpleNamespace(fastmcp=SimpleNamespace(), request_context=request_context)
+    return cast(SchwabContext, Context(request_context=cast(Any, request_context)))
 
 
 def test_get_advanced_option_chain_parses_and_maps_parameters(monkeypatch):

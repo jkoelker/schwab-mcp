@@ -3,7 +3,6 @@
 from typing import Annotated, Any, cast
 
 import datetime
-from mcp.server.fastmcp import Context
 from schwab.orders.common import one_cancels_other as oco_builder
 from schwab.orders.common import first_triggers_second as trigger_builder
 
@@ -26,8 +25,9 @@ from schwab_mcp.tools.order_helpers import (
     option_sell_to_close_limit,
 )
 from schwab.orders.options import OptionSymbol
+from schwab_mcp.context import SchwabContext, SchwabServerContext
 from schwab_mcp.tools.registry import register
-from schwab_mcp.tools.utils import call, ensure_write_access, get_context
+from schwab_mcp.tools.utils import call
 
 
 # Internal helper function to apply session and duration settings
@@ -167,21 +167,21 @@ def _build_option_order_spec(
 
 @register
 async def get_order(
-    ctx: Context,
+    ctx: SchwabContext,
     account_hash: Annotated[str, "Account hash for the Schwab account"],
     order_id: Annotated[str, "Order ID to get details for"],
 ) -> str:
     """
     Returns details for a specific order (ID, status, price, quantity, execution details). Params: account_hash, order_id.
     """
-    context = get_context(ctx)
+    context: SchwabServerContext = ctx.request_context.lifespan_context
     client = context.orders
     return await call(client.get_order, order_id=order_id, account_hash=account_hash)
 
 
 @register
 async def get_orders(
-    ctx: Context,
+    ctx: SchwabContext,
     account_hash: Annotated[
         str, "Account hash for the Schwab account (from get_account_numbers)"
     ],
@@ -202,7 +202,7 @@ async def get_orders(
     Status options: AWAITING_PARENT_ORDER, AWAITING_CONDITION, AWAITING_STOP_CONDITION, AWAITING_MANUAL_REVIEW, ACCEPTED, AWAITING_UR_OUT, PENDING_ACTIVATION, QUEUED, WORKING, REJECTED, PENDING_CANCEL, CANCELED, PENDING_REPLACE, REPLACED, FILLED, EXPIRED, NEW, AWAITING_RELEASE_TIME, PENDING_ACKNOWLEDGEMENT, PENDING_RECALL.
     Use tomorrow's date as to_date for today's orders. Use WORKING/PENDING_ACTIVATION for open orders.
     """
-    context = get_context(ctx)
+    context: SchwabServerContext = ctx.request_context.lifespan_context
     client = context.orders
 
     from_date_obj = None
@@ -236,22 +236,21 @@ async def get_orders(
 
 @register(write=True)
 async def cancel_order(
-    ctx: Context,
+    ctx: SchwabContext,
     account_hash: Annotated[str, "Account hash for the Schwab account"],
     order_id: Annotated[str, "Order ID to cancel"],
 ) -> str:
     """
     Cancels a pending order. Cannot cancel executed/terminal orders. Params: account_hash, order_id. Returns cancellation request confirmation; check status after. *Write operation.*
     """
-    ensure_write_access()
-    context = get_context(ctx)
+    context: SchwabServerContext = ctx.request_context.lifespan_context
     client = context.orders
     return await call(client.cancel_order, order_id=order_id, account_hash=account_hash)
 
 
 @register(write=True)
 async def place_equity_order(
-    ctx: Context,
+    ctx: SchwabContext,
     account_hash: Annotated[str, "Account hash for the Schwab account"],
     symbol: Annotated[str, "Stock symbol to trade"],
     quantity: Annotated[int, "Number of shares to trade"],
@@ -276,9 +275,8 @@ async def place_equity_order(
     Note: FILL_OR_KILL duration is only valid for LIMIT and STOP_LIMIT orders.
     *Write operation.*
     """
-    ensure_write_access()
     # Build the core order specification builder
-    context = get_context(ctx)
+    context: SchwabServerContext = ctx.request_context.lifespan_context
     client = context.orders
 
     order_spec_builder = _build_equity_order_spec(
@@ -299,7 +297,7 @@ async def place_equity_order(
 
 @register(write=True)
 async def place_option_order(
-    ctx: Context,
+    ctx: SchwabContext,
     account_hash: Annotated[str, "Account hash for the Schwab account"],
     symbol: Annotated[str, "Option symbol (e.g., 'SPY_230616C400')"],
     quantity: Annotated[int, "Number of contracts to trade"],
@@ -325,9 +323,8 @@ async def place_option_order(
     Note: FILL_OR_KILL duration is only valid for LIMIT orders.
     *Write operation.*
     """
-    ensure_write_access()
     # Build the core order specification builder
-    context = get_context(ctx)
+    context: SchwabServerContext = ctx.request_context.lifespan_context
     client = context.orders
 
     order_spec_builder = _build_option_order_spec(
@@ -421,7 +418,7 @@ async def build_option_order_spec(
 
 @register(write=True)
 async def place_one_cancels_other_order(
-    ctx: Context,
+    ctx: SchwabContext,
     account_hash: Annotated[str, "Account hash for the Schwab account"],
     first_order_spec: Annotated[
         dict, "First order specification (dict from build_equity/option_order_spec)"
@@ -435,7 +432,6 @@ async def place_one_cancels_other_order(
     Params: account_hash, first_order_spec (dict), second_order_spec (dict).
     *Use build_equity_order_spec() or build_option_order_spec() to create the required spec dictionaries.* *Write operation.*
     """
-    ensure_write_access()
     # Manually construct the OCO order dictionary structure
     # This structure is correct according to schwab-py's oco_builder
     oco_order_spec = {
@@ -444,7 +440,7 @@ async def place_one_cancels_other_order(
     }
 
     # Place the order
-    context = get_context(ctx)
+    context: SchwabServerContext = ctx.request_context.lifespan_context
     client = context.orders
 
     return await call(
@@ -454,7 +450,7 @@ async def place_one_cancels_other_order(
 
 @register(write=True)
 async def place_first_triggers_second_order(
-    ctx: Context,
+    ctx: SchwabContext,
     account_hash: Annotated[str, "Account hash for the Schwab account"],
     first_order_spec: Annotated[
         dict,
@@ -470,11 +466,10 @@ async def place_first_triggers_second_order(
     Params: account_hash, first_order_spec (dict), second_order_spec (dict).
     *Use build_equity_order_spec() or build_option_order_spec() to create the required spec dictionaries.* *Write operation.*
     """
-    ensure_write_access()
     # Manually construct the Trigger order dictionary structure
     # According to schwab-py's trigger_builder, the second order becomes a child of the first.
     # We modify the first spec dictionary directly.
-    context = get_context(ctx)
+    context: SchwabServerContext = ctx.request_context.lifespan_context
     client = context.orders
 
     trigger_order_spec = (
@@ -509,7 +504,6 @@ async def create_option_symbol(
     Params: underlying_symbol, expiration_date (YYMMDD), contract_type (C/CALL or P/PUT), strike_price (string).
     Does not validate market existence. Use get_option_chain() to find valid options.
     """
-    ensure_write_access()
     # The OptionSymbol helper expects YYMMDD format directly.
     option_symbol = OptionSymbol(
         underlying_symbol, expiration_date, contract_type, strike_price
@@ -519,7 +513,7 @@ async def create_option_symbol(
 
 @register(write=True)
 async def place_bracket_order(
-    ctx: Context,
+    ctx: SchwabContext,
     account_hash: Annotated[str, "Account hash for the Schwab account"],
     symbol: Annotated[str, "Stock symbol to trade"],
     quantity: Annotated[int, "Number of shares to trade"],
@@ -548,9 +542,8 @@ async def place_bracket_order(
     Note: Duration applies to all legs of the order. FILL_OR_KILL is not typically used with bracket orders.
     *Write operation.*
     """
-    ensure_write_access()
     # Validate entry instruction
-    context = get_context(ctx)
+    context: SchwabServerContext = ctx.request_context.lifespan_context
     client = context.orders
 
     entry_instruction = entry_instruction.upper()

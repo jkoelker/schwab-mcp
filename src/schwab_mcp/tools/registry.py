@@ -10,8 +10,6 @@ R = TypeVar("R")
 
 RegisteredTool = Callable[P, Awaitable[R]]
 
-_REGISTERED_TOOLS: list[Callable[..., Awaitable[Any]]] = []
-
 
 @overload
 def register(
@@ -70,7 +68,7 @@ def register(
             tool_annotations = default_annotations
 
         setattr(fn, "_tool_annotations", tool_annotations)
-        _REGISTERED_TOOLS.append(fn)  # type: ignore[arg-type]
+        setattr(fn, "_registered_tool", True)
         return fn
 
     if func is not None:
@@ -79,9 +77,4 @@ def register(
     return _decorator
 
 
-def iter_registered_tools() -> list[Callable[..., Awaitable[Any]]]:
-    """Return a copy of the registered tool callables."""
-    return list(_REGISTERED_TOOLS)
-
-
-__all__ = ["register", "iter_registered_tools", "RegisteredTool"]
+__all__ = ["register", "RegisteredTool"]
