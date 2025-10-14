@@ -4,13 +4,13 @@ from typing import Annotated
 
 from schwab_mcp.context import SchwabContext, SchwabServerContext
 from schwab_mcp.tools.registry import register
-from schwab_mcp.tools.utils import call
+from schwab_mcp.tools.utils import JSONType, call
 
 
 @register
 async def get_account_numbers(
     ctx: SchwabContext,
-) -> str:
+) -> JSONType:
     """
     Returns mapping of account IDs to account hashes. Hashes required for account-specific calls. Use first.
     """
@@ -21,7 +21,7 @@ async def get_account_numbers(
 @register
 async def get_accounts(
     ctx: SchwabContext,
-) -> str:
+) -> JSONType:
     """
     Returns balances/info for all linked accounts (funds, cash, margin). Does not return hashes; use get_account_numbers first.
     """
@@ -32,7 +32,7 @@ async def get_accounts(
 @register
 async def get_accounts_with_positions(
     ctx: SchwabContext,
-) -> str:
+) -> JSONType:
     """
     Returns balances, info, and positions (holdings, cost, gain/loss) for all linked accounts. Does not return hashes; use get_account_numbers first.
     """
@@ -47,7 +47,7 @@ async def get_accounts_with_positions(
 async def get_account(
     ctx: SchwabContext,
     account_hash: Annotated[str, "Account hash for the Schwab account"],
-) -> str:
+) -> JSONType:
     """
     Returns balance/info for a specific account via account_hash (from get_account_numbers). Includes funds, cash, margin info.
     """
@@ -59,7 +59,7 @@ async def get_account(
 async def get_account_with_positions(
     ctx: SchwabContext,
     account_hash: Annotated[str, "Account hash for the Schwab account"],
-) -> str:
+) -> JSONType:
     """
     Returns balance, info, and positions for a specific account via account_hash. Includes holdings, quantity, cost basis, unrealized gain/loss.
     """
@@ -74,7 +74,7 @@ async def get_account_with_positions(
 @register
 async def get_user_preferences(
     ctx: SchwabContext,
-) -> str:
+) -> JSONType:
     """
     Returns user preferences (nicknames, display settings, notifications) for all linked accounts.
     """

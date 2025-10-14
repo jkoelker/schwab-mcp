@@ -4,7 +4,7 @@ from typing import Annotated
 
 from schwab_mcp.context import SchwabContext, SchwabServerContext
 from schwab_mcp.tools.registry import register
-from schwab_mcp.tools.utils import call
+from schwab_mcp.tools.utils import JSONType, call
 
 
 @register
@@ -21,7 +21,7 @@ async def get_quotes(
     indicative: Annotated[
         bool | None, "True for indicative quotes (extended hours/futures)"
     ] = None,
-) -> str:
+) -> JSONType:
     """
     Returns current market quotes for specified symbols (stocks, ETFs, indices, options).
     Params: symbols (list or comma-separated string), fields (list/str: QUOTE/FUNDAMENTAL/etc.), indicative (bool).

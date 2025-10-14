@@ -6,7 +6,7 @@ import datetime
 
 from schwab_mcp.context import SchwabContext, SchwabServerContext
 from schwab_mcp.tools.registry import register
-from schwab_mcp.tools.utils import call
+from schwab_mcp.tools.utils import JSONType, call
 
 
 def _parse_iso_datetime(value: str | None) -> datetime.datetime | None:
@@ -43,7 +43,7 @@ async def get_advanced_price_history(
     ] = None,
     extended_hours: Annotated[bool | None, "Include extended hours data"] = None,
     previous_close: Annotated[bool | None, "Include previous close data"] = None,
-) -> str:
+) -> JSONType:
     """
     Get price history with advanced period/frequency options. Specify period/frequency OR start/end datetimes.
 
@@ -107,7 +107,7 @@ async def get_price_history_every_minute(
     ] = None,
     extended_hours: Annotated[bool | None, "Include extended hours data"] = None,
     previous_close: Annotated[bool | None, "Include previous close data"] = None,
-) -> str:
+) -> JSONType:
     """
     Get OHLCV price history per minute. For detailed intraday analysis. Max 48 days history. Dates ISO format.
     """
@@ -139,7 +139,7 @@ async def get_price_history_every_five_minutes(
     ] = None,
     extended_hours: Annotated[bool | None, "Include extended hours data"] = None,
     previous_close: Annotated[bool | None, "Include previous close data"] = None,
-) -> str:
+) -> JSONType:
     """
     Get OHLCV price history per 5 minutes. Balance between detail and noise. Approx. 9 months history. Dates ISO format.
     """
@@ -171,7 +171,7 @@ async def get_price_history_every_ten_minutes(
     ] = None,
     extended_hours: Annotated[bool | None, "Include extended hours data"] = None,
     previous_close: Annotated[bool | None, "Include previous close data"] = None,
-) -> str:
+) -> JSONType:
     """
     Get OHLCV price history per 10 minutes. Good for intraday trends/levels. Approx. 9 months history. Dates ISO format.
     """
@@ -203,7 +203,7 @@ async def get_price_history_every_fifteen_minutes(
     ] = None,
     extended_hours: Annotated[bool | None, "Include extended hours data"] = None,
     previous_close: Annotated[bool | None, "Include previous close data"] = None,
-) -> str:
+) -> JSONType:
     """
     Get OHLCV price history per 15 minutes. Shows significant intraday moves, filters noise. Approx. 9 months history. Dates ISO format.
     """
@@ -235,7 +235,7 @@ async def get_price_history_every_thirty_minutes(
     ] = None,
     extended_hours: Annotated[bool | None, "Include extended hours data"] = None,
     previous_close: Annotated[bool | None, "Include previous close data"] = None,
-) -> str:
+) -> JSONType:
     """
     Get OHLCV price history per 30 minutes. For broader intraday trends, filters noise. Approx. 9 months history. Dates ISO format.
     """
@@ -273,7 +273,7 @@ async def get_price_history_every_day(
     previous_close: Annotated[
         bool | None, "Include the previous market day's closing price"
     ] = None,
-) -> str:
+) -> JSONType:
     """
     Get daily OHLCV price history. For medium/long-term analysis. Extensive history (back to 1985 possible). Dates ISO format.
     """
@@ -305,7 +305,7 @@ async def get_price_history_every_week(
     ] = None,
     extended_hours: Annotated[bool | None, "Include extended hours data"] = None,
     previous_close: Annotated[bool | None, "Include previous close data"] = None,
-) -> str:
+) -> JSONType:
     """
     Get weekly OHLCV price history. For long-term analysis, major cycles. Extensive history (back to 1985 possible). Dates ISO format.
     """

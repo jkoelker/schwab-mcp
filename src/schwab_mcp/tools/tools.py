@@ -5,7 +5,7 @@ from typing import Annotated
 import datetime
 from schwab_mcp.context import SchwabContext, SchwabServerContext
 from schwab_mcp.tools.registry import register
-from schwab_mcp.tools.utils import call
+from schwab_mcp.tools.utils import JSONType, call
 
 
 @register
@@ -27,7 +27,7 @@ async def get_market_hours(
         str | None,
         "Date ('YYYY-MM-DD', default today, max 1 year future)",
     ] = None,
-) -> str:
+) -> JSONType:
     """
     Get market hours for specified markets (EQUITY, OPTION, etc.) on a given date (YYYY-MM-DD, default today).
     """
@@ -60,7 +60,7 @@ async def get_movers(
     frequency: Annotated[
         str | None, "Min % change threshold: ZERO, ONE, FIVE, TEN, THIRTY, SIXTY"
     ] = None,
-) -> str:
+) -> JSONType:
     """
     Get top 10 movers for an index/market (e.g., DJI, SPX, NASDAQ).
     Params: index, sort (VOLUME/TRADES/PERCENT_CHANGE_UP/DOWN), frequency (min % change: ZERO/ONE/etc.).
@@ -87,7 +87,7 @@ async def get_instruments(
             "DESCRIPTION_SEARCH, DESCRIPTION_REGEX, SEARCH, FUNDAMENTAL"
         ),
     ] = "symbol-search",
-) -> str:
+) -> JSONType:
     """
     Search for instruments by symbol or description.
     Params: symbol (search term), projection (SYMBOL_SEARCH/SYMBOL_REGEX/etc., default symbol-search).
