@@ -2,6 +2,7 @@
 
 from typing import Annotated, Any, cast
 
+import copy
 import datetime
 from mcp.server.fastmcp import FastMCP
 from schwab.orders.common import first_triggers_second as trigger_builder
@@ -464,11 +465,10 @@ async def place_first_triggers_second_order(
     context: SchwabServerContext = ctx.request_context.lifespan_context
     client = context.orders
 
-    trigger_order_spec = (
-        first_order_spec.copy()
-    )  # Avoid modifying the original input dict
+    # Use deep copy to avoid any reference issues with nested structures
+    trigger_order_spec = copy.deepcopy(first_order_spec)
     trigger_order_spec["orderStrategyType"] = "TRIGGER"
-    trigger_order_spec["childOrderStrategies"] = [second_order_spec]
+    trigger_order_spec["childOrderStrategies"] = [copy.deepcopy(second_order_spec)]
 
     # Place the order
     return await call(
