@@ -453,21 +453,43 @@ async def place_first_triggers_second_order(
     Params: account_hash, first_order_spec (dict), second_order_spec (dict).
     *Use build_equity_order_spec() or build_option_order_spec() to create the required spec dictionaries.* *Write operation.*
     """
-    # Manually construct the Trigger order dictionary structure
-    # According to schwab-py's trigger_builder, the second order becomes a child of the first.
-    # We modify the first spec dictionary directly.
+    # Use the schwab-py library's construct_repeat_order to convert dicts to OrderBuilder objects,
+    # then use the trigger_builder helper (same approach as place_bracket_order)
+    from schwab.contrib.orders import construct_repeat_order
+
     client = ctx.orders
 
-    # Use deep copy to avoid any reference issues with nested structures
-    trigger_order_spec = copy.deepcopy(first_order_spec)
-    trigger_order_spec["orderStrategyType"] = "TRIGGER"
-    trigger_order_spec["childOrderStrategies"] = [copy.deepcopy(second_order_spec)]
+    # Deep copy to avoid modifying the original specs
+    first_spec_copy = copy.deepcopy(first_order_spec)
+    second_spec_copy = copy.deepcopy(second_order_spec)
+
+    # Add orderLegType to each leg (required by construct_repeat_order)
+    # Detect type based on instrument assetType
+    for leg in first_spec_copy.get("orderLegCollection", []):
+        if "orderLegType" not in leg:
+            asset_type = leg.get("instrument", {}).get("assetType", "EQUITY")
+            leg["orderLegType"] = asset_type
+
+    for leg in second_spec_copy.get("orderLegCollection", []):
+        if "orderLegType" not in leg:
+            asset_type = leg.get("instrument", {}).get("assetType", "EQUITY")
+            leg["orderLegType"] = asset_type
+
+    # Convert dict specs to OrderBuilder objects using schwab-py's construct_repeat_order
+    first_order_builder = construct_repeat_order(first_spec_copy)
+    second_order_builder = construct_repeat_order(second_spec_copy)
+
+    # Use the schwab-py trigger_builder to create the TRIGGER order (same as bracket order does)
+    trigger_order_builder = trigger_builder(first_order_builder, second_order_builder)
+
+    # Build the final order dictionary
+    trigger_order_dict = cast(dict[str, Any], trigger_order_builder.build())
 
     # Place the order
     return await call(
         client.place_order,
         account_hash=account_hash,
-        order_spec=trigger_order_spec,
+        order_spec=trigger_order_dict,
     )
 
 
