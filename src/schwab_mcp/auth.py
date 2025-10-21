@@ -54,7 +54,10 @@ def easy_client(
         )
         logger.info("Loaded token from %s", token_manager.path)
 
-        if effective_max_token_age > 0 and client.token_age() >= effective_max_token_age:
+        if (
+            effective_max_token_age > 0
+            and client.token_age() >= effective_max_token_age
+        ):
             logger.info("token too old, proactively creating a new one")
             client = None
 

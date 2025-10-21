@@ -5,7 +5,7 @@ from typing import Annotated
 import datetime
 from mcp.server.fastmcp import FastMCP
 
-from schwab_mcp.context import SchwabContext, SchwabServerContext
+from schwab_mcp.context import SchwabContext
 from schwab_mcp.tools._registration import register_tool
 from schwab_mcp.tools.utils import JSONType, call
 
@@ -60,8 +60,7 @@ async def get_advanced_price_history(
       YEAR_TO_DATE: DAILY, WEEKLY (default)
     Dates must be in ISO format.
     """
-    context: SchwabServerContext = ctx.request_context.lifespan_context
-    client = context.price_history
+    client = ctx.price_history
 
     start_dt = _parse_iso_datetime(start_datetime)
     end_dt = _parse_iso_datetime(end_datetime)
@@ -110,8 +109,7 @@ async def get_price_history_every_minute(
     """
     Get OHLCV price history per minute. For detailed intraday analysis. Max 48 days history. Dates ISO format.
     """
-    context: SchwabServerContext = ctx.request_context.lifespan_context
-    client = context.price_history
+    client = ctx.price_history
 
     start_dt = _parse_iso_datetime(start_datetime)
     end_dt = _parse_iso_datetime(end_datetime)
@@ -141,8 +139,7 @@ async def get_price_history_every_five_minutes(
     """
     Get OHLCV price history per 5 minutes. Balance between detail and noise. Approx. 9 months history. Dates ISO format.
     """
-    context: SchwabServerContext = ctx.request_context.lifespan_context
-    client = context.price_history
+    client = ctx.price_history
 
     start_dt = _parse_iso_datetime(start_datetime)
     end_dt = _parse_iso_datetime(end_datetime)
@@ -172,8 +169,7 @@ async def get_price_history_every_ten_minutes(
     """
     Get OHLCV price history per 10 minutes. Good for intraday trends/levels. Approx. 9 months history. Dates ISO format.
     """
-    context: SchwabServerContext = ctx.request_context.lifespan_context
-    client = context.price_history
+    client = ctx.price_history
 
     start_dt = _parse_iso_datetime(start_datetime)
     end_dt = _parse_iso_datetime(end_datetime)
@@ -203,8 +199,7 @@ async def get_price_history_every_fifteen_minutes(
     """
     Get OHLCV price history per 15 minutes. Shows significant intraday moves, filters noise. Approx. 9 months history. Dates ISO format.
     """
-    context: SchwabServerContext = ctx.request_context.lifespan_context
-    client = context.price_history
+    client = ctx.price_history
 
     start_dt = _parse_iso_datetime(start_datetime)
     end_dt = _parse_iso_datetime(end_datetime)
@@ -234,8 +229,7 @@ async def get_price_history_every_thirty_minutes(
     """
     Get OHLCV price history per 30 minutes. For broader intraday trends, filters noise. Approx. 9 months history. Dates ISO format.
     """
-    context: SchwabServerContext = ctx.request_context.lifespan_context
-    client = context.price_history
+    client = ctx.price_history
 
     start_dt = _parse_iso_datetime(start_datetime)
     end_dt = _parse_iso_datetime(end_datetime)
@@ -271,8 +265,7 @@ async def get_price_history_every_day(
     """
     Get daily OHLCV price history. For medium/long-term analysis. Extensive history (back to 1985 possible). Dates ISO format.
     """
-    context: SchwabServerContext = ctx.request_context.lifespan_context
-    client = context.price_history
+    client = ctx.price_history
 
     start_dt = _parse_iso_datetime(start_datetime)
     end_dt = _parse_iso_datetime(end_datetime)
@@ -302,8 +295,7 @@ async def get_price_history_every_week(
     """
     Get weekly OHLCV price history. For long-term analysis, major cycles. Extensive history (back to 1985 possible). Dates ISO format.
     """
-    context: SchwabServerContext = ctx.request_context.lifespan_context
-    client = context.price_history
+    client = ctx.price_history
 
     start_dt = _parse_iso_datetime(start_datetime)
     end_dt = _parse_iso_datetime(end_datetime)

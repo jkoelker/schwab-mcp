@@ -3,10 +3,15 @@ from enum import Enum
 from types import SimpleNamespace
 from typing import Any, cast
 
-from mcp.server.fastmcp import Context
 from schwab.client import AsyncClient
 from schwab_mcp.tools import quotes
 from schwab_mcp.context import SchwabContext, SchwabServerContext
+from schwab_mcp.approvals import ApprovalDecision, ApprovalManager, ApprovalRequest
+
+
+class DummyApprovalManager(ApprovalManager):
+    async def require(self, request: ApprovalRequest) -> ApprovalDecision:  # noqa: ARG002
+        return ApprovalDecision.APPROVED
 
 
 class DummyQuotesClient:
@@ -22,9 +27,15 @@ def run(coro):
 
 
 def make_ctx(client: Any) -> SchwabContext:
-    lifespan_context = SchwabServerContext(client=cast(AsyncClient, client))
+    lifespan_context = SchwabServerContext(
+        client=cast(AsyncClient, client),
+        approval_manager=DummyApprovalManager(),
+    )
     request_context = SimpleNamespace(lifespan_context=lifespan_context)
-    return cast(SchwabContext, Context(request_context=cast(Any, request_context)))
+    return SchwabContext.model_construct(
+        _request_context=cast(Any, request_context),
+        _fastmcp=None,
+    )
 
 
 def test_get_quotes_parses_symbols_and_fields(monkeypatch):

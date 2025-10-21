@@ -4,7 +4,7 @@ from typing import Annotated
 
 from mcp.server.fastmcp import FastMCP
 
-from schwab_mcp.context import SchwabContext, SchwabServerContext
+from schwab_mcp.context import SchwabContext
 from schwab_mcp.tools._registration import register_tool
 from schwab_mcp.tools.utils import JSONType, call
 
@@ -27,8 +27,7 @@ async def get_quotes(
     Returns current market quotes for specified symbols (stocks, ETFs, indices, options).
     Params: symbols (list or comma-separated string), fields (list/str: QUOTE/FUNDAMENTAL/etc.), indicative (bool).
     """
-    context: SchwabServerContext = ctx.request_context.lifespan_context
-    client = context.quotes
+    client = ctx.quotes
 
     if isinstance(symbols, str):
         symbols = [s.strip() for s in symbols.split(",")]
