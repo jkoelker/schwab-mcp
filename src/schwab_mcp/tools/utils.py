@@ -5,7 +5,7 @@ from typing import Any, TypeAlias
 
 
 JSONPrimitive = str | int | float | bool | None
-JSONType: TypeAlias = JSONPrimitive | dict[str, "JSONType"] | list["JSONType"]
+JSONType: TypeAlias = JSONPrimitive | dict[str, Any] | list[Any]
 
 
 async def call(func: Callable[..., Awaitable[Any]], *args: Any, **kwargs: Any) -> JSONType:
