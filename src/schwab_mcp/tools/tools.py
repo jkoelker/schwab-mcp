@@ -5,7 +5,7 @@ from typing import Annotated
 import datetime
 from mcp.server.fastmcp import FastMCP
 
-from schwab_mcp.context import SchwabContext, SchwabServerContext
+from schwab_mcp.context import SchwabContext
 from schwab_mcp.tools._registration import register_tool
 from schwab_mcp.tools.utils import JSONType, call
 
@@ -31,8 +31,7 @@ async def get_market_hours(
     """
     Get market hours for specified markets (EQUITY, OPTION, etc.) on a given date (YYYY-MM-DD, default today).
     """
-    context: SchwabServerContext = ctx.request_context.lifespan_context
-    client = context.tools
+    client = ctx.tools
 
     if isinstance(markets, str):
         markets = [m.strip() for m in markets.split(",")]
@@ -64,8 +63,7 @@ async def get_movers(
     Get top 10 movers for an index/market (e.g., DJI, SPX, NASDAQ).
     Params: index, sort (VOLUME/TRADES/PERCENT_CHANGE_UP/DOWN), frequency (min % change: ZERO/ONE/etc.).
     """
-    context: SchwabServerContext = ctx.request_context.lifespan_context
-    client = context.tools
+    client = ctx.tools
 
     return await call(
         client.get_movers,
@@ -107,8 +105,7 @@ async def get_instruments(
     proj_upper = projection.upper()
     proj_key = projection.lower()
 
-    context: SchwabServerContext = ctx.request_context.lifespan_context
-    client = context.tools
+    client = ctx.tools
 
     if proj_key in projection_map:
         proj_enum_name = projection_map[proj_key]

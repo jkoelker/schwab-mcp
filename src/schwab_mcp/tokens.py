@@ -28,8 +28,7 @@ def token_path(app_name: str, filename: str = "token.yaml") -> str:
 
 
 class TokenWriter(Protocol):
-    def __call__(self, token: dict[str, Any], *args: Any, **kwargs: Any) -> None:
-        ...
+    def __call__(self, token: dict[str, Any], *args: Any, **kwargs: Any) -> None: ...
 
 
 def token_writer(token_path: str) -> TokenWriter:

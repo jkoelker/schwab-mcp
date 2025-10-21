@@ -9,7 +9,7 @@ from schwab.orders.common import first_triggers_second as trigger_builder
 from schwab.orders.common import one_cancels_other as oco_builder
 from schwab.orders.options import OptionSymbol
 
-from schwab_mcp.context import SchwabContext, SchwabServerContext
+from schwab_mcp.context import SchwabContext
 from schwab_mcp.tools._registration import register_tool
 from schwab_mcp.tools.order_helpers import (
     equity_buy_limit,
@@ -175,8 +175,7 @@ async def get_order(
     """
     Returns details for a specific order (ID, status, price, quantity, execution details). Params: account_hash, order_id.
     """
-    context: SchwabServerContext = ctx.request_context.lifespan_context
-    client = context.orders
+    client = ctx.orders
     return await call(client.get_order, order_id=order_id, account_hash=account_hash)
 
 
@@ -202,8 +201,7 @@ async def get_orders(
     Status options: AWAITING_PARENT_ORDER, AWAITING_CONDITION, AWAITING_STOP_CONDITION, AWAITING_MANUAL_REVIEW, ACCEPTED, AWAITING_UR_OUT, PENDING_ACTIVATION, QUEUED, WORKING, REJECTED, PENDING_CANCEL, CANCELED, PENDING_REPLACE, REPLACED, FILLED, EXPIRED, NEW, AWAITING_RELEASE_TIME, PENDING_ACKNOWLEDGEMENT, PENDING_RECALL.
     Use tomorrow's date as to_date for today's orders. Use WORKING/PENDING_ACTIVATION for open orders.
     """
-    context: SchwabServerContext = ctx.request_context.lifespan_context
-    client = context.orders
+    client = ctx.orders
 
     from_date_obj = None
     to_date_obj = None
@@ -242,8 +240,7 @@ async def cancel_order(
     """
     Cancels a pending order. Cannot cancel executed/terminal orders. Params: account_hash, order_id. Returns cancellation request confirmation; check status after. *Write operation.*
     """
-    context: SchwabServerContext = ctx.request_context.lifespan_context
-    client = context.orders
+    client = ctx.orders
     return await call(client.cancel_order, order_id=order_id, account_hash=account_hash)
 
 
@@ -274,8 +271,7 @@ async def place_equity_order(
     *Write operation.*
     """
     # Build the core order specification builder
-    context: SchwabServerContext = ctx.request_context.lifespan_context
-    client = context.orders
+    client = ctx.orders
 
     order_spec_builder = _build_equity_order_spec(
         symbol, quantity, instruction, order_type, price, stop_price
@@ -321,8 +317,7 @@ async def place_option_order(
     *Write operation.*
     """
     # Build the core order specification builder
-    context: SchwabServerContext = ctx.request_context.lifespan_context
-    client = context.orders
+    client = ctx.orders
 
     order_spec_builder = _build_option_order_spec(
         symbol, quantity, instruction, order_type, price
@@ -434,8 +429,7 @@ async def place_one_cancels_other_order(
     }
 
     # Place the order
-    context: SchwabServerContext = ctx.request_context.lifespan_context
-    client = context.orders
+    client = ctx.orders
 
     return await call(
         client.place_order, account_hash=account_hash, order_spec=oco_order_spec
@@ -462,8 +456,7 @@ async def place_first_triggers_second_order(
     # Manually construct the Trigger order dictionary structure
     # According to schwab-py's trigger_builder, the second order becomes a child of the first.
     # We modify the first spec dictionary directly.
-    context: SchwabServerContext = ctx.request_context.lifespan_context
-    client = context.orders
+    client = ctx.orders
 
     # Use deep copy to avoid any reference issues with nested structures
     trigger_order_spec = copy.deepcopy(first_order_spec)
@@ -533,8 +526,7 @@ async def place_bracket_order(
     *Write operation.*
     """
     # Validate entry instruction
-    context: SchwabServerContext = ctx.request_context.lifespan_context
-    client = context.orders
+    client = ctx.orders
 
     entry_instruction = entry_instruction.upper()
     if entry_instruction not in ["BUY", "SELL"]:
@@ -597,6 +589,7 @@ _READ_ONLY_TOOLS = (
     get_orders,
     build_equity_order_spec,
     build_option_order_spec,
+    create_option_symbol,
 )
 
 _WRITE_TOOLS = (
@@ -605,7 +598,6 @@ _WRITE_TOOLS = (
     place_option_order,
     place_one_cancels_other_order,
     place_first_triggers_second_order,
-    create_option_symbol,
     place_bracket_order,
 )
 
@@ -614,6 +606,8 @@ def register(server: FastMCP, *, allow_write: bool) -> None:
     for func in _READ_ONLY_TOOLS:
         register_tool(server, func)
 
-    if allow_write:
-        for func in _WRITE_TOOLS:
-            register_tool(server, func, write=True)
+    if not allow_write:
+        return
+
+    for func in _WRITE_TOOLS:
+        register_tool(server, func, write=True)

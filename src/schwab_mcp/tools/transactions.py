@@ -5,7 +5,7 @@ from typing import Annotated
 import datetime
 from mcp.server.fastmcp import FastMCP
 
-from schwab_mcp.context import SchwabContext, SchwabServerContext
+from schwab_mcp.context import SchwabContext
 from schwab_mcp.tools._registration import register_tool
 from schwab_mcp.tools.utils import JSONType, call
 
@@ -31,8 +31,7 @@ async def get_transactions(
     Params: account_hash, start_date (YYYY-MM-DD), end_date (YYYY-MM-DD), transaction_type (list/str: TRADE/DIVIDEND_OR_INTEREST/etc.), symbol.
     Use tomorrow's date as end_date for today's transactions. See full type list in original docstring if needed.
     """
-    context: SchwabServerContext = ctx.request_context.lifespan_context
-    client = context.transactions
+    client = ctx.transactions
 
     start_date_obj = None
     end_date_obj = None
@@ -71,8 +70,7 @@ async def get_transaction(
     Get detailed info for a specific transaction by ID.
     Params: account_hash, transaction_id (from get_transactions).
     """
-    context: SchwabServerContext = ctx.request_context.lifespan_context
-    client = context.transactions
+    client = ctx.transactions
     return await call(client.get_transaction, account_hash, transaction_id)
 
 

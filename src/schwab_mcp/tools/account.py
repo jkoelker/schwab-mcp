@@ -4,7 +4,7 @@ from typing import Annotated
 
 from mcp.server.fastmcp import FastMCP
 
-from schwab_mcp.context import SchwabContext, SchwabServerContext
+from schwab_mcp.context import SchwabContext
 from schwab_mcp.tools._registration import register_tool
 from schwab_mcp.tools.utils import JSONType, call
 
@@ -15,8 +15,7 @@ async def get_account_numbers(
     """
     Returns mapping of account IDs to account hashes. Hashes required for account-specific calls. Use first.
     """
-    context: SchwabServerContext = ctx.request_context.lifespan_context
-    return await call(context.accounts.get_account_numbers)
+    return await call(ctx.accounts.get_account_numbers)
 
 
 async def get_accounts(
@@ -25,8 +24,7 @@ async def get_accounts(
     """
     Returns balances/info for all linked accounts (funds, cash, margin). Does not return hashes; use get_account_numbers first.
     """
-    context: SchwabServerContext = ctx.request_context.lifespan_context
-    return await call(context.accounts.get_accounts)
+    return await call(ctx.accounts.get_accounts)
 
 
 async def get_accounts_with_positions(
@@ -35,10 +33,9 @@ async def get_accounts_with_positions(
     """
     Returns balances, info, and positions (holdings, cost, gain/loss) for all linked accounts. Does not return hashes; use get_account_numbers first.
     """
-    context: SchwabServerContext = ctx.request_context.lifespan_context
     return await call(
-        context.accounts.get_accounts,
-        fields=[context.accounts.Account.Fields.POSITIONS],
+        ctx.accounts.get_accounts,
+        fields=[ctx.accounts.Account.Fields.POSITIONS],
     )
 
 
@@ -49,8 +46,7 @@ async def get_account(
     """
     Returns balance/info for a specific account via account_hash (from get_account_numbers). Includes funds, cash, margin info.
     """
-    context: SchwabServerContext = ctx.request_context.lifespan_context
-    return await call(context.accounts.get_account, account_hash)
+    return await call(ctx.accounts.get_account, account_hash)
 
 
 async def get_account_with_positions(
@@ -60,11 +56,10 @@ async def get_account_with_positions(
     """
     Returns balance, info, and positions for a specific account via account_hash. Includes holdings, quantity, cost basis, unrealized gain/loss.
     """
-    context: SchwabServerContext = ctx.request_context.lifespan_context
     return await call(
-        context.accounts.get_account,
+        ctx.accounts.get_account,
         account_hash,
-        fields=[context.accounts.Account.Fields.POSITIONS],
+        fields=[ctx.accounts.Account.Fields.POSITIONS],
     )
 
 
@@ -74,8 +69,7 @@ async def get_user_preferences(
     """
     Returns user preferences (nicknames, display settings, notifications) for all linked accounts.
     """
-    context: SchwabServerContext = ctx.request_context.lifespan_context
-    return await call(context.accounts.get_user_preferences)
+    return await call(ctx.accounts.get_user_preferences)
 
 
 _READ_ONLY_TOOLS = (

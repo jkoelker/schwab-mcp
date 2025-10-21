@@ -14,7 +14,7 @@ the MCP [python-sdk](https://github.com/modelcontextprotocol/python-sdk).
 - Access order and transaction history
 - Comprehensive order building and placement capabilities
 - Advanced order strategies (OCO, trigger-based, and bracket orders)
-- Modify account state with special tools (requires `--jesus-take-the-wheel` flag)
+- Modify account state with special tools gated behind Discord approvals (bypass with `--jesus-take-the-wheel`)
 - Designed to integrate with Large Language Models (LLMs)
 
 ## Installation
@@ -57,16 +57,53 @@ After authentication, you can run the server:
 
 ```bash
 # Run the server with default token path
-uv run schwab-mcp server --client-id YOUR_CLIENT_ID --client-secret YOUR_CLIENT_SECRET --callback-url YOUR_CALLBACK_URL
+uv run schwab-mcp server \
+  --client-id YOUR_CLIENT_ID \
+  --client-secret YOUR_CLIENT_SECRET \
+  --callback-url YOUR_CALLBACK_URL \
+  --discord-token YOUR_DISCORD_BOT_TOKEN \
+  --discord-channel-id YOUR_APPROVAL_CHANNEL_ID \
+  --discord-approver DISCORD_USER_ID [--discord-approver ANOTHER_USER_ID ...]
 
 # Run with a custom token path
-uv run schwab-mcp server --token-path /path/to/token.json --client-id YOUR_CLIENT_ID --client-secret YOUR_CLIENT_SECRET --callback-url YOUR_CALLBACK_URL
+uv run schwab-mcp server \
+  --token-path /path/to/token.json \
+  --client-id YOUR_CLIENT_ID \
+  --client-secret YOUR_CLIENT_SECRET \
+  --callback-url YOUR_CALLBACK_URL \
+  --discord-token YOUR_DISCORD_BOT_TOKEN \
+  --discord-channel-id YOUR_APPROVAL_CHANNEL_ID
 
-# Run with account modification tools enabled
-uv run schwab-mcp server --jesus-take-the-wheel --client-id YOUR_CLIENT_ID --client-secret YOUR_CLIENT_SECRET --callback-url YOUR_CALLBACK_URL
+# Run with account modification tools auto-approved (no Discord prompt)
+uv run schwab-mcp server \
+  --jesus-take-the-wheel \
+  --client-id YOUR_CLIENT_ID \
+  --client-secret YOUR_CLIENT_SECRET \
+  --callback-url YOUR_CALLBACK_URL
+
 ```
 
 Token age is validated - if older than 5 days, you will be prompted to re-authenticate.
+
+Discord-related flags can also be provided via environment variables:
+- `SCHWAB_MCP_DISCORD_TOKEN`
+- `SCHWAB_MCP_DISCORD_CHANNEL_ID`
+- `SCHWAB_MCP_DISCORD_TIMEOUT` (optional, defaults to 600 seconds)
+- `SCHWAB_MCP_DISCORD_APPROVERS` (optional comma-separated list of Discord user IDs)
+
+### Discord approval setup
+
+1. Create or open your application at <https://discord.com/developers/applications>, add a **Bot**, reset the token, and paste it into `SCHWAB_MCP_DISCORD_TOKEN`.
+2. In the **Installation** tab (left sidebar) set *Install Link* to `None` so the default authorization link is disabled.
+3. Open the **Bot** tab, toggle **Public Bot** off.
+4. Use **OAuth2 → URL Generator** to build the invite link by selecting the `bot` scope. When the permissions matrix appears, grant the bot:
+   - View Channel
+   - Send Messages
+   - Embed Links
+   - Add Reactions
+   - Read Message History
+   - Manage Messages
+5. Copy the generated URL (the permissions integer reflects the boxes you checked), open it while logged into the Discord account that owns the approval server, and authorize the bot into the channel where approvals should post.
 
 > **WARNING**: Using the `--jesus-take-the-wheel` flag enables tools that can modify your account state. Use with caution as this allows LLMs to cancel orders and potentially perform other actions that change account state.
 
@@ -74,7 +111,7 @@ Token age is validated - if older than 5 days, you will be prompted to re-authen
 
 The server exposes the following MCP tools:
 
-> **Note**: Tools 28-35 require the `--jesus-take-the-wheel` flag as they can modify account state by placing orders.
+> **Note**: Tools 27-39 will pause for Discord approval before executing. Pass `--jesus-take-the-wheel` to bypass the approval workflow entirely.
 
 ### Date and Market Information
 1. `get_datetime` - Get the current datetime in ISO format

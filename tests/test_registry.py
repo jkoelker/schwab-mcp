@@ -8,9 +8,10 @@ from schwab.client import AsyncClient
 
 import schwab_mcp.tools as tools_module
 from schwab_mcp.tools._registration import register_tool
+from schwab_mcp.context import SchwabContext
 
 
-async def _dummy_tool() -> str:
+async def _dummy_tool(ctx: SchwabContext) -> str:  # noqa: ARG001
     """dummy tool description"""
     return "ok"
 
@@ -49,19 +50,18 @@ def test_register_tool_sets_write_annotations() -> None:
     assert tool.description == (_dummy_tool.__doc__ or "")
 
 
-def test_register_tools_respects_allow_write(monkeypatch) -> None:
-    async def read_tool() -> str:
+def test_register_tools_always_registers_write_tools(monkeypatch) -> None:
+    async def read_tool(ctx: SchwabContext) -> str:  # noqa: ARG001
         """read tool"""
         return "read"
 
-    async def write_tool() -> str:
+    async def write_tool(ctx: SchwabContext) -> str:  # noqa: ARG001
         """write tool"""
         return "write"
 
     def register_module(server, *, allow_write: bool) -> None:
         register_tool(server, read_tool)
-        if allow_write:
-            register_tool(server, write_tool, write=True)
+        register_tool(server, write_tool, write=True)
 
     dummy_module = SimpleNamespace(register=register_module)
     monkeypatch.setattr(tools_module, "_TOOL_MODULES", (dummy_module,))
@@ -70,10 +70,10 @@ def test_register_tools_respects_allow_write(monkeypatch) -> None:
     tools_module.register_tools(
         read_only_server, cast(AsyncClient, object()), allow_write=False
     )
-    read_only_tools = _registered_tools(read_only_server)
-    assert [tool.name for tool in read_only_tools] == ["read_tool"]
-    assert read_only_tools[0].annotations is not None
-    assert read_only_tools[0].annotations.readOnlyHint is True
+    read_only_tools = {tool.name: tool for tool in _registered_tools(read_only_server)}
+    assert {"read_tool", "write_tool"} == set(read_only_tools)
+    assert read_only_tools["write_tool"].annotations is not None
+    assert read_only_tools["write_tool"].annotations.readOnlyHint is False
 
     write_server = FastMCP(name="read-write")
     tools_module.register_tools(

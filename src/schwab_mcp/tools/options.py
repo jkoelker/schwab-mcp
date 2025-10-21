@@ -5,7 +5,7 @@ from typing import Annotated
 import datetime
 from mcp.server.fastmcp import FastMCP
 
-from schwab_mcp.context import SchwabContext, SchwabServerContext
+from schwab_mcp.context import SchwabContext
 from schwab_mcp.tools._registration import register_tool
 from schwab_mcp.tools.utils import JSONType, call
 
@@ -47,8 +47,7 @@ async def get_option_chain(
     Params: symbol, contract_type (CALL/PUT/ALL), strike_count (default 25), include_quotes (bool), from_date (YYYY-MM-DD), to_date (YYYY-MM-DD).
     Limit data returned using strike_count and date parameters.
     """
-    context: SchwabServerContext = ctx.request_context.lifespan_context
-    client = context.options
+    client = ctx.options
 
     from_date_obj = _parse_date(from_date)
     to_date_obj = _parse_date(to_date)
@@ -122,8 +121,7 @@ async def get_advanced_option_chain(
     Params: symbol, contract_type, strike_count, include_quotes, strategy (SINGLE/ANALYTICAL/etc.), interval, strike, strike_range (ITM/NTM/etc.), from/to_date, volatility/underlying_price/interest_rate/days_to_expiration (for ANALYTICAL), exp_month, option_type (STANDARD/NON_STANDARD/ALL).
     Limit data returned using strike_count and date parameters.
     """
-    context: SchwabServerContext = ctx.request_context.lifespan_context
-    client = context.options
+    client = ctx.options
 
     from_date_obj = _parse_date(from_date)
     to_date_obj = _parse_date(to_date)
@@ -162,8 +160,7 @@ async def get_option_expiration_chain(
     """
     Returns available option expiration dates for a symbol, without contract details. Lightweight call to find available cycles. Param: symbol.
     """
-    context: SchwabServerContext = ctx.request_context.lifespan_context
-    client = context.options
+    client = ctx.options
     return await call(client.get_option_expiration_chain, symbol)
 
 
