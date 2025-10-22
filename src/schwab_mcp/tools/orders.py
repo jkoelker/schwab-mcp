@@ -8,6 +8,8 @@ from mcp.server.fastmcp import FastMCP
 from schwab.orders.common import first_triggers_second as trigger_builder
 from schwab.orders.common import one_cancels_other as oco_builder
 from schwab.orders.options import OptionSymbol
+from schwab.orders.generic import OrderBuilder
+from schwab.orders.common import ComplexOrderStrategyType
 
 from schwab_mcp.context import SchwabContext
 from schwab_mcp.tools._registration import register_tool
@@ -606,6 +608,72 @@ async def place_bracket_order(
     )
 
 
+async def place_option_combo_order(
+    ctx: SchwabContext,
+    account_hash: Annotated[str, "Account hash for the Schwab account"],
+    legs: Annotated[
+        list[dict[str, Any]],
+        "List of option legs. Each leg requires: 'symbol' (str), 'quantity' (int), 'instruction' (BUY_TO_OPEN/SELL_TO_OPEN/BUY_TO_CLOSE/SELL_TO_CLOSE).",
+    ],
+    order_type: Annotated[str, "Combo order type: NET_CREDIT, NET_DEBIT, NET_ZERO, or MARKET"],
+    price: Annotated[
+        float | None,
+        "Net price for the combo (required for NET_CREDIT/NET_DEBIT; omit for MARKET/NET_ZERO).",
+    ] = None,
+    session: Annotated[
+        str | None, "Trading session: NORMAL (default), AM, PM, or SEAMLESS"
+    ] = "NORMAL",
+    duration: Annotated[
+        str | None, "Order duration: DAY (default) or GOOD_TILL_CANCEL"
+    ] = "DAY",
+    complex_order_strategy_type: Annotated[
+        str | None,
+        "Optional complex type: IRON_CONDOR, VERTICAL, CALENDAR, CUSTOM, etc. Defaults to CUSTOM.",
+    ] = "CUSTOM",
+) -> JSONType:
+    """
+    Places a single multi-leg option order (combo/spread) with a net price.
+
+    - Submit multiple option legs in one order payload using a single net
+      price for LIMIT orders.
+    - Each leg must include: instruction, symbol, quantity.
+    - Example legs item: {"instruction": "SELL_TO_OPEN", "symbol": "SPY 251121C500", "quantity": 1}
+
+    Notes:
+    - LIMIT is recommended for combos; MARKET support may vary by account/venue.
+    - The API infers debit/credit from leg directions; pass a positive price.
+    *Write operation.*
+    """
+    if not legs or len(legs) < 2:
+        raise ValueError("Provide at least two option legs for a combo order")
+
+    # Build a single order with multiple option legs
+    builder = OrderBuilder(enforce_enums=False).set_order_strategy_type("SINGLE")
+
+    # Apply session/duration consistently with other tools
+    builder = _apply_order_settings(builder, session, duration)
+
+    # complex order type helps the API validate multi-leg intent
+    if complex_order_strategy_type:
+        builder = builder.set_complex_order_strategy_type(complex_order_strategy_type.upper())
+
+    # Set order type and net price
+    builder = builder.set_order_type(order_type.upper())
+    if price is not None:
+        builder = builder.set_price(price)  # net debit/credit as positive number
+
+    for leg in legs:
+        builder = builder.add_option_leg(
+            leg["instruction"],
+            leg["symbol"],
+            leg["quantity"],
+        )
+
+    return await call(
+        ctx.orders.place_order, account_hash=account_hash, order_spec=builder.build()
+    )
+
+
 _READ_ONLY_TOOLS = (
     get_order,
     get_orders,
@@ -621,6 +689,7 @@ _WRITE_TOOLS = (
     place_one_cancels_other_order,
     place_first_triggers_second_order,
     place_bracket_order,
+    place_option_combo_order,
 )
 
 

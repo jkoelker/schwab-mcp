@@ -8,11 +8,33 @@ JSONPrimitive = str | int | float | bool | None
 JSONType: TypeAlias = JSONPrimitive | dict[str, Any] | list[Any]
 
 
+class SchwabAPIError(Exception):
+    """Represents an error response returned from the Schwab API."""
+
+    def __init__(
+        self,
+        *,
+        status_code: int,
+        url: str,
+        body: str,
+    ) -> None:
+        super().__init__(
+            f"Schwab API request failed; status={status_code}; url={url}; body={body}"
+        )
+
+
 async def call(func: Callable[..., Awaitable[Any]], *args: Any, **kwargs: Any) -> JSONType:
     """Call a Schwab client endpoint and return its JSON payload."""
 
     response = await func(*args, **kwargs)
-    response.raise_for_status()
+    try:
+        response.raise_for_status()
+    except Exception as exc:
+        raise SchwabAPIError(
+            status_code=response.status_code,
+            url=response.url,
+            body=response.text,
+        ) from exc
 
     # Handle responses with no content
     # 204 No Content: explicit no-content response
@@ -33,4 +55,4 @@ async def call(func: Callable[..., Awaitable[Any]], *args: Any, **kwargs: Any) -
         raise ValueError("Expected JSON response from Schwab endpoint") from exc
 
 
-__all__ = ["call", "JSONType"]
+__all__ = ["call", "JSONType", "SchwabAPIError"]
