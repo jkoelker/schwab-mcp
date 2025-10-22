@@ -9,7 +9,6 @@ from schwab.orders.common import first_triggers_second as trigger_builder
 from schwab.orders.common import one_cancels_other as oco_builder
 from schwab.orders.options import OptionSymbol
 from schwab.orders.generic import OrderBuilder
-from schwab.orders.common import ComplexOrderStrategyType
 
 from schwab_mcp.context import SchwabContext
 from schwab_mcp.tools._registration import register_tool
