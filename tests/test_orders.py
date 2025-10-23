@@ -116,3 +116,55 @@ def test_get_orders_maps_status_list(monkeypatch):
         client.Order.Status.FILLED,
         client.Order.Status.CANCELED,
     ]
+
+
+def test_place_equity_order_returns_order_metadata():
+    account_hash = "abc123"
+    order_id = 987654321
+    location = (
+        f"https://api.schwabapi.com/trader/v1/accounts/{account_hash}/orders/{order_id}"
+    )
+
+    class DummyResponse:
+        status_code = 201
+        url = f"https://api.schwabapi.com/trader/v1/accounts/{account_hash}/orders"
+        text = ""
+        content = b""
+        headers = {"Location": location}
+        is_error = False
+
+        def raise_for_status(self) -> None:
+            return None
+
+    class DummyPlaceOrderClient(DummyOrdersClient):
+        def __init__(self) -> None:
+            self.captured: dict[str, Any] | None = None
+
+        async def place_order(self, *args, **kwargs):
+            self.captured = {"args": args, "kwargs": kwargs}
+            return DummyResponse()
+
+    client = DummyPlaceOrderClient()
+    ctx = make_ctx(client)
+
+    result = run(
+        orders.place_equity_order(
+            ctx,
+            account_hash,
+            "SPY",
+            1,
+            "buy",
+            "market",
+        )
+    )
+
+    assert result == {
+        "orderId": order_id,
+        "accountHash": account_hash,
+        "location": location,
+    }
+
+    captured = client.captured
+    assert captured is not None
+    assert captured["kwargs"]["account_hash"] == account_hash
+    assert captured["kwargs"]["order_spec"]["orderStrategyType"] == "SINGLE"

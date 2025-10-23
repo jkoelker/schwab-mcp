@@ -8,6 +8,9 @@ JSONPrimitive = str | int | float | bool | None
 JSONType: TypeAlias = JSONPrimitive | dict[str, Any] | list[Any]
 
 
+ResponseHandler: TypeAlias = Callable[[Any], tuple[bool, JSONType]]
+
+
 class SchwabAPIError(Exception):
     """Represents an error response returned from the Schwab API."""
 
@@ -23,8 +26,18 @@ class SchwabAPIError(Exception):
         )
 
 
-async def call(func: Callable[..., Awaitable[Any]], *args: Any, **kwargs: Any) -> JSONType:
-    """Call a Schwab client endpoint and return its JSON payload."""
+async def call(
+    func: Callable[..., Awaitable[Any]],
+    *args: Any,
+    response_handler: ResponseHandler | None = None,
+    **kwargs: Any,
+) -> JSONType:
+    """Call a Schwab client endpoint and return its JSON payload.
+
+    When ``response_handler`` is provided, it can opt to handle the response
+    by returning ``(True, payload)``. Returning ``(False, _)`` delegates back to
+    the default JSON parsing behavior.
+    """
 
     response = await func(*args, **kwargs)
     try:
@@ -35,6 +48,11 @@ async def call(func: Callable[..., Awaitable[Any]], *args: Any, **kwargs: Any) -
             url=response.url,
             body=response.text,
         ) from exc
+
+    if response_handler is not None:
+        handled, payload = response_handler(response)
+        if handled:
+            return payload
 
     # Handle responses with no content
     # 204 No Content: explicit no-content response
@@ -55,4 +73,4 @@ async def call(func: Callable[..., Awaitable[Any]], *args: Any, **kwargs: Any) -
         raise ValueError("Expected JSON response from Schwab endpoint") from exc
 
 
-__all__ = ["call", "JSONType", "SchwabAPIError"]
+__all__ = ["call", "JSONType", "SchwabAPIError", "ResponseHandler"]
