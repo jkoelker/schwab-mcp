@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from click.testing import CliRunner
+from typing import Any
 
 from schwab_mcp import cli
 from schwab_mcp.approvals import ApprovalDecision, ApprovalManager, ApprovalRequest, NoOpApprovalManager
@@ -34,7 +35,7 @@ class DummyDiscordApprovalManager(ApprovalManager):
         return frozenset(int(value) for value in users)
 
 
-def _patch_common(monkeypatch, captured):
+def _patch_common(monkeypatch, captured: dict[str, Any]) -> None:
     monkeypatch.setattr(cli, "AsyncClient", FakeAsyncClient)
 
     def fake_easy_client(**_kwargs):
@@ -59,7 +60,7 @@ def _patch_common(monkeypatch, captured):
 
 
 def test_server_defaults_to_read_only(monkeypatch):
-    captured: dict[str, object] = {}
+    captured: dict[str, Any] = {}
     _patch_common(monkeypatch, captured)
 
     runner = CliRunner()
@@ -82,7 +83,7 @@ def test_server_defaults_to_read_only(monkeypatch):
 
 
 def test_server_enables_write_mode_when_flag_set(monkeypatch):
-    captured: dict[str, object] = {}
+    captured: dict[str, Any] = {}
     _patch_common(monkeypatch, captured)
 
     runner = CliRunner()
@@ -106,7 +107,7 @@ def test_server_enables_write_mode_when_flag_set(monkeypatch):
 
 
 def test_server_enables_write_mode_with_discord(monkeypatch):
-    captured: dict[str, object] = {}
+    captured: dict[str, Any] = {}
     _patch_common(monkeypatch, captured)
     monkeypatch.setattr(cli, "DiscordApprovalManager", DummyDiscordApprovalManager)
 

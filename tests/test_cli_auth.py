@@ -1,12 +1,14 @@
 from __future__ import annotations
 
+from typing import Any
+
 from click.testing import CliRunner
 
 from schwab_mcp import cli
 
 
 def test_auth_command_uses_max_token_age(monkeypatch, tmp_path):
-    captured: dict[str, object] = {}
+    captured: dict[str, Any] = {}
 
     class DummyManager:
         def __init__(self, path: str) -> None:
