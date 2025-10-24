@@ -39,6 +39,7 @@ def _patch_common(monkeypatch, captured):
 
     def fake_easy_client(**_kwargs):
         captured["easy_client_called"] = True
+        captured["easy_client_kwargs"] = _kwargs
         return FakeAsyncClient()
 
     monkeypatch.setattr(cli.schwab_auth, "easy_client", fake_easy_client)
@@ -77,6 +78,7 @@ def test_server_defaults_to_read_only(monkeypatch):
     assert result.exit_code == 0
     assert captured["allow_write"] is False
     assert isinstance(captured["approval_manager"], NoOpApprovalManager)
+    assert captured["easy_client_kwargs"]["max_token_age"] == cli.TOKEN_MAX_AGE_SECONDS
 
 
 def test_server_enables_write_mode_when_flag_set(monkeypatch):
@@ -100,6 +102,7 @@ def test_server_enables_write_mode_when_flag_set(monkeypatch):
     assert result.exit_code == 0
     assert captured["allow_write"] is True
     assert isinstance(captured["approval_manager"], NoOpApprovalManager)
+    assert captured["easy_client_kwargs"]["max_token_age"] == cli.TOKEN_MAX_AGE_SECONDS
 
 
 def test_server_enables_write_mode_with_discord(monkeypatch):
@@ -129,3 +132,4 @@ def test_server_enables_write_mode_with_discord(monkeypatch):
     assert result.exit_code == 0
     assert captured["allow_write"] is True
     assert isinstance(captured["approval_manager"], DummyDiscordApprovalManager)
+    assert captured["easy_client_kwargs"]["max_token_age"] == cli.TOKEN_MAX_AGE_SECONDS

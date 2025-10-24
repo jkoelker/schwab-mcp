@@ -12,6 +12,9 @@ from schwab.client import AsyncClient, Client
 
 from schwab_mcp import tokens
 
+
+DEFAULT_MAX_TOKEN_AGE_SECONDS = 5 * 24 * 60 * 60
+
 if TYPE_CHECKING:
     from multiprocessing import Process as ProcessType, Queue as QueueType
 else:  # pragma: no cover - runtime fallback for multiprocess
@@ -29,7 +32,7 @@ def easy_client(
     token_manager: tokens.Manager,
     asyncio: bool = False,
     enforce_enums: bool = True,
-    max_token_age: int | None = 60 * 60 * 24 * 13 // 2,
+    max_token_age: int | None = DEFAULT_MAX_TOKEN_AGE_SECONDS,
     callback_timeout: float = 300.0,
     interactive: bool = True,
     requested_browser: str | None = None,

@@ -15,6 +15,7 @@ from schwab_mcp.approvals import (
 
 
 APP_NAME = "schwab-mcp"
+TOKEN_MAX_AGE_SECONDS = schwab_auth.DEFAULT_MAX_TOKEN_AGE_SECONDS
 
 
 @click.group()
@@ -68,6 +69,7 @@ def auth(
             client_secret=client_secret,
             callback_url=callback_url,
             token_manager=token_manager,
+            max_token_age=TOKEN_MAX_AGE_SECONDS,
         )
 
         # If we get here, the authentication was successful
@@ -162,6 +164,7 @@ def server(
             asyncio=True,
             interactive=False,
             enforce_enums=False,
+            max_token_age=TOKEN_MAX_AGE_SECONDS,
         )
 
         if not isinstance(client, AsyncClient):
@@ -180,7 +183,7 @@ def server(
         return 1
 
     # Check token age
-    if client.token_age() > 5 * 86400:
+    if client.token_age() >= TOKEN_MAX_AGE_SECONDS:
         send_error_response(
             "Token is older than 5 days. Please run 'schwab-mcp auth' to re-authenticate.",
             code=401,
