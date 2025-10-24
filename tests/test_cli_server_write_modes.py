@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from click.testing import CliRunner
+from typing import Any
 
 from schwab_mcp import cli
 from schwab_mcp.approvals import ApprovalDecision, ApprovalManager, ApprovalRequest, NoOpApprovalManager
@@ -34,11 +35,12 @@ class DummyDiscordApprovalManager(ApprovalManager):
         return frozenset(int(value) for value in users)
 
 
-def _patch_common(monkeypatch, captured):
+def _patch_common(monkeypatch, captured: dict[str, Any]) -> None:
     monkeypatch.setattr(cli, "AsyncClient", FakeAsyncClient)
 
     def fake_easy_client(**_kwargs):
         captured["easy_client_called"] = True
+        captured["easy_client_kwargs"] = _kwargs
         return FakeAsyncClient()
 
     monkeypatch.setattr(cli.schwab_auth, "easy_client", fake_easy_client)
@@ -58,7 +60,7 @@ def _patch_common(monkeypatch, captured):
 
 
 def test_server_defaults_to_read_only(monkeypatch):
-    captured: dict[str, object] = {}
+    captured: dict[str, Any] = {}
     _patch_common(monkeypatch, captured)
 
     runner = CliRunner()
@@ -77,10 +79,11 @@ def test_server_defaults_to_read_only(monkeypatch):
     assert result.exit_code == 0
     assert captured["allow_write"] is False
     assert isinstance(captured["approval_manager"], NoOpApprovalManager)
+    assert captured["easy_client_kwargs"]["max_token_age"] == cli.TOKEN_MAX_AGE_SECONDS
 
 
 def test_server_enables_write_mode_when_flag_set(monkeypatch):
-    captured: dict[str, object] = {}
+    captured: dict[str, Any] = {}
     _patch_common(monkeypatch, captured)
 
     runner = CliRunner()
@@ -100,10 +103,11 @@ def test_server_enables_write_mode_when_flag_set(monkeypatch):
     assert result.exit_code == 0
     assert captured["allow_write"] is True
     assert isinstance(captured["approval_manager"], NoOpApprovalManager)
+    assert captured["easy_client_kwargs"]["max_token_age"] == cli.TOKEN_MAX_AGE_SECONDS
 
 
 def test_server_enables_write_mode_with_discord(monkeypatch):
-    captured: dict[str, object] = {}
+    captured: dict[str, Any] = {}
     _patch_common(monkeypatch, captured)
     monkeypatch.setattr(cli, "DiscordApprovalManager", DummyDiscordApprovalManager)
 
@@ -129,3 +133,4 @@ def test_server_enables_write_mode_with_discord(monkeypatch):
     assert result.exit_code == 0
     assert captured["allow_write"] is True
     assert isinstance(captured["approval_manager"], DummyDiscordApprovalManager)
+    assert captured["easy_client_kwargs"]["max_token_age"] == cli.TOKEN_MAX_AGE_SECONDS
