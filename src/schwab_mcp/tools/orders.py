@@ -5,6 +5,11 @@ from typing import Annotated, Any, cast
 import copy
 import datetime
 from mcp.server.fastmcp import FastMCP
+from schwab.utils import (
+    AccountHashMismatchException,
+    UnsuccessfulOrderException,
+    Utils as SchwabUtils,
+)
 from schwab.orders.common import first_triggers_second as trigger_builder
 from schwab.orders.common import one_cancels_other as oco_builder
 from schwab.orders.options import OptionSymbol
@@ -30,7 +35,7 @@ from schwab_mcp.tools.order_helpers import (
     option_sell_to_open_limit,
     option_sell_to_open_market,
 )
-from schwab_mcp.tools.utils import JSONType, call
+from schwab_mcp.tools.utils import JSONType, ResponseHandler, call
 
 
 # Internal helper function to apply session and duration settings
@@ -168,6 +173,33 @@ def _build_option_order_spec(
         )
 
 
+def _order_response_handler(ctx: SchwabContext, account_hash: str) -> ResponseHandler:
+    utils = SchwabUtils(ctx.client, account_hash)
+
+    def handler(response: Any) -> tuple[bool, JSONType]:
+        headers = getattr(response, "headers", {})
+        location = headers.get("Location") if headers else None
+
+        try:
+            order_id = utils.extract_order_id(response)
+        except (AccountHashMismatchException, UnsuccessfulOrderException):
+            order_id = None
+
+        if order_id is None and location is None:
+            return False, None
+
+        payload: dict[str, Any] = {}
+        if order_id is not None:
+            payload["orderId"] = order_id
+            payload["accountHash"] = account_hash
+        if location is not None:
+            payload["location"] = location
+
+        return True, payload
+
+    return handler
+
+
 async def get_order(
     ctx: SchwabContext,
     account_hash: Annotated[str, "Account hash for the Schwab account"],
@@ -286,7 +318,10 @@ async def place_equity_order(
 
     # Place the order
     return await call(
-        client.place_order, account_hash=account_hash, order_spec=order_spec_dict
+        client.place_order,
+        account_hash=account_hash,
+        order_spec=order_spec_dict,
+        response_handler=_order_response_handler(ctx, account_hash),
     )
 
 
@@ -332,7 +367,10 @@ async def place_option_order(
 
     # Place the order
     return await call(
-        client.place_order, account_hash=account_hash, order_spec=order_spec_dict
+        client.place_order,
+        account_hash=account_hash,
+        order_spec=order_spec_dict,
+        response_handler=_order_response_handler(ctx, account_hash),
     )
 
 
@@ -433,7 +471,10 @@ async def place_one_cancels_other_order(
     client = ctx.orders
 
     return await call(
-        client.place_order, account_hash=account_hash, order_spec=oco_order_spec
+        client.place_order,
+        account_hash=account_hash,
+        order_spec=oco_order_spec,
+        response_handler=_order_response_handler(ctx, account_hash),
     )
 
 
@@ -491,6 +532,7 @@ async def place_first_triggers_second_order(
         client.place_order,
         account_hash=account_hash,
         order_spec=trigger_order_dict,
+        response_handler=_order_response_handler(ctx, account_hash),
     )
 
 
@@ -604,6 +646,7 @@ async def place_bracket_order(
         client.place_order,
         account_hash=account_hash,
         order_spec=bracket_order_dict,
+        response_handler=_order_response_handler(ctx, account_hash),
     )
 
 
@@ -669,7 +712,10 @@ async def place_option_combo_order(
         )
 
     return await call(
-        ctx.orders.place_order, account_hash=account_hash, order_spec=builder.build()
+        ctx.orders.place_order,
+        account_hash=account_hash,
+        order_spec=builder.build(),
+        response_handler=_order_response_handler(ctx, account_hash),
     )
 
 
