@@ -91,6 +91,26 @@ Discord-related flags can also be provided via environment variables:
 - `SCHWAB_MCP_DISCORD_TIMEOUT` (optional, defaults to 600 seconds)
 - `SCHWAB_MCP_DISCORD_APPROVERS` (optional comma-separated list of Discord user IDs)
 
+### Container Image
+
+Published container images are available at `ghcr.io/jkoelker/schwab-mcp`. The image runs `schwab-mcp server` by default and persists token data under `/root/.local/share/schwab-mcp` unless overridden.
+
+```bash
+podman run --rm --interactive \
+  --env SCHWAB_CLIENT_ID \
+  --env SCHWAB_CLIENT_SECRET \
+  --env SCHWAB_CALLBACK_URL \
+  --env SCHWAB_MCP_DISCORD_TOKEN \
+  --env SCHWAB_MCP_DISCORD_CHANNEL_ID \
+  --publish 8182:8182 \
+  --volume ~/.local/share/schwab-mcp:/schwab-mcp \
+  ghcr.io/jkoelker/schwab-mcp:latest \
+    server \
+    --token-path /schwab-mcp/token.yaml
+```
+
+The container entrypoint reads the same environment variables as the CLI, so you can override or add flags by appending them (for example, `... ghcr.io/jkoelker/schwab-mcp:latest --jesus-take-the-wheel`). To explore other entry points, run `docker run ghcr.io/jkoelker/schwab-mcp:latest --help`.
+
 ### Discord approval setup
 
 1. Create or open your application at <https://discord.com/developers/applications>, add a **Bot**, reset the token, and paste it into `SCHWAB_MCP_DISCORD_TOKEN`.
