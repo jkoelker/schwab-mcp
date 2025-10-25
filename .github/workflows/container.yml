@@ -2,6 +2,7 @@ name: Container Image
 
 on:
   workflow_dispatch:
+  pull_request:
   push:
     branches:
       - main
@@ -22,6 +23,7 @@ jobs:
         uses: docker/setup-buildx-action@v3
 
       - name: Log in to GHCR
+        if: github.event_name != 'pull_request'
         uses: docker/login-action@v3
         with:
           registry: ghcr.io
