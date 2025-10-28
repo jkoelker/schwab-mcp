@@ -162,3 +162,20 @@ def test_get_instruments_supports_aliases(monkeypatch):
     kwargs = captured["kwargs"]
     assert isinstance(kwargs, dict)
     assert kwargs["projection"] is client.Instrument.Projection.SYMBOL_SEARCH
+
+
+def test_get_datetime_returns_eastern_time(monkeypatch):
+    class DummyDatetime(datetime.datetime):
+        @classmethod
+        def now(cls, tz=None):
+            assert tz is not None
+            return cls(2024, 1, 15, 12, 30, 45, tzinfo=tz)
+
+    monkeypatch.setattr(tools.datetime, "datetime", DummyDatetime)
+
+    result = run(tools.get_datetime())
+
+    assert result.startswith("2024-01-15T12:30:45")
+    assert "-05:00" in result or "-04:00" in result
+    assert result.endswith("EST") or result.endswith("EDT")
+    assert "Eastern Time" not in result
