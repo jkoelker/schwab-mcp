@@ -1,8 +1,8 @@
 #
 
-from typing import Annotated
-
 import datetime
+from typing import Annotated
+from zoneinfo import ZoneInfo
 from mcp.server.fastmcp import FastMCP
 
 from schwab_mcp.context import SchwabContext
@@ -12,9 +12,10 @@ from schwab_mcp.tools.utils import JSONType, call
 
 async def get_datetime() -> str:
     """
-    Get the current datetime in ISO format (e.g., '2023-10-27T10:30:00.123456').
+    Get the current datetime in ISO format with Eastern Time offset and abbreviation.
     """
-    return datetime.datetime.now().isoformat()
+    eastern_now = datetime.datetime.now(tz=ZoneInfo("America/New_York"))
+    return f"{eastern_now.isoformat()} {eastern_now.tzname()}"
 
 
 async def get_market_hours(
