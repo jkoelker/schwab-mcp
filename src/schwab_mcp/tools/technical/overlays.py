@@ -61,6 +61,15 @@ async def vwap(
 
     ensure_columns(frame, ("high", "low", "close", "volume"))
 
+    volume = frame["volume"].astype(float)
+    positive_volume_mask = volume.notna() & (volume > 0)
+    if not positive_volume_mask.any():
+        raise ValueError(
+            "Price history includes no positive volume, so VWAP cannot be computed for this symbol."
+        )
+
+    frame = frame.loc[positive_volume_mask].copy()
+
     vwap_series = pandas_ta.vwap(
         high=frame["high"],
         low=frame["low"],

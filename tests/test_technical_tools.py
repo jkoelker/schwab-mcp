@@ -231,6 +231,28 @@ def test_vwap_returns_series(monkeypatch, dummy_ctx, ohlcv_data):
     assert values[-1]["vwap"] == pytest.approx(100.0 + len(frame) - 1)
 
 
+def test_vwap_requires_positive_volume(monkeypatch, dummy_ctx, ohlcv_data):
+    frame, metadata = ohlcv_data
+    frame = frame.copy()
+    frame["volume"] = 0
+
+    async def fake_fetch(ctx, symbol, **kwargs):
+        return frame, metadata
+
+    def unexpected_vwap(*args, **kwargs):  # pragma: no cover - should not run
+        raise AssertionError("vwap calculation should not be invoked")
+
+    monkeypatch.setattr(overlays, "fetch_price_frame", fake_fetch)
+    monkeypatch.setattr(
+        overlays,
+        "pandas_ta",
+        SimpleNamespace(vwap=unexpected_vwap, pivot_points=None, bbands=None),
+    )
+
+    with pytest.raises(ValueError, match="no positive volume"):
+        run(overlays.vwap(dummy_ctx, "HOOD", length=5))
+
+
 def test_pivot_points_returns_levels(monkeypatch, dummy_ctx, ohlcv_data):
     frame, metadata = ohlcv_data
 
