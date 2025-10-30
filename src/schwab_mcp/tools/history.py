@@ -81,7 +81,7 @@ async def get_advanced_price_history(
         frequency = int(frequency)
 
     return await call(
-        client.get_advanced_price_history,
+        client.get_price_history,
         symbol,
         period_type=period_type_enum,
         period=period_enum,

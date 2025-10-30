@@ -22,7 +22,7 @@ class DummyHistoryClient:
         FrequencyType=Enum("FrequencyType", "MINUTE DAILY WEEKLY MONTHLY"),
     )
 
-    async def get_advanced_price_history(self, *args, **kwargs):
+    async def get_price_history(self, *args, **kwargs):
         return None
 
     async def get_price_history_every_minute(self, *args, **kwargs):
@@ -74,7 +74,7 @@ def test_get_advanced_price_history_normalizes_inputs(monkeypatch):
     )
 
     assert result == "ok"
-    assert captured["func"] == client.get_advanced_price_history
+    assert captured["func"] == client.get_price_history
 
     args = captured["args"]
     assert isinstance(args, tuple)

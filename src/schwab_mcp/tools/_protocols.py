@@ -18,7 +18,7 @@ class PriceHistoryNamespace(Protocol):
 class PriceHistoryClient(Protocol):
     PriceHistory: PriceHistoryNamespace
 
-    def get_advanced_price_history(
+    def get_price_history(
         self, symbol: str, **kwargs: Any
     ) -> Awaitable[Any]: ...
 
