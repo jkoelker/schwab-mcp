@@ -1,5 +1,7 @@
 # syntax=docker/dockerfile:1.7
 
+FROM ghcr.io/astral-sh/uv:python3.12-trixie-slim AS uv-tools
+
 FROM python:3.12-slim AS builder
 
 ARG DEBIAN_FRONTEND=noninteractive
@@ -9,22 +11,26 @@ ENV PYTHONDONTWRITEBYTECODE=1 \
     PIP_ROOT_USER_ACTION=ignore \
     PIP_DISABLE_PIP_VERSION_CHECK=1
 
-WORKDIR /app
-
 # hadolint ignore=DL3008
 RUN apt-get update \
     && apt-get install --no-install-recommends -y build-essential \
     && rm -rf /var/lib/apt/lists/*
 
-COPY pyproject.toml README.md ./
+COPY --from=uv-tools /usr/local/bin/uv /usr/bin/
+
+WORKDIR /app
+
+COPY pyproject.toml README.md uv.lock ./
 COPY src ./src
 
-# hadolint ignore=DL3013
-RUN pip install --no-cache-dir --upgrade pip \
-    && pip install --no-cache-dir build \
-    && python -m build --wheel --outdir /dist
+RUN uv build --wheel --out-dir /dist && \
+    uv export \
+        --format requirements-txt \
+        --group ta \
+        --no-emit-project \
+        --output-file /dist/requirements.txt
 
-FROM python:3.12-slim AS runtime
+FROM python:3.12-slim
 
 ARG DEBIAN_FRONTEND=noninteractive
 
@@ -38,11 +44,14 @@ RUN apt-get update \
     && apt-get install --no-install-recommends -y ca-certificates \
     && rm -rf /var/lib/apt/lists/*
 
+COPY --from=uv-tools /usr/local/bin/uv /usr/bin/
+
 WORKDIR /workspace
 
 COPY --from=builder /dist/ /tmp/dist/
 
-RUN pip install --no-cache-dir /tmp/dist/*.whl \
+RUN uv pip install --system --no-cache -r /tmp/dist/requirements.txt \
+    && uv pip install --system --no-cache /tmp/dist/*.whl \
     && rm -rf /tmp/dist
 
 LABEL org.opencontainers.image.title="Schwab MCP Server" \
