@@ -55,12 +55,18 @@ class SchwabMCPServer:
         approval_manager: ApprovalManager,
         *,
         allow_write: bool,
+        enable_technical_tools: bool = True,
     ) -> None:
         self._server = FastMCP(
             name=name,
             lifespan=_client_lifespan(client, approval_manager),
         )
-        register_tools(self._server, client, allow_write=allow_write)
+        register_tools(
+            self._server,
+            client,
+            allow_write=allow_write,
+            enable_technical=enable_technical_tools,
+        )
 
     async def run(self) -> None:
         """Run the server using FastMCP's stdio transport."""

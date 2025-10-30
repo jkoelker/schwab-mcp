@@ -6,8 +6,10 @@ from contextlib import suppress
 import functools
 import inspect
 import logging
+import sys
+import types
 import uuid
-from typing import Any
+from typing import Annotated, Any, Union, cast, get_args, get_origin, get_type_hints
 
 from mcp.server.fastmcp import FastMCP, Context as MCPContext
 from mcp.types import ToolAnnotations
@@ -23,13 +25,55 @@ _APPROVAL_PROGRESS_INTERVAL = 5.0
 _APPROVAL_WAIT_MESSAGE = "Waiting for reviewer approval…"
 
 
-def _ensure_schwab_context(func: ToolFn) -> ToolFn:
+def _is_context_annotation(annotation: Any) -> bool:
+    if annotation in (inspect._empty, None):
+        return False
+    if annotation is SchwabContext:
+        return True
+    if annotation == "SchwabContext":
+        return True
+    if isinstance(annotation, str):
+        return annotation == "SchwabContext"
+
+    origin = get_origin(annotation)
+    if origin is None:
+        return False
+
+    if origin in (Annotated,):
+        args = get_args(annotation)
+        return bool(args) and _is_context_annotation(args[0])
+
+    if origin in (Union, types.UnionType):
+        return any(_is_context_annotation(arg) for arg in get_args(annotation))
+
+    return False
+
+
+def _resolve_context_parameters(func: ToolFn) -> tuple[inspect.Signature, list[str]]:
     signature = inspect.signature(func)
-    ctx_params = [
-        name
-        for name, param in signature.parameters.items()
-        if param.annotation is SchwabContext
-    ]
+
+    module = sys.modules.get(func.__module__)
+    globalns = vars(module) if module else {}
+
+    type_hints: dict[str, Any]
+    try:
+        type_hints = get_type_hints(func, globalns=globalns, include_extras=True)
+    except TypeError:
+        type_hints = get_type_hints(func, globalns=globalns)
+    except Exception:
+        type_hints = {}
+
+    ctx_params = []
+    for name, param in signature.parameters.items():
+        annotation = type_hints.get(name, param.annotation)
+        if _is_context_annotation(annotation):
+            ctx_params.append(name)
+
+    return signature, ctx_params
+
+
+def _ensure_schwab_context(func: ToolFn) -> ToolFn:
+    signature, ctx_params = _resolve_context_parameters(func)
     if not ctx_params:
         return func
 
@@ -57,6 +101,15 @@ def _ensure_schwab_context(func: ToolFn) -> ToolFn:
             return await result
         return result
 
+    # Ensure annotations referencing names from the original module remain resolvable.
+    wrapper_globals = cast(dict[str, Any], getattr(wrapper, "__globals__", {}))
+    module = inspect.getmodule(func)
+    if module is not None:
+        module_globals = vars(module)
+        if wrapper_globals is not module_globals:
+            for key, value in module_globals.items():
+                wrapper_globals.setdefault(key, value)
+
     return wrapper
 
 
@@ -68,12 +121,7 @@ def _format_argument(value: Any) -> str:
 
 
 def _wrap_with_approval(func: ToolFn) -> ToolFn:
-    signature = inspect.signature(func)
-    ctx_params = [
-        name
-        for name, param in signature.parameters.items()
-        if param.annotation is SchwabContext
-    ]
+    signature, ctx_params = _resolve_context_parameters(func)
     if not ctx_params:
         raise TypeError(
             f"Write tool '{func.__name__}' must accept a SchwabContext parameter for approval gating."
@@ -159,6 +207,14 @@ def _wrap_with_approval(func: ToolFn) -> ToolFn:
         if decision is ApprovalDecision.DENIED:
             raise PermissionError(message)
         raise TimeoutError(message)
+
+    wrapper_globals = cast(dict[str, Any], getattr(wrapper, "__globals__", {}))
+    module = inspect.getmodule(func)
+    if module is not None:
+        module_globals = vars(module)
+        if wrapper_globals is not module_globals:
+            for key, value in module_globals.items():
+                wrapper_globals.setdefault(key, value)
 
     return wrapper
 

@@ -1,5 +1,4 @@
 #
-
 from typing import Annotated
 
 import datetime
@@ -10,6 +9,9 @@ from schwab_mcp.tools._registration import register_tool
 from schwab_mcp.tools.utils import JSONType, call
 
 
+_EXPIRATION_WINDOW_DAYS = 60
+
+
 def _parse_date(value: str | datetime.date | None) -> datetime.date | None:
     if value is None:
         return None
@@ -18,6 +20,29 @@ def _parse_date(value: str | datetime.date | None) -> datetime.date | None:
     if isinstance(value, datetime.datetime):
         return value.date()
     return datetime.datetime.strptime(value, "%Y-%m-%d").date()
+
+
+def _normalize_expiration_window(
+    from_date: datetime.date | None,
+    to_date: datetime.date | None,
+    *,
+    today: datetime.date | None = None,
+) -> tuple[datetime.date | None, datetime.date | None]:
+    if from_date is None and to_date is None:
+        today = datetime.date.today() if today is None else today
+        return today, today + datetime.timedelta(days=_EXPIRATION_WINDOW_DAYS)
+
+    if from_date is None and to_date is not None:
+        today = datetime.date.today() if today is None else today
+        from_date = min(today, to_date)
+
+    if from_date is not None and to_date is None:
+        to_date = from_date + datetime.timedelta(days=_EXPIRATION_WINDOW_DAYS)
+
+    if from_date is not None and to_date is not None and to_date < from_date:
+        to_date = from_date
+
+    return from_date, to_date
 
 
 async def get_option_chain(
@@ -45,12 +70,14 @@ async def get_option_chain(
     """
     Returns option chain data (strikes, expirations, prices) for a symbol. Use for standard chains.
     Params: symbol, contract_type (CALL/PUT/ALL), strike_count (default 25), include_quotes (bool), from_date (YYYY-MM-DD), to_date (YYYY-MM-DD).
-    Limit data returned using strike_count and date parameters.
+    Limit data returned using strike_count and date parameters. When both dates are omitted the tool defaults to the next 60 calendar days to avoid oversized responses.
     """
     client = ctx.options
 
-    from_date_obj = _parse_date(from_date)
-    to_date_obj = _parse_date(to_date)
+    from_date_obj, to_date_obj = _normalize_expiration_window(
+        _parse_date(from_date),
+        _parse_date(to_date),
+    )
 
     return await call(
         client.get_option_chain,
@@ -119,12 +146,16 @@ async def get_advanced_option_chain(
     """
     Returns advanced option chain data with strategies, filters, and theoretical calculations. Use for complex analysis.
     Params: symbol, contract_type, strike_count, include_quotes, strategy (SINGLE/ANALYTICAL/etc.), interval, strike, strike_range (ITM/NTM/etc.), from/to_date, volatility/underlying_price/interest_rate/days_to_expiration (for ANALYTICAL), exp_month, option_type (STANDARD/NON_STANDARD/ALL).
-    Limit data returned using strike_count and date parameters.
+    Limit data returned using strike_count and date parameters. When both dates are omitted the tool defaults to the next 60 calendar days to avoid oversized responses.
     """
     client = ctx.options
 
     from_date_obj = _parse_date(from_date)
     to_date_obj = _parse_date(to_date)
+    from_date_obj, to_date_obj = _normalize_expiration_window(
+        from_date_obj,
+        to_date_obj,
+    )
 
     return await call(
         client.get_option_chain,
