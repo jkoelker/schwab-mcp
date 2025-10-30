@@ -68,7 +68,10 @@ def test_register_tools_always_registers_write_tools(monkeypatch) -> None:
 
     read_only_server = FastMCP(name="read-only")
     tools_module.register_tools(
-        read_only_server, cast(AsyncClient, object()), allow_write=False
+        read_only_server,
+        cast(AsyncClient, object()),
+        allow_write=False,
+        enable_technical=False,
     )
     read_only_tools = {tool.name: tool for tool in _registered_tools(read_only_server)}
     assert {"read_tool", "write_tool"} == set(read_only_tools)
@@ -77,7 +80,10 @@ def test_register_tools_always_registers_write_tools(monkeypatch) -> None:
 
     write_server = FastMCP(name="read-write")
     tools_module.register_tools(
-        write_server, cast(AsyncClient, object()), allow_write=True
+        write_server,
+        cast(AsyncClient, object()),
+        allow_write=True,
+        enable_technical=False,
     )
     write_tools = {tool.name: tool for tool in _registered_tools(write_server)}
     assert {"read_tool", "write_tool"} == set(write_tools)

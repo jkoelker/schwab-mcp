@@ -7,6 +7,7 @@ from typing import Any, cast
 from schwab.client import AsyncClient
 from schwab_mcp.context import SchwabContext, SchwabServerContext
 from schwab_mcp.tools import tools
+from schwab_mcp.tools import options as options_tools
 from schwab_mcp.approvals import ApprovalDecision, ApprovalManager, ApprovalRequest
 
 
@@ -179,3 +180,89 @@ def test_get_datetime_returns_eastern_time(monkeypatch):
     assert "-05:00" in result or "-04:00" in result
     assert result.endswith("EST") or result.endswith("EDT")
     assert "Eastern Time" not in result
+
+
+def test_get_option_chain_defaults_date_window(monkeypatch):
+    captured: dict[str, Any] = {}
+
+    async def fake_call(func, *args, **kwargs):
+        captured["func"] = func
+        captured["kwargs"] = kwargs
+        return "ok"
+
+    monkeypatch.setattr(options_tools, "call", fake_call)
+
+    class DummyDate(datetime.date):
+        @classmethod
+        def today(cls):
+            return cls(2025, 2, 1)
+
+    monkeypatch.setattr(options_tools.datetime, "date", DummyDate)
+
+    class DummyOptionsClient:
+        def get_option_chain(self, *args, **kwargs):  # pragma: no cover - stub
+            raise AssertionError("Schwab client should be invoked via call helper")
+
+    client = DummyOptionsClient()
+    ctx = make_ctx(client)
+
+    result = run(options_tools.get_option_chain(ctx, "AAPL"))
+
+    assert result == "ok"
+    kwargs = captured["kwargs"]
+    assert kwargs["from_date"] == DummyDate(2025, 2, 1)
+    assert kwargs["to_date"] == DummyDate(2025, 2, 1) + datetime.timedelta(days=60)
+
+
+def test_get_option_chain_extends_missing_to_date(monkeypatch):
+    captured: dict[str, Any] = {}
+
+    async def fake_call(func, *args, **kwargs):
+        captured["kwargs"] = kwargs
+        return "ok"
+
+    monkeypatch.setattr(options_tools, "call", fake_call)
+
+    class DummyOptionsClient:
+        def get_option_chain(self, *args, **kwargs):  # pragma: no cover - stub
+            raise AssertionError("Schwab client should be invoked via call helper")
+
+    client = DummyOptionsClient()
+    ctx = make_ctx(client)
+
+    start = datetime.date(2025, 3, 5)
+    run(options_tools.get_option_chain(ctx, "AAPL", from_date=start))
+
+    kwargs = captured["kwargs"]
+    assert kwargs["from_date"] == start
+    assert kwargs["to_date"] == start + datetime.timedelta(days=60)
+
+
+def test_get_advanced_option_chain_defaults_date_window(monkeypatch):
+    captured: dict[str, Any] = {}
+
+    async def fake_call(func, *args, **kwargs):
+        captured["kwargs"] = kwargs
+        return "ok"
+
+    monkeypatch.setattr(options_tools, "call", fake_call)
+
+    class DummyDate(datetime.date):
+        @classmethod
+        def today(cls):
+            return cls(2025, 4, 10)
+
+    monkeypatch.setattr(options_tools.datetime, "date", DummyDate)
+
+    class DummyOptionsClient:
+        def get_option_chain(self, *args, **kwargs):  # pragma: no cover - stub
+            raise AssertionError("Schwab client should be invoked via call helper")
+
+    client = DummyOptionsClient()
+    ctx = make_ctx(client)
+
+    run(options_tools.get_advanced_option_chain(ctx, "SPY"))
+
+    kwargs = captured["kwargs"]
+    assert kwargs["from_date"] == DummyDate(2025, 4, 10)
+    assert kwargs["to_date"] == DummyDate(2025, 4, 10) + datetime.timedelta(days=60)

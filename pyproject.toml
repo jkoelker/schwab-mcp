@@ -32,6 +32,10 @@ dev = [
     "pytest>=8.4.2",
     "ruff>=0.14.0",
 ]
+ta = [
+    "pandas>=2.2.2",
+    "pandas-ta-classic>=0.3.36",
+]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

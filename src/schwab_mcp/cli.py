@@ -115,6 +115,12 @@ def auth(
     help="Allow tools to modify the portfolios, placing trades, etc.",
 )
 @click.option(
+    "--no-technical-tools",
+    default=False,
+    is_flag=True,
+    help="Disable optional technical analysis tools.",
+)
+@click.option(
     "--discord-token",
     type=str,
     envvar="SCHWAB_MCP_DISCORD_TOKEN",
@@ -150,6 +156,7 @@ def server(
     discord_channel_id: int | None,
     discord_approver: tuple[str, ...],
     discord_timeout: int,
+    no_technical_tools: bool,
 ) -> int:
     """Run the Schwab MCP server."""
     # No logging to stderr when in MCP mode (we'll use proper MCP responses)
@@ -258,6 +265,7 @@ def server(
             client,
             approval_manager=approval_manager,
             allow_write=allow_write,
+            enable_technical_tools=not no_technical_tools,
         )
         anyio.run(server.run, backend="asyncio")
         return 0

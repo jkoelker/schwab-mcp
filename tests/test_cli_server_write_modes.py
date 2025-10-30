@@ -46,11 +46,20 @@ def _patch_common(monkeypatch, captured: dict[str, Any]) -> None:
     monkeypatch.setattr(cli.schwab_auth, "easy_client", fake_easy_client)
 
     class FakeServer:
-        def __init__(self, name, client, approval_manager, *, allow_write):
+        def __init__(
+            self,
+            name,
+            client,
+            approval_manager,
+            *,
+            allow_write,
+            enable_technical_tools=True,
+        ):
             captured["server_name"] = name
             captured["server_client"] = client
             captured["approval_manager"] = approval_manager
             captured["allow_write"] = allow_write
+            captured["enable_technical_tools"] = enable_technical_tools
 
         async def run(self):
             captured["run_called"] = True
