@@ -1,5 +1,6 @@
 #
 
+from collections.abc import Callable
 from typing import Annotated, Any, cast
 
 import copy
@@ -738,12 +739,17 @@ _WRITE_TOOLS = (
 )
 
 
-def register(server: FastMCP, *, allow_write: bool) -> None:
+def register(
+    server: FastMCP,
+    *,
+    allow_write: bool,
+    result_transform: Callable[[Any], Any] | None = None,
+) -> None:
     for func in _READ_ONLY_TOOLS:
-        register_tool(server, func)
+        register_tool(server, func, result_transform=result_transform)
 
     if not allow_write:
         return
 
     for func in _WRITE_TOOLS:
-        register_tool(server, func, write=True)
+        register_tool(server, func, write=True, result_transform=result_transform)

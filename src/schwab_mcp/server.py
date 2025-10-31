@@ -4,7 +4,7 @@ import logging
 import sys
 from collections.abc import AsyncGenerator
 from contextlib import asynccontextmanager
-from typing import AsyncContextManager, Callable, Optional
+from typing import Any, AsyncContextManager, Callable, Optional
 
 import mcp.types as types
 from mcp.server.fastmcp import FastMCP
@@ -56,7 +56,25 @@ class SchwabMCPServer:
         *,
         allow_write: bool,
         enable_technical_tools: bool = True,
+        use_json: bool = False,
     ) -> None:
+        result_transform: Callable[[Any], Any] | None = None
+        if not use_json:
+            try:
+                from toon import encode as toon_encode
+            except ImportError as exc:  # pragma: no cover - import-time failure
+                raise RuntimeError(
+                    "python-toon is required for Toon output. "
+                    "Re-run with --json or install the dependency."
+                ) from exc
+
+            def _toon_transform(payload: Any) -> str:
+                if isinstance(payload, str):
+                    return payload
+                return toon_encode(payload)
+
+            result_transform = _toon_transform
+
         self._server = FastMCP(
             name=name,
             lifespan=_client_lifespan(client, approval_manager),
@@ -66,6 +84,7 @@ class SchwabMCPServer:
             client,
             allow_write=allow_write,
             enable_technical=enable_technical_tools,
+            result_transform=result_transform,
         )
 
     async def run(self) -> None:

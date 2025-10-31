@@ -3,7 +3,7 @@ from __future__ import annotations
 import logging
 import importlib
 from types import ModuleType
-from typing import TYPE_CHECKING, Any, cast
+from typing import TYPE_CHECKING, Any, Callable, cast
 
 if TYPE_CHECKING:
     from mcp.server.fastmcp import FastMCP
@@ -18,7 +18,12 @@ except ModuleNotFoundError:
 pandas_ta = cast(Any, _pandas_ta)
 
 
-def register(server: "FastMCP", *, allow_write: bool) -> None:
+def register(
+    server: "FastMCP",
+    *,
+    allow_write: bool,
+    result_transform: Callable[[Any], Any] | None = None,
+) -> None:
     """Register optional technical analysis tools if dependencies are available."""
     _ = allow_write
 
@@ -34,7 +39,11 @@ def register(server: "FastMCP", *, allow_write: bool) -> None:
             raise AttributeError(
                 f"Technical tool module {module.__name__} is missing register()"
             )
-        register_fn(server, allow_write=allow_write)
+        register_fn(
+            server,
+            allow_write=allow_write,
+            result_transform=result_transform,
+        )
 
     logger.debug("Technical analysis tools registered from %s", ", ".join(_MODULE_PATHS))
 

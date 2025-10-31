@@ -1,6 +1,7 @@
 from __future__ import annotations
 
-from typing import Annotated
+from collections.abc import Callable
+from typing import Annotated, Any
 
 from mcp.server.fastmcp import FastMCP
 from schwab_mcp.context import SchwabContext
@@ -256,8 +257,13 @@ async def bollinger_bands(
     }
 
 
-def register(server: FastMCP, *, allow_write: bool) -> None:
+def register(
+    server: FastMCP,
+    *,
+    allow_write: bool,
+    result_transform: Callable[[Any], Any] | None = None,
+) -> None:
     _ = allow_write
-    register_tool(server, vwap)
-    register_tool(server, pivot_points)
-    register_tool(server, bollinger_bands)
+    register_tool(server, vwap, result_transform=result_transform)
+    register_tool(server, pivot_points, result_transform=result_transform)
+    register_tool(server, bollinger_bands, result_transform=result_transform)

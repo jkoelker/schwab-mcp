@@ -2,6 +2,9 @@ from __future__ import annotations
 
 import logging
 
+from collections.abc import Callable
+from typing import Any
+
 from mcp.server.fastmcp import FastMCP
 from schwab.client import AsyncClient
 
@@ -33,6 +36,7 @@ def register_tools(
     *,
     allow_write: bool,
     enable_technical: bool = True,
+    result_transform: Callable[[Any], Any] | None = None,
 ) -> None:
     """Register all Schwab tools with the provided FastMCP server."""
     _ = client
@@ -45,7 +49,11 @@ def register_tools(
         register_module = getattr(module, "register", None)
         if register_module is None:
             raise AttributeError(f"Tool module {module.__name__} missing register()")
-        register_module(server, allow_write=allow_write)
+        register_module(
+            server,
+            allow_write=allow_write,
+            result_transform=result_transform,
+        )
 
 
 __all__ = ["register_tools"]

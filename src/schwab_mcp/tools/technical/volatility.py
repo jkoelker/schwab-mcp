@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import datetime as _dt
 import math
-from typing import Annotated, Any, Mapping, cast
+from typing import Annotated, Any, Callable, Mapping, cast
 
 import numpy as np
 import pandas as pd
@@ -313,10 +313,15 @@ async def expected_move(
     return response
 
 
-def register(server: FastMCP, *, allow_write: bool) -> None:
+def register(
+    server: FastMCP,
+    *,
+    allow_write: bool,
+    result_transform: Callable[[Any], Any] | None = None,
+) -> None:
     _ = allow_write
-    register_tool(server, expected_move)
-    register_tool(server, historical_volatility)
+    register_tool(server, expected_move, result_transform=result_transform)
+    register_tool(server, historical_volatility, result_transform=result_transform)
 
 
 async def _fetch_option_chain(ctx: SchwabContext, symbol: str) -> Mapping[str, Any]:

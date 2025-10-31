@@ -157,7 +157,12 @@ async def ema(
     )
 
 
-def register(server: FastMCP, *, allow_write: bool) -> None:
+def register(
+    server: FastMCP,
+    *,
+    allow_write: bool,
+    result_transform: Callable[[Any], Any] | None = None,
+) -> None:
     _ = allow_write
-    register_tool(server, sma)
-    register_tool(server, ema)
+    register_tool(server, sma, result_transform=result_transform)
+    register_tool(server, ema, result_transform=result_transform)

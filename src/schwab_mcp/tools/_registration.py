@@ -268,18 +268,43 @@ def _has_progress_token(context: SchwabContext) -> bool:
     return bool(progress_token)
 
 
+def _wrap_result_transform(
+    func: ToolFn, transform: Callable[[Any], Any]
+) -> ToolFn:
+    @functools.wraps(func)
+    async def wrapper(*args: Any, **kwargs: Any) -> Any:
+        result = func(*args, **kwargs)
+        if inspect.isawaitable(result):
+            result = await result
+        return transform(result)
+
+    # Preserve global namespace similar to other wrappers
+    wrapper_globals = cast(dict[str, Any], getattr(wrapper, "__globals__", {}))
+    module = inspect.getmodule(func)
+    if module is not None:
+        module_globals = vars(module)
+        if wrapper_globals is not module_globals:
+            for key, value in module_globals.items():
+                wrapper_globals.setdefault(key, value)
+
+    return cast(ToolFn, wrapper)
+
+
 def register_tool(
     server: FastMCP,
     func: ToolFn,
     *,
     write: bool = False,
     annotations: ToolAnnotations | None = None,
+    result_transform: Callable[[Any], Any] | None = None,
 ) -> None:
     """Register a Schwab tool using FastMCP's decorator plumbing."""
 
     func = _ensure_schwab_context(func)
     if write:
         func = _wrap_with_approval(func)
+    if result_transform is not None:
+        func = _wrap_result_transform(func, result_transform)
 
     tool_annotations = annotations
     if tool_annotations is None:
