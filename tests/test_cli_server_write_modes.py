@@ -54,12 +54,14 @@ def _patch_common(monkeypatch, captured: dict[str, Any]) -> None:
             *,
             allow_write,
             enable_technical_tools=True,
+            use_json=False,
         ):
             captured["server_name"] = name
             captured["server_client"] = client
             captured["approval_manager"] = approval_manager
             captured["allow_write"] = allow_write
             captured["enable_technical_tools"] = enable_technical_tools
+            captured["use_json"] = use_json
 
         async def run(self):
             captured["run_called"] = True
@@ -89,6 +91,7 @@ def test_server_defaults_to_read_only(monkeypatch):
     assert captured["allow_write"] is False
     assert isinstance(captured["approval_manager"], NoOpApprovalManager)
     assert captured["easy_client_kwargs"]["max_token_age"] == cli.TOKEN_MAX_AGE_SECONDS
+    assert captured["use_json"] is False
 
 
 def test_server_enables_write_mode_when_flag_set(monkeypatch):
@@ -113,6 +116,7 @@ def test_server_enables_write_mode_when_flag_set(monkeypatch):
     assert captured["allow_write"] is True
     assert isinstance(captured["approval_manager"], NoOpApprovalManager)
     assert captured["easy_client_kwargs"]["max_token_age"] == cli.TOKEN_MAX_AGE_SECONDS
+    assert captured["use_json"] is False
 
 
 def test_server_enables_write_mode_with_discord(monkeypatch):
@@ -143,3 +147,26 @@ def test_server_enables_write_mode_with_discord(monkeypatch):
     assert captured["allow_write"] is True
     assert isinstance(captured["approval_manager"], DummyDiscordApprovalManager)
     assert captured["easy_client_kwargs"]["max_token_age"] == cli.TOKEN_MAX_AGE_SECONDS
+    assert captured["use_json"] is False
+
+
+def test_server_json_flag_enables_json_output(monkeypatch):
+    captured: dict[str, Any] = {}
+    _patch_common(monkeypatch, captured)
+
+    runner = CliRunner()
+    result = runner.invoke(
+        cli.cli,
+        [
+            "server",
+            "--client-id",
+            "client",
+            "--client-secret",
+            "secret",
+            "--json",
+        ],
+        catch_exceptions=False,
+    )
+
+    assert result.exit_code == 0
+    assert captured["use_json"] is True

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
-from typing import Annotated
+from collections.abc import Callable
+from typing import Annotated, Any
 
 from mcp.server.fastmcp import FastMCP
 from schwab_mcp.context import SchwabContext
@@ -233,8 +234,13 @@ async def adx(
     }
 
 
-def register(server: FastMCP, *, allow_write: bool) -> None:
+def register(
+    server: FastMCP,
+    *,
+    allow_write: bool,
+    result_transform: Callable[[Any], Any] | None = None,
+) -> None:
     _ = allow_write
-    register_tool(server, macd)
-    register_tool(server, atr)
-    register_tool(server, adx)
+    register_tool(server, macd, result_transform=result_transform)
+    register_tool(server, atr, result_transform=result_transform)
+    register_tool(server, adx, result_transform=result_transform)

@@ -1,6 +1,6 @@
 #
-
-from typing import Annotated
+from collections.abc import Callable
+from typing import Annotated, Any
 
 from mcp.server.fastmcp import FastMCP
 
@@ -49,7 +49,12 @@ async def get_quotes(
 _READ_ONLY_TOOLS = (get_quotes,)
 
 
-def register(server: FastMCP, *, allow_write: bool) -> None:
+def register(
+    server: FastMCP,
+    *,
+    allow_write: bool,
+    result_transform: Callable[[Any], Any] | None = None,
+) -> None:
     _ = allow_write
     for func in _READ_ONLY_TOOLS:
-        register_tool(server, func)
+        register_tool(server, func, result_transform=result_transform)

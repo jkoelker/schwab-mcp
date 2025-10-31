@@ -146,6 +146,13 @@ def auth(
     envvar="SCHWAB_MCP_DISCORD_TIMEOUT",
     help="Seconds to wait for Discord approval before timing out.",
 )
+@click.option(
+    "--json",
+    "json_output",
+    default=False,
+    is_flag=True,
+    help="Return JSON payloads from tools instead of Toon-encoded strings.",
+)
 def server(
     token_path: str,
     client_id: str,
@@ -157,6 +164,7 @@ def server(
     discord_approver: tuple[str, ...],
     discord_timeout: int,
     no_technical_tools: bool,
+    json_output: bool,
 ) -> int:
     """Run the Schwab MCP server."""
     # No logging to stderr when in MCP mode (we'll use proper MCP responses)
@@ -266,6 +274,7 @@ def server(
             approval_manager=approval_manager,
             allow_write=allow_write,
             enable_technical_tools=not no_technical_tools,
+            use_json=json_output,
         )
         anyio.run(server.run, backend="asyncio")
         return 0

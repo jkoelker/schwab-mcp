@@ -1,6 +1,7 @@
 from __future__ import annotations
 
-from typing import Annotated
+from collections.abc import Callable
+from typing import Annotated, Any
 
 from mcp.server.fastmcp import FastMCP
 from schwab_mcp.context import SchwabContext
@@ -176,7 +177,12 @@ async def stoch(
     }
 
 
-def register(server: FastMCP, *, allow_write: bool) -> None:
+def register(
+    server: FastMCP,
+    *,
+    allow_write: bool,
+    result_transform: Callable[[Any], Any] | None = None,
+) -> None:
     _ = allow_write
-    register_tool(server, rsi)
-    register_tool(server, stoch)
+    register_tool(server, rsi, result_transform=result_transform)
+    register_tool(server, stoch, result_transform=result_transform)
