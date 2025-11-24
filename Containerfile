@@ -13,7 +13,9 @@ ENV PYTHONDONTWRITEBYTECODE=1 \
 
 # hadolint ignore=DL3008
 RUN apt-get update \
-    && apt-get install --no-install-recommends -y build-essential \
+    && apt-get install --no-install-recommends -y \
+        build-essential \
+        git \
     && rm -rf /var/lib/apt/lists/*
 
 COPY --from=uv-tools /usr/local/bin/uv /usr/bin/
@@ -41,7 +43,9 @@ ENV PYTHONDONTWRITEBYTECODE=1 \
 
 # hadolint ignore=DL3008
 RUN apt-get update \
-    && apt-get install --no-install-recommends -y ca-certificates \
+    && apt-get install --no-install-recommends -y \
+        ca-certificates \
+        git \
     && rm -rf /var/lib/apt/lists/*
 
 COPY --from=uv-tools /usr/local/bin/uv /usr/bin/

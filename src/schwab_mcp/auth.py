@@ -36,6 +36,7 @@ def easy_client(
     callback_timeout: float = 300.0,
     interactive: bool = True,
     requested_browser: str | None = None,
+    base_url: str = auth.DEFAULT_BASE_URL,
 ) -> AsyncClient | Client:
     effective_max_token_age = 0 if max_token_age is None else max_token_age
 
@@ -54,6 +55,7 @@ def easy_client(
             token_manager.write,
             asyncio=asyncio,
             enforce_enums=enforce_enums,
+            base_url=base_url,
         )
         logger.info("Loaded token from %s", token_manager.path)
 
@@ -78,6 +80,7 @@ def easy_client(
         callback_timeout=callback_timeout,
         requested_browser=requested_browser,
         interactive=interactive,
+        base_url=base_url,
     )
 
     logger.info(
@@ -97,6 +100,7 @@ def client_from_login_flow(
     callback_timeout: float = 300.0,
     interactive: bool = True,
     requested_browser: str | None = None,
+    base_url: str = auth.DEFAULT_BASE_URL,
 ) -> AsyncClient | Client:
     if callback_timeout is None:
         callback_timeout = 0
@@ -171,7 +175,7 @@ def client_from_login_flow(
             auth.time.sleep(0.1)
 
         # Open the browser
-        auth_context = auth.get_auth_context(client_id, callback_url)
+        auth_context = auth.get_auth_context(client_id, callback_url, base_url=base_url)
 
         if interactive:
             print()
@@ -256,4 +260,5 @@ def client_from_login_flow(
             token_manager.write,
             asyncio=asyncio,
             enforce_enums=enforce_enums,
+            base_url=base_url,
         )
