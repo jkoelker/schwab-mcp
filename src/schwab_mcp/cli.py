@@ -52,11 +52,19 @@ def cli():
     default="https://127.0.0.1:8182",
     help="Schwab callback URL",
 )
+@click.option(
+    "--base-url",
+    type=str,
+    envvar="SCHWAB_BASE_URL",
+    default="https://api.schwabapi.com",
+    help="Schwab API base URL",
+)
 def auth(
     token_path: str,
     client_id: str,
     client_secret: str,
     callback_url: str,
+    base_url: str,
 ) -> int:
     """Initialize Schwab client authentication."""
     click.echo(f"Initializing authentication flow to create token at: {token_path}")
@@ -70,6 +78,7 @@ def auth(
             callback_url=callback_url,
             token_manager=token_manager,
             max_token_age=TOKEN_MAX_AGE_SECONDS,
+            base_url=base_url,
         )
 
         # If we get here, the authentication was successful
@@ -107,6 +116,13 @@ def auth(
     envvar="SCHWAB_CALLBACK_URL",
     default="https://127.0.0.1:8182",
     help="Schwab callback URL",
+)
+@click.option(
+    "--base-url",
+    type=str,
+    envvar="SCHWAB_BASE_URL",
+    default="https://api.schwabapi.com",
+    help="Schwab API base URL",
 )
 @click.option(
     "--jesus-take-the-wheel",
@@ -158,6 +174,7 @@ def server(
     client_id: str,
     client_secret: str,
     callback_url: str,
+    base_url: str,
     jesus_take_the_wheel: bool,
     discord_token: str | None,
     discord_channel_id: int | None,
@@ -180,6 +197,7 @@ def server(
             interactive=False,
             enforce_enums=False,
             max_token_age=TOKEN_MAX_AGE_SECONDS,
+            base_url=base_url,
         )
 
         if not isinstance(client, AsyncClient):

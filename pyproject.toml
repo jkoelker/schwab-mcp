@@ -16,7 +16,7 @@ dependencies = [
     "platformdirs>=4.5.0",
     "python-toon>=0.1.2",
     "pyyaml>=6.0.3",
-    "schwab-py>=1.5.1",
+    "schwab-py",
 ]
 
 [project.scripts]
@@ -57,3 +57,6 @@ venvPath = "."
 venv = ".venv"
 reportMissingImports = false
 typeCheckingMode = "basic"
+
+[tool.uv.sources]
+schwab-py = { git = "https://github.com/jkoelker/schwab-py.git", rev = "proxy_support" }
