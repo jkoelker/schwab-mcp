@@ -51,7 +51,21 @@ def _apply_order_settings(order_spec, session: str | None, duration: str | None)
     return order_spec
 
 
-# Internal helper function to build the core equity order spec builder
+_EQUITY_ORDER_BUILDERS: dict[tuple[str, str], tuple[Any, bool, bool]] = {
+    ("MARKET", "BUY"): (equity_buy_market, False, False),
+    ("MARKET", "SELL"): (equity_sell_market, False, False),
+    ("LIMIT", "BUY"): (equity_buy_limit, True, False),
+    ("LIMIT", "SELL"): (equity_sell_limit, True, False),
+    ("STOP", "BUY"): (equity_buy_stop, False, True),
+    ("STOP", "SELL"): (equity_sell_stop, False, True),
+    ("STOP_LIMIT", "BUY"): (equity_buy_stop_limit, True, True),
+    ("STOP_LIMIT", "SELL"): (equity_sell_stop_limit, True, True),
+}
+
+_EQUITY_ORDER_TYPES = frozenset({"MARKET", "LIMIT", "STOP", "STOP_LIMIT"})
+_EQUITY_INSTRUCTIONS = frozenset({"BUY", "SELL"})
+
+
 def _build_equity_order_spec(
     symbol: str,
     quantity: int,
@@ -64,66 +78,50 @@ def _build_equity_order_spec(
     instruction = instruction.upper()
     order_type = order_type.upper()
 
-    # Validate parameters and create the appropriate order spec builder
-    if order_type == "MARKET":
-        if price is not None or stop_price is not None:
-            raise ValueError("MARKET orders should not include price or stop_price")
-        if instruction == "BUY":
-            return equity_buy_market(symbol, quantity)
-        elif instruction == "SELL":
-            return equity_sell_market(symbol, quantity)
-        else:
-            raise ValueError(
-                f"Invalid instruction for MARKET order: {instruction}. Use BUY or SELL."
-            )
-
-    elif order_type == "LIMIT":
-        if price is None:
-            raise ValueError("LIMIT orders require a price")
-        if stop_price is not None:
-            raise ValueError("LIMIT orders should not include stop_price")
-        if instruction == "BUY":
-            return equity_buy_limit(symbol, quantity, price)
-        elif instruction == "SELL":
-            return equity_sell_limit(symbol, quantity, price)
-        else:
-            raise ValueError(
-                f"Invalid instruction for LIMIT order: {instruction}. Use BUY or SELL."
-            )
-
-    elif order_type == "STOP":
-        if stop_price is None:
-            raise ValueError("STOP orders require a stop_price")
-        if price is not None:
-            raise ValueError("STOP orders should not include price")
-        if instruction == "BUY":
-            return equity_buy_stop(symbol, quantity, stop_price)
-        elif instruction == "SELL":
-            return equity_sell_stop(symbol, quantity, stop_price)
-        else:
-            raise ValueError(
-                f"Invalid instruction for STOP order: {instruction}. Use BUY or SELL."
-            )
-
-    elif order_type == "STOP_LIMIT":
-        if stop_price is None or price is None:
-            raise ValueError("STOP_LIMIT orders require both stop_price and price")
-        if instruction == "BUY":
-            return equity_buy_stop_limit(symbol, quantity, stop_price, price)
-        elif instruction == "SELL":
-            return equity_sell_stop_limit(symbol, quantity, stop_price, price)
-        else:
-            raise ValueError(
-                f"Invalid instruction for STOP_LIMIT order: {instruction}. Use BUY or SELL."
-            )
-
-    else:
+    if order_type not in _EQUITY_ORDER_TYPES:
         raise ValueError(
             f"Invalid order_type: {order_type}. Must be one of: MARKET, LIMIT, STOP, STOP_LIMIT"
         )
 
+    if instruction not in _EQUITY_INSTRUCTIONS:
+        raise ValueError(
+            f"Invalid instruction for {order_type} order: {instruction}. Use BUY or SELL."
+        )
 
-# Internal helper function to build the core option order spec builder
+    builder_func, needs_price, needs_stop_price = _EQUITY_ORDER_BUILDERS[
+        (order_type, instruction)
+    ]
+
+    if needs_price and price is None:
+        raise ValueError(f"{order_type} orders require a price")
+    if not needs_price and price is not None:
+        raise ValueError(f"{order_type} orders should not include price")
+    if needs_stop_price and stop_price is None:
+        raise ValueError(f"{order_type} orders require a stop_price")
+    if not needs_stop_price and stop_price is not None:
+        raise ValueError(f"{order_type} orders should not include stop_price")
+
+    if needs_price and needs_stop_price:
+        return builder_func(symbol, quantity, stop_price, price)
+    elif needs_price:
+        return builder_func(symbol, quantity, price)
+    elif needs_stop_price:
+        return builder_func(symbol, quantity, stop_price)
+    else:
+        return builder_func(symbol, quantity)
+
+
+_OPTION_ORDER_BUILDERS: dict[str, tuple[Any, Any]] = {
+    "BUY_TO_OPEN": (option_buy_to_open_market, option_buy_to_open_limit),
+    "SELL_TO_OPEN": (option_sell_to_open_market, option_sell_to_open_limit),
+    "BUY_TO_CLOSE": (option_buy_to_close_market, option_buy_to_close_limit),
+    "SELL_TO_CLOSE": (option_sell_to_close_market, option_sell_to_close_limit),
+}
+
+_OPTION_ORDER_TYPES = frozenset({"MARKET", "LIMIT"})
+_OPTION_INSTRUCTIONS = frozenset(_OPTION_ORDER_BUILDERS.keys())
+
+
 def _build_option_order_spec(
     symbol: str,
     quantity: int,
@@ -135,43 +133,27 @@ def _build_option_order_spec(
     instruction = instruction.upper()
     order_type = order_type.upper()
 
-    # Validate parameters and create the appropriate order spec builder
-    if order_type == "MARKET":
-        if price is not None:
-            raise ValueError("MARKET orders should not include a price parameter")
-        if instruction == "BUY_TO_OPEN":
-            return option_buy_to_open_market(symbol, quantity)
-        elif instruction == "SELL_TO_OPEN":
-            return option_sell_to_open_market(symbol, quantity)
-        elif instruction == "BUY_TO_CLOSE":
-            return option_buy_to_close_market(symbol, quantity)
-        elif instruction == "SELL_TO_CLOSE":
-            return option_sell_to_close_market(symbol, quantity)
-        else:
-            raise ValueError(
-                f"Invalid instruction for MARKET option order: {instruction}. Use BUY_TO_OPEN, SELL_TO_OPEN, BUY_TO_CLOSE, or SELL_TO_CLOSE."
-            )
-
-    elif order_type == "LIMIT":
-        if price is None:
-            raise ValueError("LIMIT orders require a price parameter")
-        if instruction == "BUY_TO_OPEN":
-            return option_buy_to_open_limit(symbol, quantity, price)
-        elif instruction == "SELL_TO_OPEN":
-            return option_sell_to_open_limit(symbol, quantity, price)
-        elif instruction == "BUY_TO_CLOSE":
-            return option_buy_to_close_limit(symbol, quantity, price)
-        elif instruction == "SELL_TO_CLOSE":
-            return option_sell_to_close_limit(symbol, quantity, price)
-        else:
-            raise ValueError(
-                f"Invalid instruction for LIMIT option order: {instruction}. Use BUY_TO_OPEN, SELL_TO_OPEN, BUY_TO_CLOSE, or SELL_TO_CLOSE."
-            )
-
-    else:
+    if order_type not in _OPTION_ORDER_TYPES:
         raise ValueError(
             f"Invalid order_type: {order_type}. Must be one of: MARKET, LIMIT"
         )
+
+    if instruction not in _OPTION_INSTRUCTIONS:
+        raise ValueError(
+            f"Invalid instruction for {order_type} option order: {instruction}. "
+            "Use BUY_TO_OPEN, SELL_TO_OPEN, BUY_TO_CLOSE, or SELL_TO_CLOSE."
+        )
+
+    market_builder, limit_builder = _OPTION_ORDER_BUILDERS[instruction]
+
+    if order_type == "MARKET":
+        if price is not None:
+            raise ValueError("MARKET orders should not include a price parameter")
+        return market_builder(symbol, quantity)
+    else:
+        if price is None:
+            raise ValueError("LIMIT orders require a price parameter")
+        return limit_builder(symbol, quantity, price)
 
 
 def _order_response_handler(ctx: SchwabContext, account_hash: str) -> ResponseHandler:
@@ -658,7 +640,9 @@ async def place_option_combo_order(
         list[dict[str, Any]],
         "List of option legs. Each leg requires: 'symbol' (str), 'quantity' (int), 'instruction' (BUY_TO_OPEN/SELL_TO_OPEN/BUY_TO_CLOSE/SELL_TO_CLOSE).",
     ],
-    order_type: Annotated[str, "Combo order type: NET_CREDIT, NET_DEBIT, NET_ZERO, or MARKET"],
+    order_type: Annotated[
+        str, "Combo order type: NET_CREDIT, NET_DEBIT, NET_ZERO, or MARKET"
+    ],
     price: Annotated[
         float | None,
         "Net price for the combo (required for NET_CREDIT/NET_DEBIT; omit for MARKET/NET_ZERO).",
@@ -698,7 +682,9 @@ async def place_option_combo_order(
 
     # complex order type helps the API validate multi-leg intent
     if complex_order_strategy_type:
-        builder = builder.set_complex_order_strategy_type(complex_order_strategy_type.upper())
+        builder = builder.set_complex_order_strategy_type(
+            complex_order_strategy_type.upper()
+        )
 
     # Set order type and net price
     builder = builder.set_order_type(order_type.upper())
