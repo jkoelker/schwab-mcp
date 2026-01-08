@@ -27,6 +27,7 @@ from schwab_mcp.tools.order_helpers import (
     equity_sell_market,
     equity_sell_stop,
     equity_sell_stop_limit,
+    equity_trailing_stop,
     option_buy_to_close_limit,
     option_buy_to_close_market,
     option_buy_to_open_limit,
@@ -64,6 +65,8 @@ _EQUITY_ORDER_BUILDERS: dict[tuple[str, str], tuple[Any, bool, bool]] = {
 
 _EQUITY_ORDER_TYPES = frozenset({"MARKET", "LIMIT", "STOP", "STOP_LIMIT"})
 _EQUITY_INSTRUCTIONS = frozenset({"BUY", "SELL"})
+
+_TRAILING_STOP_LINK_TYPES = frozenset({"VALUE", "PERCENT"})
 
 
 def _build_equity_order_spec(
@@ -109,6 +112,28 @@ def _build_equity_order_spec(
         return builder_func(symbol, quantity, stop_price)
     else:
         return builder_func(symbol, quantity)
+
+
+def _build_trailing_stop_order_spec(
+    symbol: str,
+    quantity: int,
+    instruction: str,
+    trail_offset: float,
+    trail_type: str = "VALUE",
+):
+    instruction = instruction.upper()
+    trail_type = trail_type.upper()
+
+    if instruction not in _EQUITY_INSTRUCTIONS:
+        raise ValueError(f"Invalid instruction: {instruction}. Must be BUY or SELL.")
+
+    if trail_type not in _TRAILING_STOP_LINK_TYPES:
+        raise ValueError(f"Invalid trail_type: {trail_type}. Must be VALUE or PERCENT.")
+
+    if trail_offset <= 0:
+        raise ValueError("trail_offset must be positive")
+
+    return equity_trailing_stop(symbol, quantity, instruction, trail_offset, trail_type)
 
 
 _OPTION_ORDER_BUILDERS: dict[str, tuple[Any, Any]] = {
@@ -357,6 +382,56 @@ async def place_option_order(
     )
 
 
+async def place_equity_trailing_stop_order(
+    ctx: SchwabContext,
+    account_hash: Annotated[str, "Account hash for the Schwab account"],
+    symbol: Annotated[str, "Stock symbol to trade"],
+    quantity: Annotated[int, "Number of shares to trade"],
+    instruction: Annotated[str, "BUY or SELL"],
+    trail_offset: Annotated[
+        float,
+        "Trailing amount: dollar value if trail_type=VALUE, percentage if trail_type=PERCENT",
+    ],
+    trail_type: Annotated[
+        str | None,
+        "How to measure the trail: VALUE (dollars, default) or PERCENT",
+    ] = "VALUE",
+    session: Annotated[
+        str | None, "Trading session: NORMAL (default), AM, PM, or SEAMLESS"
+    ] = "NORMAL",
+    duration: Annotated[
+        str | None,
+        "Order duration: DAY (default) or GOOD_TILL_CANCEL",
+    ] = "DAY",
+) -> JSONType:
+    """
+    Places a trailing stop order. Stop price adjusts as price moves favorably, tracking LAST price.
+    Params: account_hash, symbol, quantity, instruction (BUY/SELL), trail_offset.
+    Defaults: trail_type=VALUE (dollars), session=NORMAL, duration=DAY.
+    Example: SELL 100 shares with $5 trailing stop triggers market sell if price drops $5 from high.
+    *Write operation.*
+    """
+    client = ctx.orders
+
+    order_spec_builder = _build_trailing_stop_order_spec(
+        symbol,
+        quantity,
+        instruction,
+        trail_offset,
+        trail_type or "VALUE",
+    )
+
+    order_spec_builder = _apply_order_settings(order_spec_builder, session, duration)
+    order_spec_dict = cast(dict[str, Any], order_spec_builder.build())
+
+    return await call(
+        client.place_order,
+        account_hash=account_hash,
+        order_spec=order_spec_dict,
+        response_handler=_order_response_handler(ctx, account_hash),
+    )
+
+
 async def build_equity_order_spec(
     symbol: Annotated[str, "Stock symbol"],
     quantity: Annotated[int, "Number of shares"],
@@ -389,6 +464,43 @@ async def build_equity_order_spec(
     order_spec_builder = _apply_order_settings(order_spec_builder, session, duration)
 
     # Build and return the specification dictionary
+    return cast(dict[str, Any], order_spec_builder.build())
+
+
+async def build_equity_trailing_stop_order_spec(
+    symbol: Annotated[str, "Stock symbol"],
+    quantity: Annotated[int, "Number of shares"],
+    instruction: Annotated[str, "BUY or SELL"],
+    trail_offset: Annotated[
+        float,
+        "Trailing amount: dollar value if trail_type=VALUE, percentage if trail_type=PERCENT",
+    ],
+    trail_type: Annotated[
+        str | None,
+        "How to measure the trail: VALUE (dollars, default) or PERCENT",
+    ] = "VALUE",
+    session: Annotated[
+        str | None, "Trading session: NORMAL (default), AM, PM, or SEAMLESS"
+    ] = "NORMAL",
+    duration: Annotated[
+        str | None,
+        "Order duration: DAY (default) or GOOD_TILL_CANCEL",
+    ] = "DAY",
+) -> dict[str, Any]:
+    """
+    Builds a trailing stop order spec for complex orders (OCO, Trigger). Tracks LAST price.
+    Params: symbol, quantity, instruction (BUY/SELL), trail_offset. Defaults: trail_type=VALUE.
+    Returns the order specification dictionary, does NOT place the order.
+    """
+    order_spec_builder = _build_trailing_stop_order_spec(
+        symbol,
+        quantity,
+        instruction,
+        trail_offset,
+        trail_type or "VALUE",
+    )
+
+    order_spec_builder = _apply_order_settings(order_spec_builder, session, duration)
     return cast(dict[str, Any], order_spec_builder.build())
 
 
@@ -710,6 +822,7 @@ _READ_ONLY_TOOLS = (
     get_order,
     get_orders,
     build_equity_order_spec,
+    build_equity_trailing_stop_order_spec,
     build_option_order_spec,
     create_option_symbol,
 )
@@ -718,6 +831,7 @@ _WRITE_TOOLS = (
     cancel_order,
     place_equity_order,
     place_option_order,
+    place_equity_trailing_stop_order,
     place_one_cancels_other_order,
     place_first_triggers_second_order,
     place_bracket_order,
