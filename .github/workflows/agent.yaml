@@ -1,0 +1,108 @@
+---
+name: AI Agent
+
+"on":
+  workflow_dispatch:
+    inputs:
+      prompt:
+        description: Custom prompt to run
+        required: false
+      issue_number:
+        description: Issue/PR number to comment on
+        required: false
+
+  issue_comment:
+    types: [created]
+
+  pull_request:
+    types: [review_requested]
+
+  pull_request_review:
+    types: [submitted]
+
+  pull_request_review_comment:
+    types: [created]
+
+jobs:
+  agent:
+    # yamllint disable rule:line-length
+    if: >-
+      github.event_name == 'workflow_dispatch' ||
+      (github.event_name == 'issue_comment' &&
+       contains(github.event.comment.body, '@dobbyphus') &&
+       github.event.comment.user.login != 'dobbyphus[bot]' &&
+       contains(fromJSON('["OWNER", "MEMBER", "COLLABORATOR"]'), github.event.comment.author_association)) ||
+      (github.event_name == 'pull_request' &&
+       github.event.requested_reviewer.login == 'dobbyphus[bot]') ||
+      (github.event_name == 'pull_request_review' &&
+       github.event.review.user.login != 'dobbyphus[bot]' &&
+       contains(github.event.review.body, '@dobbyphus')) ||
+      (github.event_name == 'pull_request_review_comment' &&
+       contains(github.event.comment.body, '@dobbyphus') &&
+       github.event.comment.user.login != 'dobbyphus[bot]' &&
+       contains(fromJSON('["OWNER", "MEMBER", "COLLABORATOR"]'), github.event.comment.author_association))
+    # yamllint enable rule:line-length
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      issues: write
+      pull-requests: write
+
+    steps:
+      - name: Generate App Token
+        id: app-token
+        # yamllint disable-line rule:line-length rule:comments
+        uses: actions/create-github-app-token@29824e69f54612133e76f7eaac726eef6c875baf  # v2
+        with:
+          app-id: ${{ secrets.APP_ID }}
+          private-key: ${{ secrets.APP_PRIVATE_KEY }}
+
+      - name: Checkout
+        # yamllint disable-line rule:line-length rule:comments
+        uses: actions/checkout@8e8c483db84b4bee98b60c0593521ed34d9990e8  # v6.0.1
+        with:
+          # github.head_ref: PR events (pull_request, pull_request_target)
+          # github.event.pull_request.head.ref: PR review/comment events
+          # github.ref: fallback for other events
+          # yamllint disable-line rule:line-length
+          ref: ${{ github.head_ref || github.event.pull_request.head.ref || github.ref }}
+          fetch-depth: 0
+          token: ${{ steps.app-token.outputs.token }}
+
+      - name: Setup uv
+        # yamllint disable-line rule:line-length rule:comments
+        uses: astral-sh/setup-uv@681c641aba71e4a1c380be3ab5e12ad51f415867  # v7.1.6
+
+      - name: Setup ruff
+        # yamllint disable-line rule:line-length rule:comments
+        uses: astral-sh/ruff-action@57714a7c8a2e59f32539362ba31877a1957dded1  # v3.5.1
+
+      - name: Run Agent
+        uses: dobbyphus/action@main
+        with:
+          bot_name: dobbyphus
+          auth_json: ${{ secrets.COPILOT_AUTH_JSON }}
+          omo_config_json: |
+            {
+              "agents": {
+                "Sisyphus": {
+                  "model": "github-copilot/claude-opus-4.5"
+                },
+                "oracle": {
+                  "model": "github-copilot/gpt-5.2"
+                },
+                "explore": {
+                  "model": "github-copilot/gemini-3-flash-preview"
+                },
+                "librarian": {
+                  "model": "github-copilot/gemini-3-flash-preview"
+                },
+                "document-writer": {
+                  "model": "github-copilot/gemini-3-flash-preview"
+                },
+                "multimodal-looker": {
+                  "model": "github-copilot/gemini-3-flash-preview"
+                }
+              }
+            }
+          github_token: ${{ steps.app-token.outputs.token }}
