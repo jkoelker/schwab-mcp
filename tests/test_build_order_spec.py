@@ -79,40 +79,15 @@ class TestBuildEquityOrderSpec:
     @pytest.mark.parametrize(
         ("order_type", "price", "stop_price", "expected_error"),
         [
-            (
-                "MARKET",
-                100.0,
-                None,
-                "MARKET orders should not include price or stop_price",
-            ),
-            (
-                "MARKET",
-                None,
-                100.0,
-                "MARKET orders should not include price or stop_price",
-            ),
-            (
-                "MARKET",
-                100.0,
-                100.0,
-                "MARKET orders should not include price or stop_price",
-            ),
+            ("MARKET", 100.0, None, "MARKET orders should not include price"),
+            ("MARKET", None, 100.0, "MARKET orders should not include stop_price"),
+            ("MARKET", 100.0, 100.0, "MARKET orders should not include price"),
             ("LIMIT", None, None, "LIMIT orders require a price"),
             ("LIMIT", 100.0, 50.0, "LIMIT orders should not include stop_price"),
             ("STOP", None, None, "STOP orders require a stop_price"),
             ("STOP", 100.0, 50.0, "STOP orders should not include price"),
-            (
-                "STOP_LIMIT",
-                None,
-                50.0,
-                "STOP_LIMIT orders require both stop_price and price",
-            ),
-            (
-                "STOP_LIMIT",
-                100.0,
-                None,
-                "STOP_LIMIT orders require both stop_price and price",
-            ),
+            ("STOP_LIMIT", None, 50.0, "STOP_LIMIT orders require a price"),
+            ("STOP_LIMIT", 100.0, None, "STOP_LIMIT orders require a stop_price"),
         ],
     )
     def test_price_validation_errors(
