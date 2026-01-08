@@ -259,3 +259,25 @@ def option_sell_to_close_limit(
         .set_price(price)
         .add_option_leg(OptionInstruction.SELL_TO_CLOSE, symbol, quantity)
     )
+
+
+def equity_trailing_stop(
+    symbol,
+    quantity,
+    instruction,
+    stop_price_offset,
+    stop_price_link_type="VALUE",
+    duration=Duration.DAY,
+    session=Session.NORMAL,
+):
+    """
+    Returns a pre-filled OrderBuilder for an equity trailing stop order.
+    """
+    return (
+        __equity_base_builder(session, duration)
+        .set_order_type(OrderType.TRAILING_STOP)
+        .set_stop_price_offset(stop_price_offset)
+        .set_stop_price_link_type(stop_price_link_type)
+        .set_stop_price_link_basis("LAST")
+        .add_equity_leg(instruction, symbol, quantity)
+    )

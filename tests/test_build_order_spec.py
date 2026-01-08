@@ -1,7 +1,11 @@
 from typing import Any, cast
 
 import pytest
-from schwab_mcp.tools.orders import _build_equity_order_spec, _build_option_order_spec
+from schwab_mcp.tools.orders import (
+    _build_equity_order_spec,
+    _build_option_order_spec,
+    _build_trailing_stop_order_spec,
+)
 
 
 class TestBuildEquityOrderSpec:
@@ -199,3 +203,67 @@ class TestBuildOptionOrderSpec:
             ValueError, match=f"Invalid instruction for {order_type} option order"
         ):
             _build_option_order_spec(symbol, quantity, "BUY", order_type, price=price)
+
+
+class TestBuildTrailingStopOrderSpec:
+    @pytest.fixture
+    def symbol(self):
+        return "AAPL"
+
+    @pytest.fixture
+    def quantity(self):
+        return 10
+
+    @pytest.mark.parametrize("instruction", ["BUY", "SELL", "buy", "sell"])
+    def test_trailing_stop_value_valid(self, symbol, quantity, instruction):
+        result = _build_trailing_stop_order_spec(
+            symbol, quantity, instruction, trail_offset=5.0, trail_type="VALUE"
+        )
+        spec = cast(dict[str, Any], result.build())
+
+        assert spec["orderType"] == "TRAILING_STOP"
+        assert spec["stopPriceOffset"] == 5.0
+        assert spec["stopPriceLinkType"] == "VALUE"
+        assert spec["stopPriceLinkBasis"] == "LAST"
+        assert spec["orderLegCollection"][0]["instrument"]["symbol"] == symbol
+        assert spec["orderLegCollection"][0]["quantity"] == quantity
+        assert spec["orderLegCollection"][0]["instruction"] == instruction.upper()
+
+    @pytest.mark.parametrize("instruction", ["BUY", "SELL"])
+    def test_trailing_stop_percent_valid(self, symbol, quantity, instruction):
+        result = _build_trailing_stop_order_spec(
+            symbol, quantity, instruction, trail_offset=5.0, trail_type="PERCENT"
+        )
+        spec = cast(dict[str, Any], result.build())
+
+        assert spec["orderType"] == "TRAILING_STOP"
+        assert spec["stopPriceOffset"] == 5.0
+        assert spec["stopPriceLinkType"] == "PERCENT"
+        assert spec["stopPriceLinkBasis"] == "LAST"
+
+    def test_trailing_stop_case_insensitive(self, symbol, quantity):
+        result = _build_trailing_stop_order_spec(
+            symbol, quantity, "sell", trail_offset=10.0, trail_type="percent"
+        )
+        spec = cast(dict[str, Any], result.build())
+
+        assert spec["orderType"] == "TRAILING_STOP"
+        assert spec["stopPriceLinkType"] == "PERCENT"
+        assert spec["orderLegCollection"][0]["instruction"] == "SELL"
+
+    def test_invalid_instruction(self, symbol, quantity):
+        with pytest.raises(ValueError, match="Invalid instruction: HOLD"):
+            _build_trailing_stop_order_spec(symbol, quantity, "HOLD", trail_offset=5.0)
+
+    def test_invalid_trail_type(self, symbol, quantity):
+        with pytest.raises(ValueError, match="Invalid trail_type: TICK"):
+            _build_trailing_stop_order_spec(
+                symbol, quantity, "SELL", trail_offset=5.0, trail_type="TICK"
+            )
+
+    @pytest.mark.parametrize("bad_offset", [0, -1, -5.0])
+    def test_invalid_trail_offset(self, symbol, quantity, bad_offset):
+        with pytest.raises(ValueError, match="trail_offset must be positive"):
+            _build_trailing_stop_order_spec(
+                symbol, quantity, "SELL", trail_offset=bad_offset
+            )
