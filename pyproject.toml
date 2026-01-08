@@ -31,6 +31,7 @@ dev = [
     "mcp[cli]>=1.17.0",
     "pyright>=1.1.407",
     "pytest>=8.4.2",
+    "pytest-cov>=6.0.0",
     "ruff>=0.14.0",
 ]
 ta = [
@@ -41,6 +42,21 @@ ta = [
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 pythonpath = ["src"]
+addopts = "--cov=schwab_mcp --cov-report=term-missing"
+
+[tool.coverage.run]
+source = ["src/schwab_mcp"]
+branch = true
+omit = ["*/tests/*"]
+
+[tool.coverage.report]
+exclude_lines = [
+    "pragma: no cover",
+    "if TYPE_CHECKING:",
+    "if __name__ == .__main__.:",
+    "@abstractmethod",
+]
+show_missing = true
 
 [tool.pyright]
 include = ["src", "tests"]
