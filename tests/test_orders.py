@@ -1,18 +1,10 @@
-import asyncio
 import datetime
 from enum import Enum
-from types import SimpleNamespace
-from typing import Any, cast
+from typing import Any
 
-from schwab.client import AsyncClient
-from schwab_mcp.context import SchwabContext, SchwabServerContext
 from schwab_mcp.tools import orders
-from schwab_mcp.approvals import ApprovalDecision, ApprovalManager, ApprovalRequest
 
-
-class DummyApprovalManager(ApprovalManager):
-    async def require(self, request: ApprovalRequest) -> ApprovalDecision:  # noqa: ARG002
-        return ApprovalDecision.APPROVED
+from conftest import make_ctx, run
 
 
 class DummyOrdersClient:
@@ -24,22 +16,6 @@ class DummyOrdersClient:
 
     async def get_orders_for_account(self, *args, **kwargs):
         return None
-
-
-def run(coro):
-    return asyncio.run(coro)
-
-
-def make_ctx(client: Any) -> SchwabContext:
-    lifespan_context = SchwabServerContext(
-        client=cast(AsyncClient, client),
-        approval_manager=DummyApprovalManager(),
-    )
-    request_context = SimpleNamespace(lifespan_context=lifespan_context)
-    return SchwabContext.model_construct(
-        _request_context=cast(Any, request_context),
-        _fastmcp=None,
-    )
 
 
 def test_get_orders_maps_single_status_and_dates(monkeypatch):
