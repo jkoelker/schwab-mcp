@@ -1,4 +1,3 @@
-import asyncio
 import math
 from types import SimpleNamespace
 from typing import Any, cast
@@ -15,9 +14,7 @@ from schwab_mcp.tools.technical import (
     volatility,
 )
 
-
-def run(coro):
-    return asyncio.run(coro)
+from conftest import run
 
 
 def run_tool(coro) -> dict[str, Any]:
@@ -423,9 +420,7 @@ def test_adx_returns_frame(monkeypatch, dummy_ctx, ohlcv_data):
     assert {"timestamp", "ADX", "DMP", "DMN"}.issubset(values[-1].keys())
 
 
-def test_historical_volatility_close_to_close(
-    monkeypatch, dummy_ctx, price_data
-):
+def test_historical_volatility_close_to_close(monkeypatch, dummy_ctx, price_data):
     frame, metadata = price_data
 
     async def fake_fetch(ctx, symbol, **kwargs):
