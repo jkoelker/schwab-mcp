@@ -1,224 +1,142 @@
 # Schwab Model Context Protocol Server
 
-This is a server that implements the Model Context Protocol (MCP) for
-the Schwab API using [schwab-py](https://github.com/alexgolec/schwab-py) and
-the MCP [python-sdk](https://github.com/modelcontextprotocol/python-sdk).
+The **Schwab Model Context Protocol (MCP) Server** connects your Schwab account to LLM-based applications (like Claude Desktop or other MCP clients), allowing them to retrieve market data, check account status, and (optionally) place orders under your supervision.
 
 ## Features
 
-- Expose Schwab API functionality through Model Context Protocol
-- Get account information and positions
-- Retrieve stock quotes and price history
-- Get market information and movers
-- Fetch option chains and expiration data
-- Access order and transaction history
-- Comprehensive order building and placement capabilities
-- Advanced order strategies (OCO, trigger-based, and bracket orders)
-- Modify account state with special tools gated behind Discord approvals (bypass with `--jesus-take-the-wheel`)
-- Designed to integrate with Large Language Models (LLMs)
+*   **Market Data**: Real-time quotes, price history, option chains, and market movers.
+*   **Account Management**: View balances, positions, and transactions.
+*   **Trading**: comprehensive support for equities and options, including complex strategies (OCO, Bracket).
+*   **Safety First**: Critical actions (like trading) are gated behind a **Discord approval workflow** by default.
+*   **LLM Integration**: Designed specifically for Agentic AI workflows.
 
-## Installation
+## Quick Start
+
+### Prerequisites
+
+*   Python 3.10 or higher
+*   [uv](https://github.com/astral-sh/uv) (recommended) or `pip`
+*   A Schwab Developer App Key and Secret (from the [Schwab Developer Portal](https://developer.schwab.com/))
+
+### Installation
+
+For most users, installing via `uv tool` or `pip` is easiest:
 
 ```bash
-# Install with all dependencies
-uv add -e .
+# Using uv (recommended for isolation)
+uv tool install git+https://github.com/jkoelker/schwab-mcp.git
 
-# Install development dependencies
-uv add -e .[dev]
+# Using pip
+pip install git+https://github.com/jkoelker/schwab-mcp.git
 ```
-
-## Usage
 
 ### Authentication
 
-The first step is to authenticate with the Schwab API and generate a token:
+Before running the server, you must authenticate with Schwab to generate a token file.
 
 ```bash
-# Authenticate and generate a token
-uv run schwab-mcp auth --client-id YOUR_CLIENT_ID --client-secret YOUR_CLIENT_SECRET --callback-url YOUR_CALLBACK_URL
+# If installed via uv tool
+schwab-mcp auth --client-id YOUR_KEY --client-secret YOUR_SECRET --callback-url https://127.0.0.1:8182
+
+# If running from source
+uv run schwab-mcp auth --client-id YOUR_KEY --client-secret YOUR_SECRET --callback-url https://127.0.0.1:8182
 ```
 
-You can set these credentials through environment variables to avoid typing them each time:
-- `SCHWAB_CLIENT_ID`
-- `SCHWAB_CLIENT_SECRET`
-- `SCHWAB_CALLBACK_URL` (defaults to https://127.0.0.1:8182)
-
-By default, the token is saved to `~/.local/share/schwab-mcp/token.yaml` (platform-specific). You can specify a different path:
-
-```bash
-uv run schwab-mcp auth --token-path /path/to/token.yaml
-```
-
-Both yaml and json token formats are supported and will be inferred from the file extension.
+This will open a browser window for you to log in to Schwab. Once complete, a token will be saved to `~/.local/share/schwab-mcp/token.yaml`.
 
 ### Running the Server
 
-After authentication, you can run the server:
+Start the MCP server to expose the tools to your MCP client.
 
 ```bash
-# Run the server with default token path
-uv run schwab-mcp server \
-  --client-id YOUR_CLIENT_ID \
-  --client-secret YOUR_CLIENT_SECRET \
-  --callback-url YOUR_CALLBACK_URL \
-  --discord-token YOUR_DISCORD_BOT_TOKEN \
-  --discord-channel-id YOUR_APPROVAL_CHANNEL_ID \
-  --discord-approver DISCORD_USER_ID [--discord-approver ANOTHER_USER_ID ...]
+# Basic Read-Only Mode (Safest)
+schwab-mcp server --client-id YOUR_KEY --client-secret YOUR_SECRET
 
-# Run with a custom token path
-uv run schwab-mcp server \
-  --token-path /path/to/token.json \
-  --client-id YOUR_CLIENT_ID \
-  --client-secret YOUR_CLIENT_SECRET \
-  --callback-url YOUR_CALLBACK_URL \
-  --discord-token YOUR_DISCORD_BOT_TOKEN \
-  --discord-channel-id YOUR_APPROVAL_CHANNEL_ID
-
-# Run with account modification tools auto-approved (no Discord prompt)
-uv run schwab-mcp server \
-  --jesus-take-the-wheel \
-  --client-id YOUR_CLIENT_ID \
-  --client-secret YOUR_CLIENT_SECRET \
-  --callback-url YOUR_CALLBACK_URL
-
+# With Trading Enabled (Requires Discord Approval)
+schwab-mcp server \
+  --client-id YOUR_KEY \
+  --client-secret YOUR_SECRET \
+  --discord-token BOT_TOKEN \
+  --discord-channel-id CHANNEL_ID \
+  --discord-approver YOUR_USER_ID
 ```
 
-Token age is validated - if older than 5 days, you will be prompted to re-authenticate.
+> **Note**: For trading capabilities, you must set up a Discord bot for approvals. See [Discord Setup Guide](docs/discord-setup.md).
 
-Discord-related flags can also be provided via environment variables:
-- `SCHWAB_MCP_DISCORD_TOKEN`
-- `SCHWAB_MCP_DISCORD_CHANNEL_ID`
-- `SCHWAB_MCP_DISCORD_TIMEOUT` (optional, defaults to 600 seconds)
-- `SCHWAB_MCP_DISCORD_APPROVERS` (optional comma-separated list of Discord user IDs)
+## Configuration
 
-### Container Image
+You can configure the server using CLI flags or Environment Variables.
 
-Published container images are available at `ghcr.io/jkoelker/schwab-mcp`. The image runs `schwab-mcp server` by default and persists token data under `/root/.local/share/schwab-mcp` unless overridden.
+| Flag | Env Variable | Description |
+|------|--------------|-------------|
+| `--client-id` | `SCHWAB_CLIENT_ID` | **Required**. Schwab App Key. |
+| `--client-secret` | `SCHWAB_CLIENT_SECRET` | **Required**. Schwab App Secret. |
+| `--callback-url` | `SCHWAB_CALLBACK_URL` | Redirect URL (default: `https://127.0.0.1:8182`). |
+| `--token-path` | N/A | Path to save/load token (default: `~/.local/share/...`). |
+| `--jesus-take-the-wheel`| N/A | **DANGER**. Bypasses Discord approval for trades. |
+| `--no-technical-tools` | N/A | Disables technical analysis tools (SMA, RSI, etc.). |
+| `--json` | N/A | Returns raw JSON instead of formatted text (useful for some agents). |
+
+### Container Usage
+
+A Docker/Podman image is available at `ghcr.io/jkoelker/schwab-mcp`.
 
 ```bash
-podman run --rm --interactive \
-  --env SCHWAB_CLIENT_ID \
-  --env SCHWAB_CLIENT_SECRET \
-  --env SCHWAB_CALLBACK_URL \
-  --env SCHWAB_MCP_DISCORD_TOKEN \
-  --env SCHWAB_MCP_DISCORD_CHANNEL_ID \
-  --publish 8182:8182 \
-  --volume ~/.local/share/schwab-mcp:/schwab-mcp \
-  ghcr.io/jkoelker/schwab-mcp:latest \
-    server \
-    --token-path /schwab-mcp/token.yaml
+podman run --rm -it \
+  --env SCHWAB_CLIENT_ID=... \
+  --env SCHWAB_CLIENT_SECRET=... \
+  -v ~/.local/share/schwab-mcp:/schwab-mcp \
+  ghcr.io/jkoelker/schwab-mcp:latest server --token-path /schwab-mcp/token.yaml
 ```
-
-The container entrypoint reads the same environment variables as the CLI, so you can override or add flags by appending them (for example, `... ghcr.io/jkoelker/schwab-mcp:latest --jesus-take-the-wheel`). To explore other entry points, run `docker run ghcr.io/jkoelker/schwab-mcp:latest --help`.
-
-### Discord approval setup
-
-1. Create or open your application at <https://discord.com/developers/applications>, add a **Bot**, reset the token, and paste it into `SCHWAB_MCP_DISCORD_TOKEN`.
-2. In the **Installation** tab (left sidebar) set *Install Link* to `None` so the default authorization link is disabled.
-3. Open the **Bot** tab, toggle **Public Bot** off.
-4. Use **OAuth2 → URL Generator** to build the invite link by selecting the `bot` scope. When the permissions matrix appears, grant the bot:
-   - View Channel
-   - Send Messages
-   - Embed Links
-   - Add Reactions
-   - Read Message History
-   - Manage Messages
-5. Copy the generated URL (the permissions integer reflects the boxes you checked), open it while logged into the Discord account that owns the approval server, and authorize the bot into the channel where approvals should post.
-
-> **WARNING**: Using the `--jesus-take-the-wheel` flag enables tools that can modify your account state. Use with caution as this allows LLMs to cancel orders and potentially perform other actions that change account state.
 
 ## Available Tools
 
-The server exposes the following MCP tools:
+The server provides a rich set of tools for LLMs.
 
-> **Note**: Tools 27-39 will pause for Discord approval before executing. Pass `--jesus-take-the-wheel` to bypass the approval workflow entirely.
+### 📊 Market Data
+| Tool | Description |
+|------|-------------|
+| `get_quotes` | Real-time quotes for symbols. |
+| `get_market_hours` | Market open/close times. |
+| `get_movers` | Top gainers/losers for an index. |
+| `get_option_chain` | Standard option chain data. |
+| `get_price_history_*` | Historical candles (minute, day, week). |
 
-### Date and Market Information
-1. `get_datetime` - Get the current datetime in ISO format
-2. `get_market_hours` - Get market hours for a specific market
-3. `get_movers` - Get movers for a specific index
-4. `get_instruments` - Search for instruments with a specific symbol
+### 💼 Account Info
+| Tool | Description |
+|------|-------------|
+| `get_accounts` | List linked accounts. |
+| `get_account_positions` | Detailed positions and balances. |
+| `get_transactions` | History of trades and transfers. |
+| `get_orders` | Status of open and filled orders. |
 
-### Account Information
-5. `get_account_numbers` - Get mapping of account IDs to account hashes
-6. `get_accounts` - Get information for all linked Schwab accounts
-7. `get_accounts_with_positions` - Get accounts with position information
-8. `get_account` - Get information for a specific account
-9. `get_account_with_positions` - Get specific account with position information
-10. `get_user_preferences` - Get user preferences for all accounts including nicknames
+### 💸 Trading (Requires Approval)
+| Tool | Description |
+|------|-------------|
+| `place_equity_order` | Buy/Sell stocks and ETFs. |
+| `place_option_order` | Buy/Sell option contracts. |
+| `place_bracket_order` | Entry + Take Profit + Stop Loss. |
+| `cancel_order` | Cancel an open order. |
 
-### Orders
-11. `get_order` - Get details for a specific order
-12. `get_orders` - Get orders for a specific account
-
-### Quotes
-13. `get_quotes` - Get quotes for specified symbols
-
-### Price History
-14. `get_advanced_price_history` - Get advanced price history for a specific symbol
-15. `get_price_history_every_minute` - Get price history with minute frequency
-16. `get_price_history_every_five_minutes` - Get price history with five minute frequency
-17. `get_price_history_every_ten_minutes` - Get price history with ten minute frequency
-18. `get_price_history_every_fifteen_minutes` - Get price history with fifteen minute frequency
-19. `get_price_history_every_thirty_minutes` - Get price history with thirty minute frequency
-20. `get_price_history_every_day` - Get price history with daily frequency
-21. `get_price_history_every_week` - Get price history with weekly frequency
-
-### Options
-22. `get_option_chain` - Get option chain for a specific symbol
-23. `get_advanced_option_chain` - Get advanced option chain for a specific symbol
-24. `get_option_expiration_chain` - Get option expiration information for a symbol
-
-### Transactions
-25. `get_transactions` - Get transactions for a specific account
-26. `get_transaction` - Get details for a specific transaction
-
-### Account Modification Tools (Requires `--jesus-take-the-wheel` flag)
-27. `cancel_order` - Cancel a specific order
-
-#### Equity Orders
-28. `place_equity_market_order` - Place a market order for a stock or ETF
-29. `place_equity_limit_order` - Place a limit order for a stock or ETF
-30. `place_equity_stop_order` - Place a stop order for a stock or ETF
-31. `place_equity_stop_limit_order` - Place a stop-limit order for a stock or ETF
-32. `place_equity_order` - Unified function for placing any equity order type
-
-#### Option Orders
-33. `create_option_symbol` - Create a properly formatted option symbol from components
-34. `place_option_market_order` - Place a market order for an option contract
-35. `place_option_limit_order` - Place a limit order for an option contract
-36. `place_option_order` - Unified function for placing any option order type
-
-#### Complex Order Strategies
-37. `place_one_cancels_other_order` - Create an OCO order pair where execution of one cancels the other
-38. `place_first_triggers_second_order` - Create a sequence where one order triggers another upon execution
-39. `place_bracket_order` - Create a complete strategy with entry order and OCO exit orders
-
-## Security Warning
-
-The `--jesus-take-the-wheel` flag enables LLMs to perform actions that can modify your account state, including:
-- Canceling orders
-- Placing market, limit, stop, and stop-limit orders
-- Creating complex order strategies (OCO, trigger-based, and bracket orders)
-
-These actions have direct financial implications. Only use this flag in controlled environments and with a complete understanding of the risks involved. Consider testing with small positions or in a paper trading account if available.
+*(See full tool list in `src/schwab_mcp/tools/`)*
 
 ## Development
 
+To contribute to this project:
+
 ```bash
-# Type check
-uv run pyright
-
-# Format code
-uv run ruff format .
-
-# Lint
-uv run ruff check .
+# Clone and install dependencies
+git clone https://github.com/jkoelker/schwab-mcp.git
+cd schwab-mcp
+uv sync
 
 # Run tests
 uv run pytest
+
+# Format and Lint
+uv run ruff format . && uv run ruff check .
 ```
 
 ## License
 
-This project is available under the MIT License.
+MIT License.
