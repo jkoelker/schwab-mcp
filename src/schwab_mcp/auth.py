@@ -214,11 +214,6 @@ def client_from_login_flow(
             )
             print()
 
-            input(
-                "Press ENTER to open the browser. Note you can call "
-                + "this method with interactive=False to skip this input."
-            )
-
         try:
             controller = auth.webbrowser.get(requested_browser)
             controller.open(auth_context.authorization_url)
