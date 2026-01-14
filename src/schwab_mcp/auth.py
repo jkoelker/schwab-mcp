@@ -219,8 +219,11 @@ def client_from_login_flow(
                 + "this method with interactive=False to skip this input."
             )
 
-        controller = auth.webbrowser.get(requested_browser)
-        controller.open(auth_context.authorization_url)
+        try:
+            controller = auth.webbrowser.get(requested_browser)
+            controller.open(auth_context.authorization_url)
+        except Exception:
+            pass
 
         # Wait for a response
         now = auth.__TIME_TIME()
