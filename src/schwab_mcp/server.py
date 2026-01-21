@@ -11,6 +11,7 @@ from mcp.server.fastmcp import FastMCP
 from schwab.client import AsyncClient
 
 from schwab_mcp.tools import register_tools
+from schwab_mcp.resources import register_resources
 from schwab_mcp.context import SchwabServerContext
 from schwab_mcp.approvals import ApprovalManager
 
@@ -86,6 +87,7 @@ class SchwabMCPServer:
             enable_technical=enable_technical_tools,
             result_transform=result_transform,
         )
+        register_resources(self._server)
 
     async def run(self) -> None:
         """Run the server using FastMCP's stdio transport."""
