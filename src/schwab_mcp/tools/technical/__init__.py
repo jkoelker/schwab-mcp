@@ -45,7 +45,9 @@ def register(
             result_transform=result_transform,
         )
 
-    logger.debug("Technical analysis tools registered from %s", ", ".join(_MODULE_PATHS))
+    logger.debug(
+        "Technical analysis tools registered from %s", ", ".join(_MODULE_PATHS)
+    )
 
 
 _MODULE_PATHS: tuple[str, ...] = (
