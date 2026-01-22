@@ -8,7 +8,16 @@ from schwab_mcp.context import SchwabContext
 from schwab_mcp.tools._registration import register_tool
 from schwab_mcp.tools.utils import JSONType
 
-from .base import fetch_price_frame, pandas_ta, series_to_json
+from .base import (
+    EndTime,
+    Interval,
+    Points,
+    StartTime,
+    Symbol,
+    fetch_price_frame,
+    pandas_ta,
+    series_to_json,
+)
 
 __all__ = ["register"]
 
@@ -75,30 +84,12 @@ async def _moving_average(
 
 async def sma(
     ctx: SchwabContext,
-    symbol: Annotated[str, "Symbol of the security"],
+    symbol: Symbol,
     length: Annotated[int, "Number of periods used to compute the SMA"] = 20,
-    interval: Annotated[
-        str,
-        ("Price interval. Supported values: 1m, 5m, 10m, 15m, 30m, 1d, 1w."),
-    ] = "1d",
-    start: Annotated[
-        str | None,
-        (
-            "Optional ISO-8601 timestamp for the first candle used in the calculation. "
-            "Defaults to enough history based on the requested length."
-        ),
-    ] = None,
-    end: Annotated[
-        str | None,
-        "Optional ISO-8601 timestamp for the final candle (defaults to now in UTC).",
-    ] = None,
-    points: Annotated[
-        int | None,
-        (
-            "Limit the number of SMA values returned. Defaults to the requested length. "
-            "Use a larger number to inspect more history."
-        ),
-    ] = None,
+    interval: Interval = "1d",
+    start: StartTime = None,
+    end: EndTime = None,
+    points: Points = None,
 ) -> JSONType:
     """Compute a simple moving average for Schwab price history."""
 
@@ -117,30 +108,12 @@ async def sma(
 
 async def ema(
     ctx: SchwabContext,
-    symbol: Annotated[str, "Symbol of the security"],
+    symbol: Symbol,
     length: Annotated[int, "Number of periods used to compute the EMA"] = 20,
-    interval: Annotated[
-        str,
-        ("Price interval. Supported values: 1m, 5m, 10m, 15m, 30m, 1d, 1w."),
-    ] = "1d",
-    start: Annotated[
-        str | None,
-        (
-            "Optional ISO-8601 timestamp for the first candle used in the calculation. "
-            "Defaults to enough history based on the requested length."
-        ),
-    ] = None,
-    end: Annotated[
-        str | None,
-        "Optional ISO-8601 timestamp for the final candle (defaults to now in UTC).",
-    ] = None,
-    points: Annotated[
-        int | None,
-        (
-            "Limit the number of EMA values returned. Defaults to the requested length. "
-            "Use a larger number to inspect more history."
-        ),
-    ] = None,
+    interval: Interval = "1d",
+    start: StartTime = None,
+    end: EndTime = None,
+    points: Points = None,
 ) -> JSONType:
     """Compute an exponential moving average for Schwab price history."""
 

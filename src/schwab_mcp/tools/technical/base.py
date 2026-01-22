@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import datetime as _dt
 from dataclasses import dataclass
-from typing import Any, Iterable, Mapping, cast
+from typing import Annotated, Any, Iterable, Mapping, TypeAlias, cast
 
 import pandas as pd
 
@@ -18,6 +18,39 @@ __all__ = [
     "frame_to_json",
     "ensure_columns",
     "pandas_ta",
+    "Symbol",
+    "Interval",
+    "StartTime",
+    "EndTime",
+    "Points",
+]
+
+Symbol: TypeAlias = Annotated[str, "Symbol of the security"]
+
+Interval: TypeAlias = Annotated[
+    str,
+    "Price interval. Supported values: 1m, 5m, 10m, 15m, 30m, 1d, 1w.",
+]
+
+StartTime: TypeAlias = Annotated[
+    str | None,
+    (
+        "Optional ISO-8601 timestamp for the first candle used in the calculation. "
+        "Defaults to enough history based on the requested parameters."
+    ),
+]
+
+EndTime: TypeAlias = Annotated[
+    str | None,
+    "Optional ISO-8601 timestamp for the final candle (defaults to now in UTC).",
+]
+
+Points: TypeAlias = Annotated[
+    int | None,
+    (
+        "Limit the number of indicator values returned. Defaults to the primary "
+        "length parameter. Use a larger number to inspect more history."
+    ),
 ]
 
 

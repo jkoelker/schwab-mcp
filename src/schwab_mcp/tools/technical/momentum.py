@@ -9,6 +9,11 @@ from schwab_mcp.tools._registration import register_tool
 from schwab_mcp.tools.utils import JSONType
 
 from .base import (
+    EndTime,
+    Interval,
+    Points,
+    StartTime,
+    Symbol,
     ensure_columns,
     fetch_price_frame,
     frame_to_json,
@@ -21,30 +26,12 @@ __all__ = ["register"]
 
 async def rsi(
     ctx: SchwabContext,
-    symbol: Annotated[str, "Symbol of the security"],
+    symbol: Symbol,
     length: Annotated[int, "Number of periods used to compute the RSI"] = 14,
-    interval: Annotated[
-        str,
-        ("Price interval. Supported values: 1m, 5m, 10m, 15m, 30m, 1d, 1w."),
-    ] = "1d",
-    start: Annotated[
-        str | None,
-        (
-            "Optional ISO-8601 timestamp for the first candle used in the calculation. "
-            "Defaults to enough history based on the requested length."
-        ),
-    ] = None,
-    end: Annotated[
-        str | None,
-        "Optional ISO-8601 timestamp for the final candle (defaults to now in UTC).",
-    ] = None,
-    points: Annotated[
-        int | None,
-        (
-            "Limit the number of RSI values returned. Defaults to the requested length. "
-            "Use a larger number to inspect more history."
-        ),
-    ] = None,
+    interval: Interval = "1d",
+    start: StartTime = None,
+    end: EndTime = None,
+    points: Points = None,
 ) -> JSONType:
     """Compute the Relative Strength Index (RSI) for Schwab price history."""
 
@@ -93,32 +80,14 @@ async def rsi(
 
 async def stoch(
     ctx: SchwabContext,
-    symbol: Annotated[str, "Symbol of the security"],
+    symbol: Symbol,
     k_length: Annotated[int, "Number of periods used to compute %K"] = 14,
     d_length: Annotated[int, "Smoothing periods for %D"] = 3,
     smooth_k: Annotated[int, "Smoothing applied to %K before %D"] = 3,
-    interval: Annotated[
-        str,
-        ("Price interval. Supported values: 1m, 5m, 10m, 15m, 30m, 1d, 1w."),
-    ] = "1d",
-    start: Annotated[
-        str | None,
-        (
-            "Optional ISO-8601 timestamp for the first candle used in the calculation. "
-            "Defaults to enough history based on the requested lengths."
-        ),
-    ] = None,
-    end: Annotated[
-        str | None,
-        "Optional ISO-8601 timestamp for the final candle (defaults to now in UTC).",
-    ] = None,
-    points: Annotated[
-        int | None,
-        (
-            "Limit the number of stochastic oscillator values returned. Defaults to "
-            "k_length. Use a larger number to inspect more history."
-        ),
-    ] = None,
+    interval: Interval = "1d",
+    start: StartTime = None,
+    end: EndTime = None,
+    points: Points = None,
 ) -> JSONType:
     """Compute the stochastic oscillator (%K and %D) for Schwab price history."""
 
