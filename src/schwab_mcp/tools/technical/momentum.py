@@ -14,12 +14,10 @@ from .base import (
     Points,
     StartTime,
     Symbol,
+    compute_frame_indicator,
+    compute_series_indicator,
     compute_window,
-    ensure_columns,
-    fetch_price_frame,
-    frame_to_json,
     pandas_ta,
-    series_to_json,
 )
 
 __all__ = ["register"]
@@ -35,45 +33,23 @@ async def rsi(
     points: Points = None,
 ) -> JSONType:
     """Compute the Relative Strength Index (RSI) for Schwab price history."""
-
     if length <= 1:
         raise ValueError("length must be greater than 1 for RSI")
 
-    frame, metadata = await fetch_price_frame(
+    return await compute_series_indicator(
         ctx,
         symbol,
+        indicator_fn=lambda frame: pandas_ta.rsi(frame["close"], length=length),
+        indicator_name="rsi",
         interval=interval,
         start=start,
         end=end,
         bars=compute_window(length, multiplier=3, min_padding=20),
-    )
-
-    if frame.empty or "close" not in frame.columns:
-        raise ValueError("No closing price data returned for the requested inputs.")
-
-    rsi_series = pandas_ta.rsi(frame["close"], length=length)
-    if rsi_series is None:
-        raise RuntimeError("pandas_ta_classic.rsi returned no values.")
-
-    rsi_series = rsi_series.dropna()
-    if rsi_series.empty:
-        raise ValueError("Not enough price history to compute the requested RSI.")
-
-    values = series_to_json(
-        rsi_series,
-        limit=points if points is not None else length,
+        points=points,
+        default_points=length,
         value_key=f"rsi_{length}",
+        extra_metadata={"length": length},
     )
-
-    return {
-        "symbol": metadata["symbol"],
-        "interval": metadata["interval"],
-        "length": length,
-        "start": metadata["start"],
-        "end": metadata["end"],
-        "values": values,
-        "candles": metadata["candles_returned"],
-    }
 
 
 async def stoch(
@@ -88,7 +64,6 @@ async def stoch(
     points: Points = None,
 ) -> JSONType:
     """Compute the stochastic oscillator (%K and %D) for Schwab price history."""
-
     if k_length <= 1:
         raise ValueError("k_length must be greater than 1")
     if d_length <= 0 or smooth_k <= 0:
@@ -96,50 +71,31 @@ async def stoch(
 
     longest = max(k_length, d_length + smooth_k)
 
-    frame, metadata = await fetch_price_frame(
+    return await compute_frame_indicator(
         ctx,
         symbol,
+        indicator_fn=lambda frame: pandas_ta.stoch(
+            high=frame["high"],
+            low=frame["low"],
+            close=frame["close"],
+            k=k_length,
+            d=d_length,
+            smooth_k=smooth_k,
+        ),
+        indicator_name="stoch",
         interval=interval,
         start=start,
         end=end,
         bars=compute_window(longest, multiplier=3, min_padding=5),
+        points=points,
+        default_points=k_length,
+        required_columns=("high", "low", "close"),
+        extra_metadata={
+            "k_length": k_length,
+            "d_length": d_length,
+            "smooth_k": smooth_k,
+        },
     )
-
-    ensure_columns(frame, ("high", "low", "close"))
-
-    stoch_frame = pandas_ta.stoch(
-        high=frame["high"],
-        low=frame["low"],
-        close=frame["close"],
-        k=k_length,
-        d=d_length,
-        smooth_k=smooth_k,
-    )
-    if stoch_frame is None:
-        raise RuntimeError("pandas_ta_classic.stoch returned no values.")
-
-    stoch_frame = stoch_frame.dropna(how="all")
-    if stoch_frame.empty:
-        raise ValueError(
-            "Not enough price history to compute the stochastic oscillator."
-        )
-
-    values = frame_to_json(
-        stoch_frame,
-        limit=points if points is not None else k_length,
-    )
-
-    return {
-        "symbol": metadata["symbol"],
-        "interval": metadata["interval"],
-        "k_length": k_length,
-        "d_length": d_length,
-        "smooth_k": smooth_k,
-        "start": metadata["start"],
-        "end": metadata["end"],
-        "values": values,
-        "candles": metadata["candles_returned"],
-    }
 
 
 def register(

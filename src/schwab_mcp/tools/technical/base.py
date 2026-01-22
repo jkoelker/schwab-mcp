@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import datetime as _dt
 from dataclasses import dataclass
+from collections.abc import Callable
 from typing import Annotated, Any, Iterable, Mapping, TypeAlias, cast
 
 import pandas as pd
@@ -18,6 +19,8 @@ __all__ = [
     "frame_to_json",
     "ensure_columns",
     "compute_window",
+    "compute_series_indicator",
+    "compute_frame_indicator",
     "pandas_ta",
     "Symbol",
     "Interval",
@@ -161,6 +164,125 @@ def ensure_columns(frame: pd.DataFrame, columns: Iterable[str]) -> None:
 
 def compute_window(length: int, *, multiplier: int = 3, min_padding: int = 20) -> int:
     return max(length * multiplier, length + min_padding)
+
+
+IndicatorFn = Callable[[pd.DataFrame], pd.Series | pd.DataFrame | None]
+
+
+async def compute_series_indicator(
+    ctx: SchwabContext,
+    symbol: str,
+    *,
+    indicator_fn: IndicatorFn,
+    indicator_name: str,
+    interval: str,
+    start: str | None,
+    end: str | None,
+    bars: int,
+    points: int | None,
+    default_points: int,
+    value_key: str,
+    required_columns: tuple[str, ...] = ("close",),
+    extra_metadata: dict[str, Any] | None = None,
+) -> JSONType:
+    frame, metadata = await fetch_price_frame(
+        ctx, symbol, interval=interval, start=start, end=end, bars=bars
+    )
+
+    if required_columns:
+        ensure_columns(frame, required_columns)
+
+    if frame.empty:
+        raise ValueError("No price data returned for the requested inputs.")
+
+    result = indicator_fn(frame)
+    if result is None:
+        raise RuntimeError(f"pandas_ta_classic.{indicator_name} returned no values.")
+
+    if isinstance(result, pd.DataFrame):
+        raise TypeError(
+            f"Expected Series from {indicator_name}, got DataFrame. "
+            "Use compute_frame_indicator instead."
+        )
+
+    result = result.dropna()
+    if result.empty:
+        raise ValueError(f"Not enough price history to compute {indicator_name}.")
+
+    values = series_to_json(
+        result,
+        limit=points if points is not None else default_points,
+        value_key=value_key,
+    )
+
+    response: dict[str, Any] = {
+        "symbol": metadata["symbol"],
+        "interval": metadata["interval"],
+        "start": metadata["start"],
+        "end": metadata["end"],
+        "values": values,
+        "candles": metadata["candles_returned"],
+    }
+    if extra_metadata:
+        response.update(extra_metadata)
+    return response
+
+
+async def compute_frame_indicator(
+    ctx: SchwabContext,
+    symbol: str,
+    *,
+    indicator_fn: IndicatorFn,
+    indicator_name: str,
+    interval: str,
+    start: str | None,
+    end: str | None,
+    bars: int,
+    points: int | None,
+    default_points: int,
+    required_columns: tuple[str, ...] = ("close",),
+    extra_metadata: dict[str, Any] | None = None,
+) -> JSONType:
+    frame, metadata = await fetch_price_frame(
+        ctx, symbol, interval=interval, start=start, end=end, bars=bars
+    )
+
+    if required_columns:
+        ensure_columns(frame, required_columns)
+
+    if frame.empty:
+        raise ValueError("No price data returned for the requested inputs.")
+
+    result = indicator_fn(frame)
+    if result is None:
+        raise RuntimeError(f"pandas_ta_classic.{indicator_name} returned no values.")
+
+    if isinstance(result, pd.Series):
+        raise TypeError(
+            f"Expected DataFrame from {indicator_name}, got Series. "
+            "Use compute_series_indicator instead."
+        )
+
+    result = result.dropna(how="all")
+    if result.empty:
+        raise ValueError(f"Not enough price history to compute {indicator_name}.")
+
+    values = frame_to_json(
+        result,
+        limit=points if points is not None else default_points,
+    )
+
+    response: dict[str, Any] = {
+        "symbol": metadata["symbol"],
+        "interval": metadata["interval"],
+        "start": metadata["start"],
+        "end": metadata["end"],
+        "values": values,
+        "candles": metadata["candles_returned"],
+    }
+    if extra_metadata:
+        response.update(extra_metadata)
+    return response
 
 
 async def fetch_price_frame(

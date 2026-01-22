@@ -7,6 +7,7 @@ import pytest
 
 from schwab_mcp.context import SchwabContext
 from schwab_mcp.tools.technical import (
+    base,
     moving_average,
     momentum,
     overlays,
@@ -87,7 +88,7 @@ def test_sma_returns_expected_values(monkeypatch, dummy_ctx, price_data):
     def fake_sma(series, *, length):
         return series.rolling(length, min_periods=1).mean()
 
-    monkeypatch.setattr(moving_average, "fetch_price_frame", fake_fetch)
+    monkeypatch.setattr(base, "fetch_price_frame", fake_fetch)
     monkeypatch.setattr(
         moving_average,
         "pandas_ta",
@@ -118,7 +119,7 @@ def test_ema_defaults_to_length_points(monkeypatch, dummy_ctx, price_data):
     def fake_ema(series, *, length):
         return series.ewm(span=length, adjust=False).mean()
 
-    monkeypatch.setattr(moving_average, "fetch_price_frame", fake_fetch)
+    monkeypatch.setattr(base, "fetch_price_frame", fake_fetch)
     monkeypatch.setattr(
         moving_average,
         "pandas_ta",
@@ -145,7 +146,7 @@ def test_rsi_returns_expected_values(monkeypatch, dummy_ctx, price_data):
             index=series.index,
         )
 
-    monkeypatch.setattr(momentum, "fetch_price_frame", fake_fetch)
+    monkeypatch.setattr(base, "fetch_price_frame", fake_fetch)
     monkeypatch.setattr(
         momentum,
         "pandas_ta",
@@ -183,7 +184,7 @@ def test_stoch_returns_expected_values(monkeypatch, dummy_ctx, ohlcv_data):
         )
         return values
 
-    monkeypatch.setattr(momentum, "fetch_price_frame", fake_fetch)
+    monkeypatch.setattr(base, "fetch_price_frame", fake_fetch)
     monkeypatch.setattr(
         momentum,
         "pandas_ta",
@@ -266,7 +267,7 @@ def test_pivot_points_returns_levels(monkeypatch, dummy_ctx, ohlcv_data):
         )
         return data
 
-    monkeypatch.setattr(overlays, "fetch_price_frame", fake_fetch)
+    monkeypatch.setattr(base, "fetch_price_frame", fake_fetch)
     monkeypatch.setattr(
         overlays,
         "pandas_ta",
@@ -304,7 +305,7 @@ def test_bollinger_bands_returns_values(monkeypatch, dummy_ctx, price_data):
         )
         return data
 
-    monkeypatch.setattr(overlays, "fetch_price_frame", fake_fetch)
+    monkeypatch.setattr(base, "fetch_price_frame", fake_fetch)
     monkeypatch.setattr(
         overlays,
         "pandas_ta",
@@ -338,7 +339,7 @@ def test_macd_returns_expected_values(monkeypatch, dummy_ctx, price_data):
         )
         return data
 
-    monkeypatch.setattr(trend, "fetch_price_frame", fake_fetch)
+    monkeypatch.setattr(base, "fetch_price_frame", fake_fetch)
     monkeypatch.setattr(
         trend,
         "pandas_ta",
@@ -369,7 +370,7 @@ def test_atr_returns_series(monkeypatch, dummy_ctx, ohlcv_data):
     def fake_atr(high, low, close, *, length):
         return pd.Series([1.0 + idx for idx in range(len(close))], index=close.index)
 
-    monkeypatch.setattr(trend, "fetch_price_frame", fake_fetch)
+    monkeypatch.setattr(base, "fetch_price_frame", fake_fetch)
     monkeypatch.setattr(
         trend,
         "pandas_ta",
@@ -402,7 +403,7 @@ def test_adx_returns_frame(monkeypatch, dummy_ctx, ohlcv_data):
             }
         )
 
-    monkeypatch.setattr(trend, "fetch_price_frame", fake_fetch)
+    monkeypatch.setattr(base, "fetch_price_frame", fake_fetch)
     monkeypatch.setattr(
         trend,
         "pandas_ta",

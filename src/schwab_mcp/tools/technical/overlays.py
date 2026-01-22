@@ -14,10 +14,10 @@ from .base import (
     Points,
     StartTime,
     Symbol,
+    compute_frame_indicator,
     compute_window,
     ensure_columns,
     fetch_price_frame,
-    frame_to_json,
     pandas_ta,
     series_to_json,
 )
@@ -35,19 +35,13 @@ async def vwap(
     points: Points = None,
 ) -> JSONType:
     """Compute the Volume Weighted Average Price (VWAP)."""
-
     if length is not None and length <= 0:
         raise ValueError("length must be positive when provided")
 
     bars = compute_window(length, multiplier=3, min_padding=20) if length else None
 
     frame, metadata = await fetch_price_frame(
-        ctx,
-        symbol,
-        interval=interval,
-        start=start,
-        end=end,
-        bars=bars,
+        ctx, symbol, interval=interval, start=start, end=end, bars=bars
     )
 
     ensure_columns(frame, ("high", "low", "close", "volume"))
@@ -56,7 +50,7 @@ async def vwap(
     positive_volume_mask = volume.notna() & (volume > 0)
     if not positive_volume_mask.any():
         raise ValueError(
-            "Price history includes no positive volume, so VWAP cannot be computed for this symbol."
+            "Price history includes no positive volume, so VWAP cannot be computed."
         )
 
     frame = frame.loc[positive_volume_mask].copy()
@@ -107,53 +101,31 @@ async def pivot_points(
     points: Points = None,
 ) -> JSONType:
     """Compute pivot point support and resistance levels."""
-
     if lookback is not None and lookback <= 0:
         raise ValueError("lookback must be positive when provided")
 
     bars = compute_window(lookback, multiplier=5, min_padding=20) if lookback else None
 
-    frame, metadata = await fetch_price_frame(
+    return await compute_frame_indicator(
         ctx,
         symbol,
+        indicator_fn=lambda frame: pandas_ta.pivot_points(
+            high=frame["high"],
+            low=frame["low"],
+            close=frame["close"],
+            method=method,
+            lookback=lookback,
+        ),
+        indicator_name="pivot_points",
         interval=interval,
         start=start,
         end=end,
-        bars=bars,
+        bars=bars or 50,
+        points=points,
+        default_points=lookback if lookback is not None else 10,
+        required_columns=("high", "low", "close"),
+        extra_metadata={"method": method, "lookback": lookback},
     )
-
-    ensure_columns(frame, ("high", "low", "close"))
-
-    pivot_frame = pandas_ta.pivot_points(
-        high=frame["high"],
-        low=frame["low"],
-        close=frame["close"],
-        method=method,
-        lookback=lookback,
-    )
-    if pivot_frame is None:
-        raise RuntimeError("pandas_ta_classic.pivot_points returned no values.")
-
-    pivot_frame = pivot_frame.dropna(how="all")
-    if pivot_frame.empty:
-        raise ValueError("Not enough price history to compute pivot points.")
-
-    default_points = lookback if lookback is not None else 10
-    values = frame_to_json(
-        pivot_frame,
-        limit=points if points is not None else default_points,
-    )
-
-    return {
-        "symbol": metadata["symbol"],
-        "interval": metadata["interval"],
-        "method": method,
-        "lookback": lookback,
-        "start": metadata["start"],
-        "end": metadata["end"],
-        "values": values,
-        "candles": metadata["candles_returned"],
-    }
 
 
 async def bollinger_bands(
@@ -168,53 +140,29 @@ async def bollinger_bands(
     points: Points = None,
 ) -> JSONType:
     """Compute Bollinger Bands for Schwab price history."""
-
     if length <= 1:
         raise ValueError("length must be greater than 1 for Bollinger Bands")
     if std_dev <= 0:
         raise ValueError("std_dev must be positive")
 
-    frame, metadata = await fetch_price_frame(
+    return await compute_frame_indicator(
         ctx,
         symbol,
+        indicator_fn=lambda frame: pandas_ta.bbands(
+            frame["close"],
+            length=length,
+            std=std_dev,
+            mamode=ma_mode,
+        ),
+        indicator_name="bbands",
         interval=interval,
         start=start,
         end=end,
         bars=compute_window(length, multiplier=3, min_padding=20),
+        points=points,
+        default_points=length,
+        extra_metadata={"length": length, "std_dev": std_dev, "ma_mode": ma_mode},
     )
-
-    if frame.empty or "close" not in frame.columns:
-        raise ValueError("No closing price data returned for the requested inputs.")
-
-    bands = pandas_ta.bbands(
-        frame["close"],
-        length=length,
-        std=std_dev,
-        mamode=ma_mode,
-    )
-    if bands is None:
-        raise RuntimeError("pandas_ta_classic.bbands returned no values.")
-
-    bands = bands.dropna(how="all")
-    if bands.empty:
-        raise ValueError("Not enough price history to compute Bollinger Bands.")
-
-    values = frame_to_json(
-        bands,
-        limit=points if points is not None else length,
-    )
-
-    return {
-        "symbol": metadata["symbol"],
-        "interval": metadata["interval"],
-        "length": length,
-        "std_dev": std_dev,
-        "ma_mode": ma_mode,
-        "start": metadata["start"],
-        "end": metadata["end"],
-        "values": values,
-        "candles": metadata["candles_returned"],
-    }
 
 
 def register(
