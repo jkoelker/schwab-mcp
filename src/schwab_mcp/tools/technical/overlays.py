@@ -9,6 +9,11 @@ from schwab_mcp.tools._registration import register_tool
 from schwab_mcp.tools.utils import JSONType
 
 from .base import (
+    EndTime,
+    Interval,
+    Points,
+    StartTime,
+    Symbol,
     ensure_columns,
     fetch_price_frame,
     frame_to_json,
@@ -21,27 +26,12 @@ __all__ = ["register"]
 
 async def vwap(
     ctx: SchwabContext,
-    symbol: Annotated[str, "Symbol of the security"],
+    symbol: Symbol,
     length: Annotated[int | None, "Optional period applied to VWAP"] = None,
-    interval: Annotated[
-        str,
-        ("Price interval. Supported values: 1m, 5m, 10m, 15m, 30m, 1d, 1w."),
-    ] = "1d",
-    start: Annotated[
-        str | None,
-        "Optional ISO-8601 timestamp for the first candle used in the calculation.",
-    ] = None,
-    end: Annotated[
-        str | None,
-        "Optional ISO-8601 timestamp for the final candle (defaults to now in UTC).",
-    ] = None,
-    points: Annotated[
-        int | None,
-        (
-            "Limit the number of VWAP values returned. Defaults to the requested length "
-            "when provided, otherwise 30."
-        ),
-    ] = None,
+    interval: Interval = "1d",
+    start: StartTime = None,
+    end: EndTime = None,
+    points: Points = None,
 ) -> JSONType:
     """Compute the Volume Weighted Average Price (VWAP)."""
 
@@ -105,30 +95,16 @@ async def vwap(
 
 async def pivot_points(
     ctx: SchwabContext,
-    symbol: Annotated[str, "Symbol of the security"],
+    symbol: Symbol,
     method: Annotated[
         str,
         "Pivot calculation method (standard, fibonacci, camarilla, woodie, demark).",
     ] = "standard",
     lookback: Annotated[int | None, "Number of prior periods to consider"] = None,
-    interval: Annotated[
-        str,
-        ("Price interval. Supported values: 1m, 5m, 10m, 15m, 30m, 1d, 1w."),
-    ] = "1d",
-    start: Annotated[
-        str | None,
-        "Optional ISO-8601 timestamp for the first candle used in the calculation.",
-    ] = None,
-    end: Annotated[
-        str | None,
-        "Optional ISO-8601 timestamp for the final candle (defaults to now in UTC).",
-    ] = None,
-    points: Annotated[
-        int | None,
-        (
-            "Limit the number of pivot levels returned. Defaults to lookback or 10 if unset."
-        ),
-    ] = None,
+    interval: Interval = "1d",
+    start: StartTime = None,
+    end: EndTime = None,
+    points: Points = None,
 ) -> JSONType:
     """Compute pivot point support and resistance levels."""
 
@@ -184,26 +160,14 @@ async def pivot_points(
 
 async def bollinger_bands(
     ctx: SchwabContext,
-    symbol: Annotated[str, "Symbol of the security"],
+    symbol: Symbol,
     length: Annotated[int, "Number of periods used to compute the middle band"] = 20,
     std_dev: Annotated[float, "Standard deviation multiplier"] = 2.0,
     ma_mode: Annotated[str, "Moving average mode (e.g. sma, ema)"] = "sma",
-    interval: Annotated[
-        str,
-        ("Price interval. Supported values: 1m, 5m, 10m, 15m, 30m, 1d, 1w."),
-    ] = "1d",
-    start: Annotated[
-        str | None,
-        "Optional ISO-8601 timestamp for the first candle used in the calculation.",
-    ] = None,
-    end: Annotated[
-        str | None,
-        "Optional ISO-8601 timestamp for the final candle (defaults to now in UTC).",
-    ] = None,
-    points: Annotated[
-        int | None,
-        ("Limit the number of band values returned. Defaults to the requested length."),
-    ] = None,
+    interval: Interval = "1d",
+    start: StartTime = None,
+    end: EndTime = None,
+    points: Points = None,
 ) -> JSONType:
     """Compute Bollinger Bands for Schwab price history."""
 

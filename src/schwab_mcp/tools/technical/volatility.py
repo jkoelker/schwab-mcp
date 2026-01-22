@@ -11,7 +11,14 @@ from schwab_mcp.context import SchwabContext
 from schwab_mcp.tools._registration import register_tool
 from schwab_mcp.tools.utils import JSONType, call
 
-from .base import ensure_columns, fetch_price_frame
+from .base import (
+    EndTime,
+    Interval,
+    StartTime,
+    Symbol,
+    ensure_columns,
+    fetch_price_frame,
+)
 
 __all__ = ["register"]
 
@@ -46,23 +53,11 @@ def _round(value: float, digits: int = 2) -> float:
 
 async def historical_volatility(
     ctx: SchwabContext,
-    symbol: Annotated[str, "Symbol of the security"],
+    symbol: Symbol,
     period: Annotated[int, "Rolling window size for volatility"] = 20,
-    interval: Annotated[
-        str,
-        ("Price interval. Supported values: 1m, 5m, 10m, 15m, 30m, 1d, 1w."),
-    ] = "1d",
-    start: Annotated[
-        str | None,
-        (
-            "Optional ISO-8601 timestamp for the first candle used in the calculation. "
-            "Defaults to enough history based on the requested period."
-        ),
-    ] = None,
-    end: Annotated[
-        str | None,
-        "Optional ISO-8601 timestamp for the final candle (defaults to now in UTC).",
-    ] = None,
+    interval: Interval = "1d",
+    start: StartTime = None,
+    end: EndTime = None,
     bars: Annotated[
         int | None,
         (
@@ -72,15 +67,11 @@ async def historical_volatility(
     ] = None,
     annualize_factor: Annotated[
         int,
-        (
-            "Trading sessions per year used for annualization (default 252 for US equities)."
-        ),
+        "Trading sessions per year used for annualization (default 252 for US equities).",
     ] = 252,
     method: Annotated[
         str,
-        (
-            "Volatility calculation method: close_to_close (default), log_returns, or parkinson."
-        ),
+        "Volatility method: close_to_close (default), log_returns, or parkinson.",
     ] = "close_to_close",
 ) -> JSONType:
     """Compute historical volatility statistics for Schwab price history."""
@@ -195,29 +186,17 @@ async def historical_volatility(
 
 async def expected_move(
     ctx: SchwabContext,
-    symbol: Annotated[str, "Symbol of the underlying security"],
+    symbol: Symbol,
     call_price: Annotated[float | None, "At-the-money call option premium"] = None,
     put_price: Annotated[float | None, "At-the-money put option premium"] = None,
-    interval: Annotated[
-        str,
-        (
-            "Price interval used when fetching underlying data if needed. "
-            "Supported values: 1m, 5m, 10m, 15m, 30m, 1d, 1w."
-        ),
-    ] = "1d",
+    interval: Interval = "1d",
     underlying_price: Annotated[
         float | None,
-        (
-            "Optional underlying price to use for the calculation. If omitted, the tool "
-            "fetches the most recent close for the requested interval."
-        ),
+        "Optional underlying price. If omitted, fetches the most recent close.",
     ] = None,
     multiplier: Annotated[
         float,
-        (
-            "Statistical adjustment multiplier applied to the raw straddle. "
-            "Defaults to 0.85 to approximate a one standard deviation move."
-        ),
+        "Adjustment multiplier for the straddle (default 0.85 for ~1 std dev).",
     ] = 0.85,
 ) -> JSONType:
     """Calculate the option-priced ±1 standard deviation move."""
