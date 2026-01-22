@@ -268,9 +268,7 @@ def _has_progress_token(context: SchwabContext) -> bool:
     return bool(progress_token)
 
 
-def _wrap_result_transform(
-    func: ToolFn, transform: Callable[[Any], Any]
-) -> ToolFn:
+def _wrap_result_transform(func: ToolFn, transform: Callable[[Any], Any]) -> ToolFn:
     @functools.wraps(func)
     async def wrapper(*args: Any, **kwargs: Any) -> Any:
         result = func(*args, **kwargs)

@@ -35,7 +35,9 @@ class _PendingApproval:
 
 
 class _ApprovalClient(discord.Client):
-    def __init__(self, manager: DiscordApprovalManager, intents: discord.Intents) -> None:
+    def __init__(
+        self, manager: DiscordApprovalManager, intents: discord.Intents
+    ) -> None:
         # The base Client expects intents as a keyword-only argument.
         super().__init__(intents=intents)
         self._manager = manager

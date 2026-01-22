@@ -4,7 +4,12 @@ from click.testing import CliRunner
 from typing import Any
 
 from schwab_mcp import cli
-from schwab_mcp.approvals import ApprovalDecision, ApprovalManager, ApprovalRequest, NoOpApprovalManager
+from schwab_mcp.approvals import (
+    ApprovalDecision,
+    ApprovalManager,
+    ApprovalRequest,
+    NoOpApprovalManager,
+)
 
 
 class FakeAsyncClient:
@@ -67,7 +72,11 @@ def _patch_common(monkeypatch, captured: dict[str, Any]) -> None:
             captured["run_called"] = True
 
     monkeypatch.setattr(cli, "SchwabMCPServer", FakeServer)
-    monkeypatch.setattr(cli.anyio, "run", lambda func, backend="asyncio": captured.setdefault("anyio_backend", backend))
+    monkeypatch.setattr(
+        cli.anyio,
+        "run",
+        lambda func, backend="asyncio": captured.setdefault("anyio_backend", backend),
+    )
 
 
 def test_server_defaults_to_read_only(monkeypatch):
