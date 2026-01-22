@@ -17,6 +17,7 @@ __all__ = [
     "series_to_json",
     "frame_to_json",
     "ensure_columns",
+    "compute_window",
     "pandas_ta",
     "Symbol",
     "Interval",
@@ -156,6 +157,10 @@ def ensure_columns(frame: pd.DataFrame, columns: Iterable[str]) -> None:
         raise ValueError(
             "Price history missing required columns: " + ", ".join(sorted(missing))
         )
+
+
+def compute_window(length: int, *, multiplier: int = 3, min_padding: int = 20) -> int:
+    return max(length * multiplier, length + min_padding)
 
 
 async def fetch_price_frame(

@@ -14,6 +14,7 @@ from .base import (
     Points,
     StartTime,
     Symbol,
+    compute_window,
     ensure_columns,
     fetch_price_frame,
     frame_to_json,
@@ -101,15 +102,13 @@ async def atr(
     if length <= 0:
         raise ValueError("length must be a positive integer")
 
-    window = max(length * 4, length + 20)
-
     frame, metadata = await fetch_price_frame(
         ctx,
         symbol,
         interval=interval,
         start=start,
         end=end,
-        bars=window,
+        bars=compute_window(length, multiplier=4, min_padding=20),
     )
 
     ensure_columns(frame, ("high", "low", "close"))
@@ -158,15 +157,13 @@ async def adx(
     if length <= 0:
         raise ValueError("length must be a positive integer")
 
-    window = max(length * 4, length + 20)
-
     frame, metadata = await fetch_price_frame(
         ctx,
         symbol,
         interval=interval,
         start=start,
         end=end,
-        bars=window,
+        bars=compute_window(length, multiplier=4, min_padding=20),
     )
 
     ensure_columns(frame, ("high", "low", "close"))

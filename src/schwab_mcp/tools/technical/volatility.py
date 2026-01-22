@@ -16,6 +16,7 @@ from .base import (
     Interval,
     StartTime,
     Symbol,
+    compute_window,
     ensure_columns,
     fetch_price_frame,
 )
@@ -89,10 +90,12 @@ async def historical_volatility(
         )
 
     required_points = period + 1 if method_key != "parkinson" else period
-    padding = max(period // 2, 10)
-    window = max(required_points + padding, period * 2)
-    if bars is not None:
-        window = max(bars, required_points)
+    window = (
+        bars
+        if bars is not None
+        else compute_window(period, multiplier=2, min_padding=10)
+    )
+    window = max(window, required_points)
 
     frame, metadata = await fetch_price_frame(
         ctx,
