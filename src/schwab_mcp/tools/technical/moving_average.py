@@ -14,70 +14,12 @@ from .base import (
     Points,
     StartTime,
     Symbol,
+    compute_series_indicator,
     compute_window,
-    fetch_price_frame,
     pandas_ta,
-    series_to_json,
 )
 
 __all__ = ["register"]
-
-
-Calculator = Callable[..., Any]
-
-
-async def _moving_average(
-    calculator: Calculator,
-    *,
-    name: str,
-    ctx: SchwabContext,
-    symbol: str,
-    length: int,
-    interval: str,
-    start: str | None,
-    end: str | None,
-    points: int | None,
-) -> JSONType:
-    if length <= 0:
-        raise ValueError("length must be a positive integer")
-
-    frame, metadata = await fetch_price_frame(
-        ctx,
-        symbol,
-        interval=interval,
-        start=start,
-        end=end,
-        bars=compute_window(length, multiplier=2, min_padding=10),
-    )
-
-    if frame.empty or "close" not in frame.columns:
-        raise ValueError("No closing price data returned for the requested inputs.")
-
-    series = calculator(frame["close"], length=length)
-    if series is None:
-        raise RuntimeError(f"pandas_ta_classic.{name} returned no values.")
-
-    series = series.dropna()
-    if series.empty:
-        raise ValueError(
-            "Not enough price history to compute the requested moving average."
-        )
-
-    values = series_to_json(
-        series,
-        limit=points if points is not None else length,
-        value_key=f"{name}_{length}",
-    )
-
-    return {
-        "symbol": metadata["symbol"],
-        "interval": metadata["interval"],
-        "length": length,
-        "start": metadata["start"],
-        "end": metadata["end"],
-        "values": values,
-        "candles": metadata["candles_returned"],
-    }
 
 
 async def sma(
@@ -90,17 +32,22 @@ async def sma(
     points: Points = None,
 ) -> JSONType:
     """Compute a simple moving average for Schwab price history."""
+    if length <= 0:
+        raise ValueError("length must be a positive integer")
 
-    return await _moving_average(
-        pandas_ta.sma,
-        name="sma",
-        ctx=ctx,
-        symbol=symbol,
-        length=length,
+    return await compute_series_indicator(
+        ctx,
+        symbol,
+        indicator_fn=lambda frame: pandas_ta.sma(frame["close"], length=length),
+        indicator_name="sma",
         interval=interval,
         start=start,
         end=end,
+        bars=compute_window(length, multiplier=2, min_padding=10),
         points=points,
+        default_points=length,
+        value_key=f"sma_{length}",
+        extra_metadata={"length": length},
     )
 
 
@@ -114,17 +61,22 @@ async def ema(
     points: Points = None,
 ) -> JSONType:
     """Compute an exponential moving average for Schwab price history."""
+    if length <= 0:
+        raise ValueError("length must be a positive integer")
 
-    return await _moving_average(
-        pandas_ta.ema,
-        name="ema",
-        ctx=ctx,
-        symbol=symbol,
-        length=length,
+    return await compute_series_indicator(
+        ctx,
+        symbol,
+        indicator_fn=lambda frame: pandas_ta.ema(frame["close"], length=length),
+        indicator_name="ema",
         interval=interval,
         start=start,
         end=end,
+        bars=compute_window(length, multiplier=2, min_padding=10),
         points=points,
+        default_points=length,
+        value_key=f"ema_{length}",
+        extra_metadata={"length": length},
     )
 
 
