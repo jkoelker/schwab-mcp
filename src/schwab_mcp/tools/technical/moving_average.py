@@ -14,6 +14,7 @@ from .base import (
     Points,
     StartTime,
     Symbol,
+    compute_window,
     fetch_price_frame,
     pandas_ta,
     series_to_json,
@@ -40,16 +41,13 @@ async def _moving_average(
     if length <= 0:
         raise ValueError("length must be a positive integer")
 
-    padding = max(length // 2, 10)
-    window = max(length + padding, length * 2)
-
     frame, metadata = await fetch_price_frame(
         ctx,
         symbol,
         interval=interval,
         start=start,
         end=end,
-        bars=window,
+        bars=compute_window(length, multiplier=2, min_padding=10),
     )
 
     if frame.empty or "close" not in frame.columns:

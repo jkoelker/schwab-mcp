@@ -14,6 +14,7 @@ from .base import (
     Points,
     StartTime,
     Symbol,
+    compute_window,
     ensure_columns,
     fetch_price_frame,
     frame_to_json,
@@ -38,16 +39,13 @@ async def rsi(
     if length <= 1:
         raise ValueError("length must be greater than 1 for RSI")
 
-    padding = max(length, 20)
-    window = max(length + padding, length * 3)
-
     frame, metadata = await fetch_price_frame(
         ctx,
         symbol,
         interval=interval,
         start=start,
         end=end,
-        bars=window,
+        bars=compute_window(length, multiplier=3, min_padding=20),
     )
 
     if frame.empty or "close" not in frame.columns:
@@ -97,8 +95,6 @@ async def stoch(
         raise ValueError("d_length and smooth_k must be positive integers")
 
     longest = max(k_length, d_length + smooth_k)
-    padding = max(smooth_k, 5)
-    window = max(longest + padding, longest * 3)
 
     frame, metadata = await fetch_price_frame(
         ctx,
@@ -106,7 +102,7 @@ async def stoch(
         interval=interval,
         start=start,
         end=end,
-        bars=window,
+        bars=compute_window(longest, multiplier=3, min_padding=5),
     )
 
     ensure_columns(frame, ("high", "low", "close"))

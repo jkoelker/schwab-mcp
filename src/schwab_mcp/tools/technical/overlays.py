@@ -14,6 +14,7 @@ from .base import (
     Points,
     StartTime,
     Symbol,
+    compute_window,
     ensure_columns,
     fetch_price_frame,
     frame_to_json,
@@ -35,11 +36,10 @@ async def vwap(
 ) -> JSONType:
     """Compute the Volume Weighted Average Price (VWAP)."""
 
-    window = 0
-    if length is not None:
-        if length <= 0:
-            raise ValueError("length must be positive when provided")
-        window = max(length * 3, length + 20)
+    if length is not None and length <= 0:
+        raise ValueError("length must be positive when provided")
+
+    bars = compute_window(length, multiplier=3, min_padding=20) if length else None
 
     frame, metadata = await fetch_price_frame(
         ctx,
@@ -47,7 +47,7 @@ async def vwap(
         interval=interval,
         start=start,
         end=end,
-        bars=window if window else None,
+        bars=bars,
     )
 
     ensure_columns(frame, ("high", "low", "close", "volume"))
@@ -111,9 +111,7 @@ async def pivot_points(
     if lookback is not None and lookback <= 0:
         raise ValueError("lookback must be positive when provided")
 
-    window = 0
-    if lookback is not None:
-        window = max(lookback * 5, lookback + 20)
+    bars = compute_window(lookback, multiplier=5, min_padding=20) if lookback else None
 
     frame, metadata = await fetch_price_frame(
         ctx,
@@ -121,7 +119,7 @@ async def pivot_points(
         interval=interval,
         start=start,
         end=end,
-        bars=window if window else None,
+        bars=bars,
     )
 
     ensure_columns(frame, ("high", "low", "close"))
@@ -176,15 +174,13 @@ async def bollinger_bands(
     if std_dev <= 0:
         raise ValueError("std_dev must be positive")
 
-    window = max(length * 3, length + 20)
-
     frame, metadata = await fetch_price_frame(
         ctx,
         symbol,
         interval=interval,
         start=start,
         end=end,
-        bars=window,
+        bars=compute_window(length, multiplier=3, min_padding=20),
     )
 
     if frame.empty or "close" not in frame.columns:
