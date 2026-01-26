@@ -15,6 +15,32 @@ def _parse_iso_datetime(value: str | None) -> datetime.datetime | None:
     return datetime.datetime.fromisoformat(value) if value is not None else None
 
 
+async def _get_price_history(
+    ctx: SchwabContext,
+    method_name: str,
+    symbol: str,
+    start_datetime: str | None,
+    end_datetime: str | None,
+    extended_hours: bool | None,
+    previous_close: bool | None,
+) -> JSONType:
+    """Internal helper to fetch price history using the specified client method."""
+    client = ctx.price_history
+    method = getattr(client, method_name)
+
+    start_dt = _parse_iso_datetime(start_datetime)
+    end_dt = _parse_iso_datetime(end_datetime)
+
+    return await call(
+        method,
+        symbol,
+        start_datetime=start_dt,
+        end_datetime=end_dt,
+        need_extended_hours_data=extended_hours,
+        need_previous_close=previous_close,
+    )
+
+
 async def get_advanced_price_history(
     ctx: SchwabContext,
     symbol: Annotated[str, "Symbol of the security"],
@@ -110,18 +136,14 @@ async def get_price_history_every_minute(
     """
     Get OHLCV price history per minute. For detailed intraday analysis. Max 48 days history. Dates ISO format.
     """
-    client = ctx.price_history
-
-    start_dt = _parse_iso_datetime(start_datetime)
-    end_dt = _parse_iso_datetime(end_datetime)
-
-    return await call(
-        client.get_price_history_every_minute,
+    return await _get_price_history(
+        ctx,
+        "get_price_history_every_minute",
         symbol,
-        start_datetime=start_dt,
-        end_datetime=end_dt,
-        need_extended_hours_data=extended_hours,
-        need_previous_close=previous_close,
+        start_datetime,
+        end_datetime,
+        extended_hours,
+        previous_close,
     )
 
 
@@ -140,18 +162,14 @@ async def get_price_history_every_five_minutes(
     """
     Get OHLCV price history per 5 minutes. Balance between detail and noise. Approx. 9 months history. Dates ISO format.
     """
-    client = ctx.price_history
-
-    start_dt = _parse_iso_datetime(start_datetime)
-    end_dt = _parse_iso_datetime(end_datetime)
-
-    return await call(
-        client.get_price_history_every_five_minutes,
+    return await _get_price_history(
+        ctx,
+        "get_price_history_every_five_minutes",
         symbol,
-        start_datetime=start_dt,
-        end_datetime=end_dt,
-        need_extended_hours_data=extended_hours,
-        need_previous_close=previous_close,
+        start_datetime,
+        end_datetime,
+        extended_hours,
+        previous_close,
     )
 
 
@@ -170,18 +188,14 @@ async def get_price_history_every_ten_minutes(
     """
     Get OHLCV price history per 10 minutes. Good for intraday trends/levels. Approx. 9 months history. Dates ISO format.
     """
-    client = ctx.price_history
-
-    start_dt = _parse_iso_datetime(start_datetime)
-    end_dt = _parse_iso_datetime(end_datetime)
-
-    return await call(
-        client.get_price_history_every_ten_minutes,
+    return await _get_price_history(
+        ctx,
+        "get_price_history_every_ten_minutes",
         symbol,
-        start_datetime=start_dt,
-        end_datetime=end_dt,
-        need_extended_hours_data=extended_hours,
-        need_previous_close=previous_close,
+        start_datetime,
+        end_datetime,
+        extended_hours,
+        previous_close,
     )
 
 
@@ -200,18 +214,14 @@ async def get_price_history_every_fifteen_minutes(
     """
     Get OHLCV price history per 15 minutes. Shows significant intraday moves, filters noise. Approx. 9 months history. Dates ISO format.
     """
-    client = ctx.price_history
-
-    start_dt = _parse_iso_datetime(start_datetime)
-    end_dt = _parse_iso_datetime(end_datetime)
-
-    return await call(
-        client.get_price_history_every_fifteen_minutes,
+    return await _get_price_history(
+        ctx,
+        "get_price_history_every_fifteen_minutes",
         symbol,
-        start_datetime=start_dt,
-        end_datetime=end_dt,
-        need_extended_hours_data=extended_hours,
-        need_previous_close=previous_close,
+        start_datetime,
+        end_datetime,
+        extended_hours,
+        previous_close,
     )
 
 
@@ -230,18 +240,14 @@ async def get_price_history_every_thirty_minutes(
     """
     Get OHLCV price history per 30 minutes. For broader intraday trends, filters noise. Approx. 9 months history. Dates ISO format.
     """
-    client = ctx.price_history
-
-    start_dt = _parse_iso_datetime(start_datetime)
-    end_dt = _parse_iso_datetime(end_datetime)
-
-    return await call(
-        client.get_price_history_every_thirty_minutes,
+    return await _get_price_history(
+        ctx,
+        "get_price_history_every_thirty_minutes",
         symbol,
-        start_datetime=start_dt,
-        end_datetime=end_dt,
-        need_extended_hours_data=extended_hours,
-        need_previous_close=previous_close,
+        start_datetime,
+        end_datetime,
+        extended_hours,
+        previous_close,
     )
 
 
@@ -266,18 +272,14 @@ async def get_price_history_every_day(
     """
     Get daily OHLCV price history. For medium/long-term analysis. Extensive history (back to 1985 possible). Dates ISO format.
     """
-    client = ctx.price_history
-
-    start_dt = _parse_iso_datetime(start_datetime)
-    end_dt = _parse_iso_datetime(end_datetime)
-
-    return await call(
-        client.get_price_history_every_day,
+    return await _get_price_history(
+        ctx,
+        "get_price_history_every_day",
         symbol,
-        start_datetime=start_dt,
-        end_datetime=end_dt,
-        need_extended_hours_data=extended_hours,
-        need_previous_close=previous_close,
+        start_datetime,
+        end_datetime,
+        extended_hours,
+        previous_close,
     )
 
 
@@ -296,18 +298,14 @@ async def get_price_history_every_week(
     """
     Get weekly OHLCV price history. For long-term analysis, major cycles. Extensive history (back to 1985 possible). Dates ISO format.
     """
-    client = ctx.price_history
-
-    start_dt = _parse_iso_datetime(start_datetime)
-    end_dt = _parse_iso_datetime(end_datetime)
-
-    return await call(
-        client.get_price_history_every_week,
+    return await _get_price_history(
+        ctx,
+        "get_price_history_every_week",
         symbol,
-        start_datetime=start_dt,
-        end_datetime=end_dt,
-        need_extended_hours_data=extended_hours,
-        need_previous_close=previous_close,
+        start_datetime,
+        end_datetime,
+        extended_hours,
+        previous_close,
     )
 
 
