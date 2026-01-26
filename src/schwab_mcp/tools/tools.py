@@ -8,7 +8,7 @@ from mcp.server.fastmcp import FastMCP
 
 from schwab_mcp.context import SchwabContext
 from schwab_mcp.tools._registration import register_tool
-from schwab_mcp.tools.utils import JSONType, call
+from schwab_mcp.tools.utils import JSONType, call, parse_date
 
 
 async def get_datetime() -> str:
@@ -40,9 +40,7 @@ async def get_market_hours(
 
     market_enums = [client.MarketHours.Market[m.upper()] for m in markets]
 
-    date_obj = None
-    if date is not None:
-        date_obj = datetime.datetime.strptime(date, "%Y-%m-%d").date()
+    date_obj = parse_date(date)
 
     return await call(client.get_market_hours, market_enums, date=date_obj)
 

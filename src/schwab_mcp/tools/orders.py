@@ -4,7 +4,6 @@ from collections.abc import Callable
 from typing import Annotated, Any, cast
 
 import copy
-import datetime
 from mcp.server.fastmcp import FastMCP
 from schwab.utils import (
     AccountHashMismatchException,
@@ -18,6 +17,7 @@ from schwab.orders.generic import OrderBuilder
 
 from schwab_mcp.context import SchwabContext
 from schwab_mcp.tools._registration import register_tool
+from schwab_mcp.tools.utils import parse_date
 from schwab_mcp.tools.order_helpers import (
     equity_buy_limit,
     equity_buy_market,
@@ -244,14 +244,8 @@ async def get_orders(
     """
     client = ctx.orders
 
-    from_date_obj = None
-    to_date_obj = None
-
-    if from_date is not None:
-        from_date_obj = datetime.datetime.strptime(from_date, "%Y-%m-%d").date()
-
-    if to_date is not None:
-        to_date_obj = datetime.datetime.strptime(to_date, "%Y-%m-%d").date()
+    from_date_obj = parse_date(from_date)
+    to_date_obj = parse_date(to_date)
 
     # Map status to enums; support list via 'statuses'
     kwargs: dict[str, Any] = {
