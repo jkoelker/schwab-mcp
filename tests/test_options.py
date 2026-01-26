@@ -1,6 +1,5 @@
 import datetime
 from enum import Enum
-from typing import Any
 
 from schwab_mcp.tools import options
 
@@ -25,14 +24,10 @@ class DummyOptionsClient:
         return None
 
 
-def test_get_advanced_option_chain_parses_and_maps_parameters(monkeypatch):
-    captured: dict[str, Any] = {}
-
-    async def fake_call(func, *args, **kwargs):
-        captured["func"] = func
-        captured["args"] = args
-        captured["kwargs"] = kwargs
-        return "ok"
+def test_get_advanced_option_chain_parses_and_maps_parameters(
+    monkeypatch, fake_call_factory
+):
+    captured, fake_call = fake_call_factory()
 
     monkeypatch.setattr(options, "call", fake_call)
 

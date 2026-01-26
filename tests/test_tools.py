@@ -1,6 +1,5 @@
 import datetime
 from enum import Enum
-from typing import Any
 
 from schwab_mcp.tools import tools
 from schwab_mcp.tools import options as options_tools
@@ -35,14 +34,8 @@ class DummyToolsClient:
         return None
 
 
-def test_get_market_hours_handles_string_inputs(monkeypatch):
-    captured: dict[str, Any] = {}
-
-    async def fake_call(func, *args, **kwargs):
-        captured["func"] = func
-        captured["args"] = args
-        captured["kwargs"] = kwargs
-        return "ok"
+def test_get_market_hours_handles_string_inputs(monkeypatch, fake_call_factory):
+    captured, fake_call = fake_call_factory()
 
     monkeypatch.setattr(tools, "call", fake_call)
 
@@ -73,14 +66,8 @@ def test_get_market_hours_handles_string_inputs(monkeypatch):
     assert kwargs["date"] == datetime.date(2024, 3, 1)
 
 
-def test_get_movers_maps_enums(monkeypatch):
-    captured: dict[str, Any] = {}
-
-    async def fake_call(func, *args, **kwargs):
-        captured["func"] = func
-        captured["args"] = args
-        captured["kwargs"] = kwargs
-        return "ok"
+def test_get_movers_maps_enums(monkeypatch, fake_call_factory):
+    captured, fake_call = fake_call_factory()
 
     monkeypatch.setattr(tools, "call", fake_call)
 
@@ -108,14 +95,8 @@ def test_get_movers_maps_enums(monkeypatch):
     assert kwargs["frequency"] is client.Movers.Frequency.FIVE
 
 
-def test_get_instruments_supports_aliases(monkeypatch):
-    captured: dict[str, Any] = {}
-
-    async def fake_call(func, *args, **kwargs):
-        captured["func"] = func
-        captured["args"] = args
-        captured["kwargs"] = kwargs
-        return "ok"
+def test_get_instruments_supports_aliases(monkeypatch, fake_call_factory):
+    captured, fake_call = fake_call_factory()
 
     monkeypatch.setattr(tools, "call", fake_call)
 
@@ -158,13 +139,8 @@ def test_get_datetime_returns_eastern_time(monkeypatch):
     assert "Eastern Time" not in result
 
 
-def test_get_option_chain_defaults_date_window(monkeypatch):
-    captured: dict[str, Any] = {}
-
-    async def fake_call(func, *args, **kwargs):
-        captured["func"] = func
-        captured["kwargs"] = kwargs
-        return "ok"
+def test_get_option_chain_defaults_date_window(monkeypatch, fake_call_factory):
+    captured, fake_call = fake_call_factory()
 
     monkeypatch.setattr(options_tools, "call", fake_call)
 
@@ -190,12 +166,8 @@ def test_get_option_chain_defaults_date_window(monkeypatch):
     assert kwargs["to_date"] == DummyDate(2025, 2, 1) + datetime.timedelta(days=60)
 
 
-def test_get_option_chain_extends_missing_to_date(monkeypatch):
-    captured: dict[str, Any] = {}
-
-    async def fake_call(func, *args, **kwargs):
-        captured["kwargs"] = kwargs
-        return "ok"
+def test_get_option_chain_extends_missing_to_date(monkeypatch, fake_call_factory):
+    captured, fake_call = fake_call_factory()
 
     monkeypatch.setattr(options_tools, "call", fake_call)
 
@@ -214,12 +186,8 @@ def test_get_option_chain_extends_missing_to_date(monkeypatch):
     assert kwargs["to_date"] == start + datetime.timedelta(days=60)
 
 
-def test_get_advanced_option_chain_defaults_date_window(monkeypatch):
-    captured: dict[str, Any] = {}
-
-    async def fake_call(func, *args, **kwargs):
-        captured["kwargs"] = kwargs
-        return "ok"
+def test_get_advanced_option_chain_defaults_date_window(monkeypatch, fake_call_factory):
+    captured, fake_call = fake_call_factory()
 
     monkeypatch.setattr(options_tools, "call", fake_call)
 

@@ -1,7 +1,6 @@
 import datetime
 from enum import Enum
 from types import SimpleNamespace
-from typing import Any
 
 import pytest
 
@@ -42,14 +41,8 @@ class DummyHistoryClient:
         return None
 
 
-def test_get_advanced_price_history_normalizes_inputs(monkeypatch):
-    captured: dict[str, Any] = {}
-
-    async def fake_call(func, *args, **kwargs):
-        captured["func"] = func
-        captured["args"] = args
-        captured["kwargs"] = kwargs
-        return "ok"
+def test_get_advanced_price_history_normalizes_inputs(monkeypatch, fake_call_factory):
+    captured, fake_call = fake_call_factory()
 
     monkeypatch.setattr(history, "call", fake_call)
 
@@ -89,14 +82,8 @@ def test_get_advanced_price_history_normalizes_inputs(monkeypatch):
     assert kwargs["end_datetime"] == datetime.datetime(2024, 1, 1, 16, 0)
 
 
-def test_get_price_history_every_minute_passes_flags(monkeypatch):
-    captured: dict[str, Any] = {}
-
-    async def fake_call(func, *args, **kwargs):
-        captured["func"] = func
-        captured["args"] = args
-        captured["kwargs"] = kwargs
-        return "ok"
+def test_get_price_history_every_minute_passes_flags(monkeypatch, fake_call_factory):
+    captured, fake_call = fake_call_factory()
 
     monkeypatch.setattr(history, "call", fake_call)
 
@@ -161,22 +148,16 @@ class TestSimplePriceHistoryFunctions:
         ],
     )
     def test_calls_correct_client_method(
-        self, monkeypatch, ctx, client, func, client_method
+        self, monkeypatch, ctx, client, func, client_method, fake_call_factory
     ):
-        captured: dict[str, Any] = {}
-
-        async def fake_call(target_func, *args, **kwargs):
-            captured["func_name"] = target_func.__name__
-            captured["args"] = args
-            captured["kwargs"] = kwargs
-            return {"candles": []}
+        captured, fake_call = fake_call_factory(return_value={"candles": []})
 
         monkeypatch.setattr(history, "call", fake_call)
 
         result = run(func(ctx, "AAPL"))
 
         assert result == {"candles": []}
-        assert captured["func_name"] == client_method
+        assert captured["func"].__name__ == client_method
         assert captured["args"] == ("AAPL",)
 
     @pytest.mark.parametrize(
@@ -190,12 +171,10 @@ class TestSimplePriceHistoryFunctions:
             history.get_price_history_every_week,
         ],
     )
-    def test_parses_iso_datetimes(self, monkeypatch, ctx, client, func):
-        captured: dict[str, Any] = {}
-
-        async def fake_call(target_func, *args, **kwargs):
-            captured["kwargs"] = kwargs
-            return {}
+    def test_parses_iso_datetimes(
+        self, monkeypatch, ctx, client, func, fake_call_factory
+    ):
+        captured, fake_call = fake_call_factory(return_value={})
 
         monkeypatch.setattr(history, "call", fake_call)
 
@@ -227,13 +206,9 @@ class TestSimplePriceHistoryFunctions:
         ],
     )
     def test_passes_extended_hours_and_previous_close(
-        self, monkeypatch, ctx, client, func
+        self, monkeypatch, ctx, client, func, fake_call_factory
     ):
-        captured: dict[str, Any] = {}
-
-        async def fake_call(target_func, *args, **kwargs):
-            captured["kwargs"] = kwargs
-            return {}
+        captured, fake_call = fake_call_factory(return_value={})
 
         monkeypatch.setattr(history, "call", fake_call)
 
