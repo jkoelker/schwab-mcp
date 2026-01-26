@@ -156,34 +156,12 @@ class TestPlaceEquityOrder:
         return 987654321
 
     @pytest.fixture
-    def order_response(self, account_hash, order_id):
-        location = f"https://api.schwabapi.com/trader/v1/accounts/{account_hash}/orders/{order_id}"
-
-        class DummyResponse:
-            status_code = 201
-            url = f"https://api.schwabapi.com/trader/v1/accounts/{account_hash}/orders"
-            text = ""
-            content = b""
-            headers = {"Location": location}
-            is_error = False
-
-            def raise_for_status(self) -> None:
-                return None
-
-        return DummyResponse()
+    def order_response(self, order_response_factory, account_hash, order_id):
+        return order_response_factory(account_hash=account_hash, order_id=order_id)
 
     @pytest.fixture
-    def place_order_client(self, order_response):
-        class DummyPlaceOrderClient(DummyOrdersClient):
-            def __init__(self) -> None:
-                self.captured: dict[str, Any] | None = None
-                self._response = order_response
-
-            async def place_order(self, *args, **kwargs):
-                self.captured = {"args": args, "kwargs": kwargs}
-                return self._response
-
-        return DummyPlaceOrderClient()
+    def place_order_client(self, place_order_client_factory, account_hash, order_id):
+        return place_order_client_factory(account_hash=account_hash, order_id=order_id)
 
     @pytest.mark.parametrize(
         ("instruction", "order_type", "price", "stop_price", "expected_order_type"),
@@ -271,34 +249,12 @@ class TestPlaceOptionOrder:
         return 111222333
 
     @pytest.fixture
-    def order_response(self, account_hash, order_id):
-        location = f"https://api.schwabapi.com/trader/v1/accounts/{account_hash}/orders/{order_id}"
-
-        class DummyResponse:
-            status_code = 201
-            url = f"https://api.schwabapi.com/trader/v1/accounts/{account_hash}/orders"
-            text = ""
-            content = b""
-            headers = {"Location": location}
-            is_error = False
-
-            def raise_for_status(self) -> None:
-                return None
-
-        return DummyResponse()
+    def order_response(self, order_response_factory, account_hash, order_id):
+        return order_response_factory(account_hash=account_hash, order_id=order_id)
 
     @pytest.fixture
-    def place_order_client(self, order_response):
-        class DummyPlaceOrderClient(DummyOrdersClient):
-            def __init__(self) -> None:
-                self.captured: dict[str, Any] | None = None
-                self._response = order_response
-
-            async def place_order(self, *args, **kwargs):
-                self.captured = {"args": args, "kwargs": kwargs}
-                return self._response
-
-        return DummyPlaceOrderClient()
+    def place_order_client(self, place_order_client_factory, account_hash, order_id):
+        return place_order_client_factory(account_hash=account_hash, order_id=order_id)
 
     @pytest.mark.parametrize(
         ("instruction", "order_type", "price", "expected_order_type"),
@@ -367,34 +323,12 @@ class TestPlaceEquityTrailingStopOrder:
         return 444555666
 
     @pytest.fixture
-    def order_response(self, account_hash, order_id):
-        location = f"https://api.schwabapi.com/trader/v1/accounts/{account_hash}/orders/{order_id}"
-
-        class DummyResponse:
-            status_code = 201
-            url = f"https://api.schwabapi.com/trader/v1/accounts/{account_hash}/orders"
-            text = ""
-            content = b""
-            headers = {"Location": location}
-            is_error = False
-
-            def raise_for_status(self) -> None:
-                return None
-
-        return DummyResponse()
+    def order_response(self, order_response_factory, account_hash, order_id):
+        return order_response_factory(account_hash=account_hash, order_id=order_id)
 
     @pytest.fixture
-    def place_order_client(self, order_response):
-        class DummyPlaceOrderClient(DummyOrdersClient):
-            def __init__(self) -> None:
-                self.captured: dict[str, Any] | None = None
-                self._response = order_response
-
-            async def place_order(self, *args, **kwargs):
-                self.captured = {"args": args, "kwargs": kwargs}
-                return self._response
-
-        return DummyPlaceOrderClient()
+    def place_order_client(self, place_order_client_factory, account_hash, order_id):
+        return place_order_client_factory(account_hash=account_hash, order_id=order_id)
 
     @pytest.mark.parametrize(
         ("instruction", "trail_type", "trail_offset"),
@@ -472,34 +406,12 @@ class TestPlaceBracketOrder:
         return 777888999
 
     @pytest.fixture
-    def order_response(self, account_hash, order_id):
-        location = f"https://api.schwabapi.com/trader/v1/accounts/{account_hash}/orders/{order_id}"
-
-        class DummyResponse:
-            status_code = 201
-            url = f"https://api.schwabapi.com/trader/v1/accounts/{account_hash}/orders"
-            text = ""
-            content = b""
-            headers = {"Location": location}
-            is_error = False
-
-            def raise_for_status(self) -> None:
-                return None
-
-        return DummyResponse()
+    def order_response(self, order_response_factory, account_hash, order_id):
+        return order_response_factory(account_hash=account_hash, order_id=order_id)
 
     @pytest.fixture
-    def place_order_client(self, order_response):
-        class DummyPlaceOrderClient(DummyOrdersClient):
-            def __init__(self) -> None:
-                self.captured: dict[str, Any] | None = None
-                self._response = order_response
-
-            async def place_order(self, *args, **kwargs):
-                self.captured = {"args": args, "kwargs": kwargs}
-                return self._response
-
-        return DummyPlaceOrderClient()
+    def place_order_client(self, place_order_client_factory, account_hash, order_id):
+        return place_order_client_factory(account_hash=account_hash, order_id=order_id)
 
     @pytest.mark.parametrize(
         ("entry_instruction", "entry_type", "entry_price", "entry_stop_price"),
@@ -609,34 +521,12 @@ class TestPlaceOneCancelsOtherOrder:
         return 123123123
 
     @pytest.fixture
-    def order_response(self, account_hash, order_id):
-        location = f"https://api.schwabapi.com/trader/v1/accounts/{account_hash}/orders/{order_id}"
-
-        class DummyResponse:
-            status_code = 201
-            url = f"https://api.schwabapi.com/trader/v1/accounts/{account_hash}/orders"
-            text = ""
-            content = b""
-            headers = {"Location": location}
-            is_error = False
-
-            def raise_for_status(self) -> None:
-                return None
-
-        return DummyResponse()
+    def order_response(self, order_response_factory, account_hash, order_id):
+        return order_response_factory(account_hash=account_hash, order_id=order_id)
 
     @pytest.fixture
-    def place_order_client(self, order_response):
-        class DummyPlaceOrderClient(DummyOrdersClient):
-            def __init__(self) -> None:
-                self.captured: dict[str, Any] | None = None
-                self._response = order_response
-
-            async def place_order(self, *args, **kwargs):
-                self.captured = {"args": args, "kwargs": kwargs}
-                return self._response
-
-        return DummyPlaceOrderClient()
+    def place_order_client(self, place_order_client_factory, account_hash, order_id):
+        return place_order_client_factory(account_hash=account_hash, order_id=order_id)
 
     def test_places_oco_order_with_two_children(
         self, place_order_client, account_hash, order_id
@@ -680,34 +570,12 @@ class TestPlaceFirstTriggersSecondOrder:
         return 456456456
 
     @pytest.fixture
-    def order_response(self, account_hash, order_id):
-        location = f"https://api.schwabapi.com/trader/v1/accounts/{account_hash}/orders/{order_id}"
-
-        class DummyResponse:
-            status_code = 201
-            url = f"https://api.schwabapi.com/trader/v1/accounts/{account_hash}/orders"
-            text = ""
-            content = b""
-            headers = {"Location": location}
-            is_error = False
-
-            def raise_for_status(self) -> None:
-                return None
-
-        return DummyResponse()
+    def order_response(self, order_response_factory, account_hash, order_id):
+        return order_response_factory(account_hash=account_hash, order_id=order_id)
 
     @pytest.fixture
-    def place_order_client(self, order_response):
-        class DummyPlaceOrderClient(DummyOrdersClient):
-            def __init__(self) -> None:
-                self.captured: dict[str, Any] | None = None
-                self._response = order_response
-
-            async def place_order(self, *args, **kwargs):
-                self.captured = {"args": args, "kwargs": kwargs}
-                return self._response
-
-        return DummyPlaceOrderClient()
+    def place_order_client(self, place_order_client_factory, account_hash, order_id):
+        return place_order_client_factory(account_hash=account_hash, order_id=order_id)
 
     def test_places_trigger_order_with_child(
         self, place_order_client, account_hash, order_id
@@ -752,34 +620,12 @@ class TestPlaceOptionComboOrder:
         return 789789789
 
     @pytest.fixture
-    def order_response(self, account_hash, order_id):
-        location = f"https://api.schwabapi.com/trader/v1/accounts/{account_hash}/orders/{order_id}"
-
-        class DummyResponse:
-            status_code = 201
-            url = f"https://api.schwabapi.com/trader/v1/accounts/{account_hash}/orders"
-            text = ""
-            content = b""
-            headers = {"Location": location}
-            is_error = False
-
-            def raise_for_status(self) -> None:
-                return None
-
-        return DummyResponse()
+    def order_response(self, order_response_factory, account_hash, order_id):
+        return order_response_factory(account_hash=account_hash, order_id=order_id)
 
     @pytest.fixture
-    def place_order_client(self, order_response):
-        class DummyPlaceOrderClient(DummyOrdersClient):
-            def __init__(self) -> None:
-                self.captured: dict[str, Any] | None = None
-                self._response = order_response
-
-            async def place_order(self, *args, **kwargs):
-                self.captured = {"args": args, "kwargs": kwargs}
-                return self._response
-
-        return DummyPlaceOrderClient()
+    def place_order_client(self, place_order_client_factory, account_hash, order_id):
+        return place_order_client_factory(account_hash=account_hash, order_id=order_id)
 
     def test_places_vertical_spread(self, place_order_client, account_hash, order_id):
         ctx = make_ctx(place_order_client)

@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import asyncio
 import datetime
 from enum import Enum
 from typing import Any
@@ -8,11 +7,7 @@ from typing import Any
 import pytest
 
 from schwab_mcp.tools import transactions
-from conftest import make_ctx
-
-
-def run(coro):
-    return asyncio.run(coro)
+from conftest import make_ctx, run
 
 
 class DummyTransactionsClient:
@@ -43,14 +38,10 @@ class TestGetTransactions:
     def ctx(self, client):
         return make_ctx(client)
 
-    def test_calls_client_with_account_hash(self, monkeypatch, ctx, client):
-        captured: dict[str, Any] = {}
-
-        async def fake_call(func, *args, **kwargs):
-            captured["func"] = func
-            captured["args"] = args
-            captured["kwargs"] = kwargs
-            return []
+    def test_calls_client_with_account_hash(
+        self, monkeypatch, ctx, client, fake_call_factory
+    ):
+        captured, fake_call = fake_call_factory(return_value=[])
 
         monkeypatch.setattr(transactions, "call", fake_call)
 
@@ -63,12 +54,8 @@ class TestGetTransactions:
         assert captured["kwargs"]["transaction_types"] is None
         assert captured["kwargs"]["symbol"] is None
 
-    def test_parses_date_strings(self, monkeypatch, ctx, client):
-        captured: dict[str, Any] = {}
-
-        async def fake_call(func, *args, **kwargs):
-            captured["kwargs"] = kwargs
-            return []
+    def test_parses_date_strings(self, monkeypatch, ctx, client, fake_call_factory):
+        captured, fake_call = fake_call_factory(return_value=[])
 
         monkeypatch.setattr(transactions, "call", fake_call)
 
@@ -84,12 +71,10 @@ class TestGetTransactions:
         assert captured["kwargs"]["start_date"] == datetime.date(2024, 1, 15)
         assert captured["kwargs"]["end_date"] == datetime.date(2024, 2, 15)
 
-    def test_maps_single_transaction_type_string(self, monkeypatch, ctx, client):
-        captured: dict[str, Any] = {}
-
-        async def fake_call(func, *args, **kwargs):
-            captured["kwargs"] = kwargs
-            return []
+    def test_maps_single_transaction_type_string(
+        self, monkeypatch, ctx, client, fake_call_factory
+    ):
+        captured, fake_call = fake_call_factory(return_value=[])
 
         monkeypatch.setattr(transactions, "call", fake_call)
 
@@ -105,12 +90,10 @@ class TestGetTransactions:
             client.Transaction.TransactionType.TRADE
         ]
 
-    def test_maps_comma_separated_transaction_types(self, monkeypatch, ctx, client):
-        captured: dict[str, Any] = {}
-
-        async def fake_call(func, *args, **kwargs):
-            captured["kwargs"] = kwargs
-            return []
+    def test_maps_comma_separated_transaction_types(
+        self, monkeypatch, ctx, client, fake_call_factory
+    ):
+        captured, fake_call = fake_call_factory(return_value=[])
 
         monkeypatch.setattr(transactions, "call", fake_call)
 
@@ -127,12 +110,10 @@ class TestGetTransactions:
             client.Transaction.TransactionType.DIVIDEND_OR_INTEREST,
         ]
 
-    def test_maps_list_of_transaction_types(self, monkeypatch, ctx, client):
-        captured: dict[str, Any] = {}
-
-        async def fake_call(func, *args, **kwargs):
-            captured["kwargs"] = kwargs
-            return []
+    def test_maps_list_of_transaction_types(
+        self, monkeypatch, ctx, client, fake_call_factory
+    ):
+        captured, fake_call = fake_call_factory(return_value=[])
 
         monkeypatch.setattr(transactions, "call", fake_call)
 
@@ -149,12 +130,8 @@ class TestGetTransactions:
             client.Transaction.TransactionType.ACH_DISBURSEMENT,
         ]
 
-    def test_passes_symbol_filter(self, monkeypatch, ctx, client):
-        captured: dict[str, Any] = {}
-
-        async def fake_call(func, *args, **kwargs):
-            captured["kwargs"] = kwargs
-            return []
+    def test_passes_symbol_filter(self, monkeypatch, ctx, client, fake_call_factory):
+        captured, fake_call = fake_call_factory(return_value=[])
 
         monkeypatch.setattr(transactions, "call", fake_call)
 
@@ -168,13 +145,8 @@ class TestGetTransactions:
 
         assert captured["kwargs"]["symbol"] == "SPY"
 
-    def test_all_parameters_combined(self, monkeypatch, ctx, client):
-        captured: dict[str, Any] = {}
-
-        async def fake_call(func, *args, **kwargs):
-            captured["args"] = args
-            captured["kwargs"] = kwargs
-            return [{"id": "txn1"}]
+    def test_all_parameters_combined(self, monkeypatch, ctx, client, fake_call_factory):
+        captured, fake_call = fake_call_factory(return_value=[{"id": "txn1"}])
 
         monkeypatch.setattr(transactions, "call", fake_call)
 
@@ -208,13 +180,12 @@ class TestGetTransaction:
     def ctx(self, client):
         return make_ctx(client)
 
-    def test_calls_client_with_correct_args(self, monkeypatch, ctx, client):
-        captured: dict[str, Any] = {}
-
-        async def fake_call(func, *args, **kwargs):
-            captured["func"] = func
-            captured["args"] = args
-            return {"transactionId": "txn123", "type": "TRADE"}
+    def test_calls_client_with_correct_args(
+        self, monkeypatch, ctx, client, fake_call_factory
+    ):
+        captured, fake_call = fake_call_factory(
+            return_value={"transactionId": "txn123", "type": "TRADE"}
+        )
 
         monkeypatch.setattr(transactions, "call", fake_call)
 

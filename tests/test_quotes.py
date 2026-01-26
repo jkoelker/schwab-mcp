@@ -1,5 +1,4 @@
 from enum import Enum
-from typing import Any
 
 from schwab_mcp.tools import quotes
 
@@ -14,14 +13,8 @@ class DummyQuotesClient:
         return None
 
 
-def test_get_quotes_parses_symbols_and_fields(monkeypatch):
-    captured: dict[str, Any] = {}
-
-    async def fake_call(func, *args, **kwargs):
-        captured["func"] = func
-        captured["args"] = args
-        captured["kwargs"] = kwargs
-        return "ok"
+def test_get_quotes_parses_symbols_and_fields(monkeypatch, fake_call_factory):
+    captured, fake_call = fake_call_factory()
 
     monkeypatch.setattr(quotes, "call", fake_call)
 
