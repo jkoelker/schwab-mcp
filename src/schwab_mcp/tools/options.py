@@ -7,20 +7,10 @@ from mcp.server.fastmcp import FastMCP
 
 from schwab_mcp.context import SchwabContext
 from schwab_mcp.tools._registration import register_tool
-from schwab_mcp.tools.utils import JSONType, call
+from schwab_mcp.tools.utils import JSONType, call, parse_date
 
 
 _EXPIRATION_WINDOW_DAYS = 60
-
-
-def _parse_date(value: str | datetime.date | None) -> datetime.date | None:
-    if value is None:
-        return None
-    if isinstance(value, datetime.date) and not isinstance(value, datetime.datetime):
-        return value
-    if isinstance(value, datetime.datetime):
-        return value.date()
-    return datetime.datetime.strptime(value, "%Y-%m-%d").date()
 
 
 def _normalize_expiration_window(
@@ -76,8 +66,8 @@ async def get_option_chain(
     client = ctx.options
 
     from_date_obj, to_date_obj = _normalize_expiration_window(
-        _parse_date(from_date),
-        _parse_date(to_date),
+        parse_date(from_date),
+        parse_date(to_date),
     )
 
     return await call(
@@ -151,8 +141,8 @@ async def get_advanced_option_chain(
     """
     client = ctx.options
 
-    from_date_obj = _parse_date(from_date)
-    to_date_obj = _parse_date(to_date)
+    from_date_obj = parse_date(from_date)
+    to_date_obj = parse_date(to_date)
     from_date_obj, to_date_obj = _normalize_expiration_window(
         from_date_obj,
         to_date_obj,

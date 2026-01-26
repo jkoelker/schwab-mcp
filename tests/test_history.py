@@ -241,9 +241,3 @@ class TestSimplePriceHistoryFunctions:
 
         assert captured["kwargs"]["need_extended_hours_data"] is True
         assert captured["kwargs"]["need_previous_close"] is False
-
-
-class TestParseIsoDatetime:
-    def test_returns_none_for_none_input(self):
-        result = history._parse_iso_datetime(None)
-        assert result is None

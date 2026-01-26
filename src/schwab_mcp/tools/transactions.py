@@ -2,12 +2,11 @@
 from collections.abc import Callable
 from typing import Annotated, Any
 
-import datetime
 from mcp.server.fastmcp import FastMCP
 
 from schwab_mcp.context import SchwabContext
 from schwab_mcp.tools._registration import register_tool
-from schwab_mcp.tools.utils import JSONType, call
+from schwab_mcp.tools.utils import JSONType, call, parse_date
 
 
 async def get_transactions(
@@ -33,14 +32,8 @@ async def get_transactions(
     """
     client = ctx.transactions
 
-    start_date_obj = None
-    end_date_obj = None
-
-    if start_date is not None:
-        start_date_obj = datetime.datetime.strptime(start_date, "%Y-%m-%d").date()
-
-    if end_date is not None:
-        end_date_obj = datetime.datetime.strptime(end_date, "%Y-%m-%d").date()
+    start_date_obj = parse_date(start_date)
+    end_date_obj = parse_date(end_date)
 
     transaction_type_enums = None
     if transaction_type is not None:

@@ -3,16 +3,11 @@
 from collections.abc import Callable
 from typing import Annotated, Any
 
-import datetime
 from mcp.server.fastmcp import FastMCP
 
 from schwab_mcp.context import SchwabContext
 from schwab_mcp.tools._registration import register_tool
-from schwab_mcp.tools.utils import JSONType, call
-
-
-def _parse_iso_datetime(value: str | None) -> datetime.datetime | None:
-    return datetime.datetime.fromisoformat(value) if value is not None else None
+from schwab_mcp.tools.utils import JSONType, call, parse_datetime
 
 
 async def _get_price_history(
@@ -28,8 +23,8 @@ async def _get_price_history(
     client = ctx.price_history
     method = getattr(client, method_name)
 
-    start_dt = _parse_iso_datetime(start_datetime)
-    end_dt = _parse_iso_datetime(end_datetime)
+    start_dt = parse_datetime(start_datetime)
+    end_dt = parse_datetime(end_datetime)
 
     return await call(
         method,
@@ -89,8 +84,8 @@ async def get_advanced_price_history(
     """
     client = ctx.price_history
 
-    start_dt = _parse_iso_datetime(start_datetime)
-    end_dt = _parse_iso_datetime(end_datetime)
+    start_dt = parse_datetime(start_datetime)
+    end_dt = parse_datetime(end_datetime)
 
     # Normalize enum-like strings
     period_type_enum = (
