@@ -11,7 +11,7 @@ from conftest import make_ctx, run
 
 
 class DummyTransactionsClient:
-    class Transaction:
+    class Transactions:
         TransactionType = Enum(
             "TransactionType",
             "TRADE DIVIDEND_OR_INTEREST ACH_RECEIPT ACH_DISBURSEMENT",
@@ -87,7 +87,7 @@ class TestGetTransactions:
         )
 
         assert captured["kwargs"]["transaction_types"] == [
-            client.Transaction.TransactionType.TRADE
+            client.Transactions.TransactionType.TRADE
         ]
 
     def test_maps_comma_separated_transaction_types(
@@ -106,8 +106,8 @@ class TestGetTransactions:
         )
 
         assert captured["kwargs"]["transaction_types"] == [
-            client.Transaction.TransactionType.TRADE,
-            client.Transaction.TransactionType.DIVIDEND_OR_INTEREST,
+            client.Transactions.TransactionType.TRADE,
+            client.Transactions.TransactionType.DIVIDEND_OR_INTEREST,
         ]
 
     def test_maps_list_of_transaction_types(
@@ -126,8 +126,8 @@ class TestGetTransactions:
         )
 
         assert captured["kwargs"]["transaction_types"] == [
-            client.Transaction.TransactionType.ACH_RECEIPT,
-            client.Transaction.TransactionType.ACH_DISBURSEMENT,
+            client.Transactions.TransactionType.ACH_RECEIPT,
+            client.Transactions.TransactionType.ACH_DISBURSEMENT,
         ]
 
     def test_passes_symbol_filter(self, monkeypatch, ctx, client, fake_call_factory):
@@ -166,7 +166,7 @@ class TestGetTransactions:
         assert captured["kwargs"]["start_date"] == datetime.date(2024, 3, 1)
         assert captured["kwargs"]["end_date"] == datetime.date(2024, 3, 31)
         assert captured["kwargs"]["transaction_types"] == [
-            client.Transaction.TransactionType.TRADE
+            client.Transactions.TransactionType.TRADE
         ]
         assert captured["kwargs"]["symbol"] == "AAPL"
 
