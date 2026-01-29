@@ -157,12 +157,12 @@ class TransactionTypeNamespace(Protocol):
     def __getitem__(self, key: str) -> Any: ...
 
 
-class TransactionNamespace(Protocol):
+class TransactionsNamespace(Protocol):
     TransactionType: TransactionTypeNamespace
 
 
 class TransactionsClient(Protocol):
-    Transaction: TransactionNamespace
+    Transactions: TransactionsNamespace
 
     def get_transactions(self, account_hash: str, **kwargs: Any) -> Awaitable[Any]: ...
 

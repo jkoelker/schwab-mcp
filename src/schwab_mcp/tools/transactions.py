@@ -40,7 +40,7 @@ async def get_transactions(
         if isinstance(transaction_type, str):
             transaction_type = [t.strip() for t in transaction_type.split(",")]
         transaction_type_enums = [
-            client.Transaction.TransactionType[t.upper()] for t in transaction_type
+            client.Transactions.TransactionType[t.upper()] for t in transaction_type
         ]
 
     # Corrected function name to client.get_transactions and keyword arg to transaction_types
