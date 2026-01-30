@@ -86,4 +86,5 @@ jobs:
           provider_openai: "no"
           provider_google: "no"
           provider_copilot: "yes"
+          primary_model: github-copilot/claude-opus-4.5
           github_token: ${{ steps.app-token.outputs.token }}
