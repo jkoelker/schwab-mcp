@@ -82,27 +82,8 @@ jobs:
         with:
           bot_name: dobbyphus
           auth_json: ${{ secrets.COPILOT_AUTH_JSON }}
-          omo_config_json: |
-            {
-              "agents": {
-                "Sisyphus": {
-                  "model": "github-copilot/claude-opus-4.5"
-                },
-                "oracle": {
-                  "model": "github-copilot/gpt-5.2"
-                },
-                "explore": {
-                  "model": "github-copilot/gemini-3-flash-preview"
-                },
-                "librarian": {
-                  "model": "github-copilot/gemini-3-flash-preview"
-                },
-                "document-writer": {
-                  "model": "github-copilot/gemini-3-flash-preview"
-                },
-                "multimodal-looker": {
-                  "model": "github-copilot/gemini-3-flash-preview"
-                }
-              }
-            }
+          provider_anthropic: "no"
+          provider_openai: "no"
+          provider_google: "no"
+          provider_copilot: "yes"
           github_token: ${{ steps.app-token.outputs.token }}
