@@ -60,13 +60,16 @@ class TestGetOrders:
         assert kwargs["status"] is client.Order.Status.WORKING
 
     def test_maps_status_list(self, monkeypatch):
-        captured: dict[str, Any] = {}
+        # Multiple statuses require separate API calls (schwab-py limitation)
+        calls: list[dict[str, Any]] = []
 
         async def fake_call(func, *args, **kwargs):
-            captured["func"] = func
-            captured["args"] = args
-            captured["kwargs"] = kwargs
-            return "ok"
+            calls.append({"func": func, "args": args, "kwargs": kwargs.copy()})
+            # Return realistic order data with unique orderId per status
+            status_val = kwargs.get("status")
+            if status_val:
+                return [{"orderId": f"order_{status_val.name}"}]
+            return []
 
         monkeypatch.setattr(orders, "call", fake_call)
 
@@ -80,20 +83,20 @@ class TestGetOrders:
             )
         )
 
-        assert result == "ok"
-        assert captured["func"] == client.get_orders_for_account
+        # Should make two separate calls (one per status)
+        assert len(calls) == 2
+        assert calls[0]["func"] == client.get_orders_for_account
+        assert calls[1]["func"] == client.get_orders_for_account
 
-        args = captured["args"]
-        assert isinstance(args, tuple)
-        assert args == ("xyz789",)
+        # Each call should have a single status (not statuses plural)
+        assert calls[0]["kwargs"]["status"] == client.Order.Status.FILLED
+        assert calls[1]["kwargs"]["status"] == client.Order.Status.CANCELED
 
-        kwargs = captured["kwargs"]
-        assert isinstance(kwargs, dict)
-        assert "status" not in kwargs
-        assert kwargs["statuses"] == [
-            client.Order.Status.FILLED,
-            client.Order.Status.CANCELED,
-        ]
+        # Results should be merged and deduplicated
+        assert isinstance(result, list)
+        assert len(result) == 2
+        order_ids = {order["orderId"] for order in result}
+        assert order_ids == {"order_FILLED", "order_CANCELED"}
 
 
 class TestGetOrder:
