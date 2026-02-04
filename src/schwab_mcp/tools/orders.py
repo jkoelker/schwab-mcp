@@ -247,7 +247,6 @@ async def get_orders(
     from_date_obj = parse_date(from_date)
     to_date_obj = parse_date(to_date)
 
-    # Map status to enums; support list via 'statuses'
     kwargs: dict[str, Any] = {
         "max_results": max_results,
         "from_entered_datetime": from_date_obj,
@@ -256,9 +255,32 @@ async def get_orders(
 
     if status:
         if isinstance(status, str):
+            # Single status: direct API call
             kwargs["status"] = client.Order.Status[status.upper()]
+            return await call(
+                client.get_orders_for_account,
+                account_hash,
+                **kwargs,
+            )
         else:
-            kwargs["statuses"] = [client.Order.Status[s.upper()] for s in status]
+            # Multiple statuses: make separate calls and merge results
+            # The underlying schwab-py API only supports single status queries
+            all_orders: list[Any] = []
+            seen_order_ids: set[str] = set()
+            for s in status:
+                kwargs["status"] = client.Order.Status[s.upper()]
+                result = await call(
+                    client.get_orders_for_account,
+                    account_hash,
+                    **kwargs,
+                )
+                if result:
+                    for order in cast(list[Any], result):
+                        order_id = str(order.get("orderId", ""))
+                        if order_id and order_id not in seen_order_ids:
+                            seen_order_ids.add(order_id)
+                            all_orders.append(order)
+            return all_orders if all_orders else []
 
     return await call(
         client.get_orders_for_account,
