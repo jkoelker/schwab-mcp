@@ -14,7 +14,6 @@ import asyncio
 from typing import Any
 
 
-
 class TestFakeCallFactory:
     """Tests for fake_call_factory fixture."""
 

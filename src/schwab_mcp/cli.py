@@ -59,33 +59,99 @@ def cli():
     default="https://api.schwabapi.com",
     help="Schwab API base URL",
 )
+@click.option(
+    "--browser",
+    type=str,
+    default=None,
+    help="Browser to use for authentication (e.g., 'safari', 'firefox'). Chrome often blocks self-signed certs.",
+)
+@click.option(
+    "--manual",
+    is_flag=True,
+    default=False,
+    help="Use manual flow - you'll paste the callback URL instead of using a local server.",
+)
 def auth(
     token_path: str,
     client_id: str,
     client_secret: str,
     callback_url: str,
     base_url: str,
+    browser: str | None,
+    manual: bool,
 ) -> int:
     """Initialize Schwab client authentication."""
-    click.echo(f"Initializing authentication flow to create token at: {token_path}")
+    click.echo("=" * 80)
+    click.echo("SCHWAB MCP AUTHENTICATION")
+    click.echo("=" * 80)
+    click.echo()
+    click.echo(f"Token will be saved to: {token_path}")
+    click.echo()
+    click.echo("Configuration:")
+    click.echo(f"  Client ID: {client_id[:20]}...")
+    click.echo(f"  Callback URL: {callback_url}")
+    click.echo(f"  Base URL: {base_url}")
+    click.echo()
+    click.echo(
+        "IMPORTANT: Verify these match EXACTLY with your Schwab Developer Portal:"
+    )
+    click.echo("  1. Go to: https://developer.schwab.com/dashboard")
+    click.echo("  2. Click on your app")
+    click.echo("  3. Compare the 'App Key' and 'Callback URL' values")
+    click.echo()
+    click.echo("=" * 80)
+    click.echo()
+
     token_manager = tokens.Manager(token_path)
 
     try:
-        # This will initiate the manual authentication flow
-        schwab_auth.easy_client(
-            client_id=client_id,
-            client_secret=client_secret,
-            callback_url=callback_url,
-            token_manager=token_manager,
-            max_token_age=TOKEN_MAX_AGE_SECONDS,
-            base_url=base_url,
-        )
+        if manual:
+            # Use manual flow - user pastes the callback URL
+            from schwab import auth as schwab_raw_auth
+
+            client = schwab_raw_auth.client_from_manual_flow(
+                api_key=client_id,
+                app_secret=client_secret,
+                callback_url=callback_url,
+                token_path=token_path,
+                asyncio=False,
+                base_url=base_url,
+            )
+
+            # Save token using our manager
+            if hasattr(client, "_session") and hasattr(client._session, "token"):
+                token_manager.write(client._session.token)
+        else:
+            # This will initiate the automatic authentication flow
+            schwab_auth.easy_client(
+                client_id=client_id,
+                client_secret=client_secret,
+                callback_url=callback_url,
+                token_manager=token_manager,
+                max_token_age=TOKEN_MAX_AGE_SECONDS,
+                base_url=base_url,
+                requested_browser=browser,
+            )
 
         # If we get here, the authentication was successful
-        click.echo(f"Authentication successful! Token saved to: {token_path}")
+        click.echo()
+        click.echo("=" * 80)
+        click.echo("✓ Authentication successful!")
+        click.echo("=" * 80)
+        click.echo(f"Token saved to: {token_path}")
         return 0
     except Exception as e:
-        click.echo(f"Authentication failed: {str(e)}", err=True)
+        click.echo()
+        click.echo("=" * 80)
+        click.echo("✗ Authentication failed")
+        click.echo("=" * 80)
+        click.echo(f"Error: {str(e)}", err=True)
+        click.echo()
+        click.echo("Common issues:")
+        click.echo("  1. Client ID or Secret doesn't match Developer Portal")
+        click.echo("  2. Callback URL doesn't match Developer Portal")
+        click.echo("  3. Callback URL was changed recently (wait until market close)")
+        click.echo("  4. Browser blocked the popup or redirect")
         return 1
 
 
