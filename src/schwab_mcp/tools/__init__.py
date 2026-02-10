@@ -15,6 +15,7 @@ from schwab_mcp.tools import orders as _orders
 from schwab_mcp.tools import quotes as _quotes
 from schwab_mcp.tools import tools as _tools
 from schwab_mcp.tools import technical as _technical
+from schwab_mcp.tools import stored_options as _stored_options
 from schwab_mcp.tools import transactions as _txns
 
 logger = logging.getLogger(__name__)
@@ -26,6 +27,7 @@ _TOOL_MODULES = (
     _options,
     _orders,
     _quotes,
+    _stored_options,
     _txns,
 )
 

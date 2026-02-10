@@ -38,6 +38,9 @@ ta = [
     "pandas>=2.2.2",
     "pandas-ta-classic>=0.3.36",
 ]
+db = [
+    "cloud-sql-python-connector[pg8000]>=1.9.0",
+]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
