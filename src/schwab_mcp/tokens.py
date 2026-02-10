@@ -23,7 +23,7 @@ def token_path(app_name: str, filename: str = "token.yaml") -> str:
         The path to the token file
     """
     data_dir = user_data_dir(app_name)
-    pathlib.Path(data_dir).mkdir(parents=True, exist_ok=True)
+    pathlib.Path(data_dir).mkdir(mode=0o700, parents=True, exist_ok=True)
     return os.path.join(data_dir, filename)
 
 
@@ -56,7 +56,8 @@ def token_writer(token_path: str) -> TokenWriter:
         if not token:
             return
 
-        with open(token_path, "w") as f:
+        fd = os.open(token_path, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
+        with open(fd, "w") as f:
             if token_path.endswith(".json"):
                 return json.dump(token, f)
 
