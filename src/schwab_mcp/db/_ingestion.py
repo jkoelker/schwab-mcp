@@ -18,21 +18,24 @@ async def ingest_option_chain(
     *,
     symbol: str,
     request_params: dict[str, Any] | None = None,
-) -> None:
+) -> int | None:
     """Store an option chain response in the database.
+
+    Returns the snapshot_id if successfully stored, None otherwise.
 
     Fail-safe: all exceptions are caught and logged so the calling tool
     always succeeds even if storage fails.
     """
     if isinstance(db, NoOpDatabaseManager):
-        return
+        return None
     if not isinstance(data, dict):
-        return
+        return None
 
     try:
-        await _do_ingest(db, data, symbol=symbol, request_params=request_params)
+        return await _do_ingest(db, data, symbol=symbol, request_params=request_params)
     except Exception:
         logger.exception("Failed to ingest option chain for %s", symbol)
+        return None
 
 
 async def _do_ingest(
@@ -41,7 +44,7 @@ async def _do_ingest(
     *,
     symbol: str,
     request_params: dict[str, Any] | None,
-) -> None:
+) -> int:
     snapshot_rows = await db.execute(
         """
         INSERT INTO option_chain_snapshots
@@ -100,6 +103,8 @@ async def _do_ingest(
         symbol,
         snapshot_id,
     )
+
+    return snapshot_id
 
 
 def _parse_exp_date(exp_date_str: str) -> datetime.date | None:
