@@ -1,8 +1,10 @@
+from __future__ import annotations
+
 #
 
 import json
-import pathlib
 import os
+import pathlib
 from typing import Any, Callable, Protocol
 
 import yaml
@@ -108,3 +110,63 @@ class Manager:
 
     def exists(self) -> bool:
         return os.path.exists(self.path)
+
+
+def credentials_path(app_name: str, filename: str = "credentials.yaml") -> str:
+    """Get the path to the credentials file.
+
+    Args:
+        app_name: The application name
+        filename: The credentials file name
+
+    Returns:
+        The path to the credentials file
+    """
+    data_dir = user_data_dir(app_name)
+    pathlib.Path(data_dir).mkdir(parents=True, exist_ok=True)
+    return os.path.join(data_dir, filename)
+
+
+def load_credentials(path: str) -> dict[str, str]:
+    """Load client credentials from a YAML file.
+
+    Args:
+        path: Path to the credentials file
+
+    Returns:
+        Dictionary with ``client_id`` and ``client_secret`` keys, or empty
+        dict if the file does not exist.
+    """
+    if not os.path.exists(path):
+        return {}
+
+    with open(path) as f:
+        data = yaml.safe_load(f)
+
+    if not isinstance(data, dict):
+        return {}
+
+    return data
+
+
+def save_credentials(path: str, client_id: str, client_secret: str) -> None:
+    """Write client credentials to a YAML file with restricted permissions.
+
+    The file is created with ``0o600`` permissions so that only the owning
+    user can read or write it.
+
+    Args:
+        path: Path to the credentials file
+        client_id: Schwab client ID
+        client_secret: Schwab client secret
+    """
+    pathlib.Path(path).parent.mkdir(parents=True, exist_ok=True)
+
+    fd = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
+    with os.fdopen(fd, "w") as f:
+        yaml.safe_dump(
+            {"client_id": client_id, "client_secret": client_secret},
+            f,
+            default_flow_style=False,
+            explicit_start=True,
+        )
