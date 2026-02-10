@@ -83,7 +83,7 @@ async def get_option_chain(
         to_date=to_date_obj,
     )
 
-    await ingest_option_chain(
+    snapshot_id = await ingest_option_chain(
         ctx.db,
         result,
         symbol=symbol,
@@ -94,6 +94,43 @@ async def get_option_chain(
             "to_date": str(to_date_obj) if to_date_obj else None,
         },
     )
+
+    # When database is active, return a summary instead of full data to save context
+    from schwab_mcp.db._manager import NoOpDatabaseManager
+
+    if (
+        not isinstance(ctx.db, NoOpDatabaseManager)
+        and snapshot_id
+        and isinstance(result, dict)
+    ):
+        # Count contracts in the response
+        call_contracts = sum(
+            len(contracts)
+            for exp_map in (result.get("callExpDateMap") or {}).values()
+            for contracts in exp_map.values()
+            if isinstance(contracts, list)
+        )
+        put_contracts = sum(
+            len(contracts)
+            for exp_map in (result.get("putExpDateMap") or {}).values()
+            for contracts in exp_map.values()
+            if isinstance(contracts, list)
+        )
+        total_contracts = call_contracts + put_contracts
+
+        return {
+            "status": "SUCCESS",
+            "message": f"Stored {total_contracts} contracts for {symbol} (snapshot_id: {snapshot_id})",
+            "summary": {
+                "symbol": symbol,
+                "underlying_price": result.get("underlyingPrice"),
+                "contracts_stored": total_contracts,
+                "calls": call_contracts,
+                "puts": put_contracts,
+                "snapshot_id": snapshot_id,
+                "query_hint": f"Use query_stored_options(symbol='{symbol}') to retrieve specific contracts with filters",
+            },
+        }
 
     return result
 
@@ -189,7 +226,7 @@ async def get_advanced_option_chain(
         option_type=client.Options.Type[option_type.upper()] if option_type else None,
     )
 
-    await ingest_option_chain(
+    snapshot_id = await ingest_option_chain(
         ctx.db,
         result,
         symbol=symbol,
@@ -202,6 +239,44 @@ async def get_advanced_option_chain(
             "to_date": str(to_date_obj) if to_date_obj else None,
         },
     )
+
+    # When database is active, return a summary instead of full data to save context
+    from schwab_mcp.db._manager import NoOpDatabaseManager
+
+    if (
+        not isinstance(ctx.db, NoOpDatabaseManager)
+        and snapshot_id
+        and isinstance(result, dict)
+    ):
+        # Count contracts in the response
+        call_contracts = sum(
+            len(contracts)
+            for exp_map in (result.get("callExpDateMap") or {}).values()
+            for contracts in exp_map.values()
+            if isinstance(contracts, list)
+        )
+        put_contracts = sum(
+            len(contracts)
+            for exp_map in (result.get("putExpDateMap") or {}).values()
+            for contracts in exp_map.values()
+            if isinstance(contracts, list)
+        )
+        total_contracts = call_contracts + put_contracts
+
+        return {
+            "status": "SUCCESS",
+            "message": f"Stored {total_contracts} contracts for {symbol} (snapshot_id: {snapshot_id})",
+            "summary": {
+                "symbol": symbol,
+                "underlying_price": result.get("underlyingPrice"),
+                "contracts_stored": total_contracts,
+                "calls": call_contracts,
+                "puts": put_contracts,
+                "snapshot_id": snapshot_id,
+                "strategy": strategy,
+                "query_hint": f"Use query_stored_options(symbol='{symbol}') to retrieve specific contracts with filters",
+            },
+        }
 
     return result
 
