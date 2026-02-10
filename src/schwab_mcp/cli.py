@@ -12,6 +12,7 @@ from schwab_mcp.approvals import (
     DiscordApprovalSettings,
     NoOpApprovalManager,
 )
+from schwab_mcp.db import CloudSQLManager, DatabaseConfig, NoOpDatabaseManager
 
 
 APP_NAME = "schwab-mcp"
@@ -235,6 +236,34 @@ def auth(
     is_flag=True,
     help="Return JSON payloads from tools instead of Toon-encoded strings.",
 )
+@click.option(
+    "--db-instance",
+    type=str,
+    envvar="SCHWAB_DB_INSTANCE",
+    help="Cloud SQL instance connection name (e.g., 'project:region:instance'). Enables data storage.",
+)
+@click.option(
+    "--db-name",
+    type=str,
+    envvar="SCHWAB_DB_NAME",
+    default="schwab_data",
+    show_default=True,
+    help="Database name on the Cloud SQL instance.",
+)
+@click.option(
+    "--db-user",
+    type=str,
+    envvar="SCHWAB_DB_USER",
+    default="agent_user",
+    show_default=True,
+    help="Database user for Cloud SQL connection.",
+)
+@click.option(
+    "--db-password",
+    type=str,
+    envvar="SCHWAB_DB_PASSWORD",
+    help="Database password for Cloud SQL connection.",
+)
 def server(
     token_path: str,
     client_id: str,
@@ -248,6 +277,10 @@ def server(
     discord_timeout: int,
     no_technical_tools: bool,
     json_output: bool,
+    db_instance: str | None,
+    db_name: str,
+    db_user: str,
+    db_password: str | None,
 ) -> int:
     """Run the Schwab MCP server."""
     # No logging to stderr when in MCP mode (we'll use proper MCP responses)
@@ -352,6 +385,18 @@ def server(
                 "Warning: --jesus-take-the-wheel bypasses Discord approvals.", err=True
             )
 
+        if db_instance and db_password:
+            db_manager = CloudSQLManager(
+                DatabaseConfig(
+                    instance_connection_name=db_instance,
+                    database=db_name,
+                    user=db_user,
+                    password=db_password,
+                )
+            )
+        else:
+            db_manager = NoOpDatabaseManager()
+
         server = SchwabMCPServer(
             APP_NAME,
             client,
@@ -359,6 +404,7 @@ def server(
             allow_write=allow_write,
             enable_technical_tools=not no_technical_tools,
             use_json=json_output,
+            db_manager=db_manager,
         )
         anyio.run(server.run, backend="asyncio")
         return 0
@@ -366,6 +412,65 @@ def server(
         send_error_response(
             f"Error running server: {str(e)}", code=500, details={"error": str(e)}
         )
+        return 1
+
+
+@cli.command("init-db")
+@click.option(
+    "--db-instance",
+    type=str,
+    required=True,
+    envvar="SCHWAB_DB_INSTANCE",
+    help="Cloud SQL instance connection name (e.g., 'project:region:instance').",
+)
+@click.option(
+    "--db-name",
+    type=str,
+    envvar="SCHWAB_DB_NAME",
+    default="schwab_data",
+    show_default=True,
+    help="Database name on the Cloud SQL instance.",
+)
+@click.option(
+    "--db-user",
+    type=str,
+    envvar="SCHWAB_DB_USER",
+    default="agent_user",
+    show_default=True,
+    help="Database user for Cloud SQL connection.",
+)
+@click.option(
+    "--db-password",
+    type=str,
+    required=True,
+    envvar="SCHWAB_DB_PASSWORD",
+    help="Database password for Cloud SQL connection.",
+)
+def init_db(
+    db_instance: str,
+    db_name: str,
+    db_user: str,
+    db_password: str,
+) -> int:
+    """Initialize the schwab_data database schema."""
+    click.echo(f"Connecting to {db_instance}/{db_name} as {db_user}...")
+
+    db_manager = CloudSQLManager(
+        DatabaseConfig(
+            instance_connection_name=db_instance,
+            database=db_name,
+            user=db_user,
+            password=db_password,
+        )
+    )
+
+    try:
+        anyio.run(db_manager.start, backend="asyncio")
+        click.echo("Schema initialized successfully.")
+        anyio.run(db_manager.stop, backend="asyncio")
+        return 0
+    except Exception as e:
+        click.echo(f"Error: {e}", err=True)
         return 1
 
 

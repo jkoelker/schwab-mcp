@@ -15,6 +15,7 @@ from schwab_mcp.approvals import (
     DiscordApprovalSettings,
 )
 from schwab_mcp.context import SchwabContext, SchwabServerContext
+from schwab_mcp.db import NoOpDatabaseManager
 from schwab_mcp.tools import _registration
 
 
@@ -63,6 +64,7 @@ def make_ctx(
     lifespan_context = SchwabServerContext(
         client=cast(AsyncClient, object()),
         approval_manager=approval_manager,
+        db=NoOpDatabaseManager(),
     )
     session = DummySession()
     meta = (

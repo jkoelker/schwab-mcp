@@ -6,6 +6,7 @@ import datetime
 from mcp.server.fastmcp import FastMCP
 
 from schwab_mcp.context import SchwabContext
+from schwab_mcp.db._ingestion import ingest_option_chain
 from schwab_mcp.tools._registration import register_tool
 from schwab_mcp.tools.utils import JSONType, call, parse_date
 
@@ -70,7 +71,7 @@ async def get_option_chain(
         parse_date(to_date),
     )
 
-    return await call(
+    result = await call(
         client.get_option_chain,
         symbol,
         contract_type=client.Options.ContractType[contract_type.upper()]
@@ -81,6 +82,20 @@ async def get_option_chain(
         from_date=from_date_obj,
         to_date=to_date_obj,
     )
+
+    await ingest_option_chain(
+        ctx.db,
+        result,
+        symbol=symbol,
+        request_params={
+            "contract_type": contract_type,
+            "strike_count": strike_count,
+            "from_date": str(from_date_obj) if from_date_obj else None,
+            "to_date": str(to_date_obj) if to_date_obj else None,
+        },
+    )
+
+    return result
 
 
 async def get_advanced_option_chain(
@@ -148,7 +163,7 @@ async def get_advanced_option_chain(
         to_date_obj,
     )
 
-    return await call(
+    result = await call(
         client.get_option_chain,
         symbol,
         contract_type=client.Options.ContractType[contract_type.upper()]
@@ -173,6 +188,22 @@ async def get_advanced_option_chain(
         else None,
         option_type=client.Options.Type[option_type.upper()] if option_type else None,
     )
+
+    await ingest_option_chain(
+        ctx.db,
+        result,
+        symbol=symbol,
+        request_params={
+            "contract_type": contract_type,
+            "strike_count": strike_count,
+            "strategy": strategy,
+            "strike_range": strike_range,
+            "from_date": str(from_date_obj) if from_date_obj else None,
+            "to_date": str(to_date_obj) if to_date_obj else None,
+        },
+    )
+
+    return result
 
 
 async def get_option_expiration_chain(

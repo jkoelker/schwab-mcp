@@ -9,6 +9,7 @@ from schwab.client import AsyncClient
 
 from schwab_mcp.approvals import ApprovalDecision, ApprovalManager, ApprovalRequest
 from schwab_mcp.context import SchwabContext, SchwabServerContext
+from schwab_mcp.db import NoOpDatabaseManager
 
 
 class DummyApprovalManager(ApprovalManager):
@@ -16,10 +17,11 @@ class DummyApprovalManager(ApprovalManager):
         return ApprovalDecision.APPROVED
 
 
-def make_ctx(client: Any) -> SchwabContext:
+def make_ctx(client: Any, db: Any = None) -> SchwabContext:
     lifespan_context = SchwabServerContext(
         client=cast(AsyncClient, client),
         approval_manager=DummyApprovalManager(),
+        db=db or NoOpDatabaseManager(),
     )
     request_context = SimpleNamespace(lifespan_context=lifespan_context)
     return SchwabContext.model_construct(

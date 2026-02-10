@@ -14,6 +14,7 @@ from schwab_mcp.tools import register_tools
 from schwab_mcp.resources import register_resources
 from schwab_mcp.context import SchwabServerContext
 from schwab_mcp.approvals import ApprovalManager
+from schwab_mcp.db import DatabaseManager, NoOpDatabaseManager
 
 
 logger = logging.getLogger(__name__)
@@ -22,16 +23,24 @@ logger = logging.getLogger(__name__)
 def _client_lifespan(
     client: AsyncClient,
     approval_manager: ApprovalManager,
+    db_manager: DatabaseManager,
 ) -> Callable[[FastMCP], AsyncContextManager[SchwabServerContext]]:
     """Create a FastMCP lifespan context that exposes the Schwab async client."""
 
     @asynccontextmanager
     async def lifespan(_: FastMCP) -> AsyncGenerator[SchwabServerContext, None]:
         await approval_manager.start()
-        context = SchwabServerContext(client=client, approval_manager=approval_manager)
+        await db_manager.start()
+        context = SchwabServerContext(
+            client=client, approval_manager=approval_manager, db=db_manager
+        )
         try:
             yield context
         finally:
+            try:
+                await db_manager.stop()
+            except Exception:
+                logger.exception("Failed to close database connection.")
             try:
                 await approval_manager.stop()
             except Exception:
@@ -58,6 +67,7 @@ class SchwabMCPServer:
         allow_write: bool,
         enable_technical_tools: bool = True,
         use_json: bool = False,
+        db_manager: DatabaseManager | None = None,
     ) -> None:
         result_transform: Callable[[Any], Any] | None = None
         if not use_json:
@@ -78,7 +88,9 @@ class SchwabMCPServer:
 
         self._server = FastMCP(
             name=name,
-            lifespan=_client_lifespan(client, approval_manager),
+            lifespan=_client_lifespan(
+                client, approval_manager, db_manager or NoOpDatabaseManager()
+            ),
         )
         register_tools(
             self._server,
