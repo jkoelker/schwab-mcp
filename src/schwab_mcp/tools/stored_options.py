@@ -18,6 +18,9 @@ async def query_stored_options(
     ctx: SchwabContext,
     symbol: Annotated[str, "Underlying symbol to query (e.g., 'SPY')"],
     put_call: Annotated[str | None, "Filter by CALL or PUT"] = None,
+    strike_price: Annotated[float | None, "Filter by exact strike price"] = None,
+    min_strike: Annotated[float | None, "Minimum strike price"] = None,
+    max_strike: Annotated[float | None, "Maximum strike price"] = None,
     expiration_date: Annotated[
         str | None, "Filter by expiration date (YYYY-MM-DD)"
     ] = None,
@@ -42,6 +45,15 @@ async def query_stored_options(
     if put_call:
         conditions.append("oc.put_call = %s")
         params.append(put_call.upper())
+    if strike_price is not None:
+        conditions.append("oc.strike_price = %s")
+        params.append(strike_price)
+    if min_strike is not None:
+        conditions.append("oc.strike_price >= %s")
+        params.append(min_strike)
+    if max_strike is not None:
+        conditions.append("oc.strike_price <= %s")
+        params.append(max_strike)
     if expiration_date:
         conditions.append("oc.expiration_date = %s")
         params.append(expiration_date)
