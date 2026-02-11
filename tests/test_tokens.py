@@ -311,3 +311,111 @@ class TestManager:
             content = f.read()
 
         assert content.startswith("---") == expect_yaml
+
+
+class TestCredentialsPath:
+    @pytest.fixture
+    def mock_user_data_dir(self, monkeypatch, tmp_path):
+        monkeypatch.setattr(tokens, "user_data_dir", lambda app: str(tmp_path))
+        return tmp_path
+
+    def test_returns_path_with_default_filename(self, mock_user_data_dir):
+        result = tokens.credentials_path("test-app")
+
+        assert result == str(mock_user_data_dir / "credentials.yaml")
+
+    def test_returns_path_with_custom_filename(self, mock_user_data_dir):
+        result = tokens.credentials_path("test-app", filename="creds.yaml")
+
+        assert result == str(mock_user_data_dir / "creds.yaml")
+
+    def test_creates_parent_directory_if_missing(self, monkeypatch, tmp_path):
+        nested_dir = tmp_path / "nested" / "path"
+        monkeypatch.setattr(tokens, "user_data_dir", lambda app: str(nested_dir))
+
+        result = tokens.credentials_path("test-app")
+
+        assert nested_dir.exists()
+        assert result == str(nested_dir / "credentials.yaml")
+
+
+class TestLoadCredentials:
+    def test_returns_empty_dict_when_file_missing(self, tmp_path):
+        result = tokens.load_credentials(str(tmp_path / "nonexistent.yaml"))
+
+        assert result == {}
+
+    def test_loads_credentials_from_yaml(self, tmp_path):
+        path = str(tmp_path / "credentials.yaml")
+        with open(path, "w") as f:
+            yaml.safe_dump({"client_id": "my-id", "client_secret": "my-secret"}, f)
+
+        result = tokens.load_credentials(path)
+
+        assert result == {"client_id": "my-id", "client_secret": "my-secret"}
+
+    def test_returns_empty_dict_for_non_dict_content(self, tmp_path):
+        path = str(tmp_path / "credentials.yaml")
+        with open(path, "w") as f:
+            f.write("just a string\n")
+
+        result = tokens.load_credentials(path)
+
+        assert result == {}
+
+    def test_returns_empty_dict_for_empty_file(self, tmp_path):
+        path = str(tmp_path / "credentials.yaml")
+        with open(path, "w") as f:
+            f.write("")
+
+        result = tokens.load_credentials(path)
+
+        assert result == {}
+
+
+class TestSaveCredentials:
+    def test_writes_credentials_to_file(self, tmp_path):
+        path = str(tmp_path / "credentials.yaml")
+
+        tokens.save_credentials(path, "my-id", "my-secret")
+
+        with open(path) as f:
+            data = yaml.safe_load(f)
+
+        assert data == {"client_id": "my-id", "client_secret": "my-secret"}
+
+    def test_file_has_restricted_permissions(self, tmp_path):
+        path = str(tmp_path / "credentials.yaml")
+
+        tokens.save_credentials(path, "my-id", "my-secret")
+
+        mode = os.stat(path).st_mode & 0o777
+        assert mode == 0o600
+
+    def test_creates_parent_directories(self, tmp_path):
+        path = str(tmp_path / "nested" / "dir" / "credentials.yaml")
+
+        tokens.save_credentials(path, "my-id", "my-secret")
+
+        assert os.path.exists(path)
+
+    def test_overwrites_existing_file(self, tmp_path):
+        path = str(tmp_path / "credentials.yaml")
+        tokens.save_credentials(path, "old-id", "old-secret")
+
+        tokens.save_credentials(path, "new-id", "new-secret")
+
+        with open(path) as f:
+            data = yaml.safe_load(f)
+
+        assert data == {"client_id": "new-id", "client_secret": "new-secret"}
+
+    def test_yaml_has_explicit_start(self, tmp_path):
+        path = str(tmp_path / "credentials.yaml")
+
+        tokens.save_credentials(path, "my-id", "my-secret")
+
+        with open(path) as f:
+            content = f.read()
+
+        assert content.startswith("---")

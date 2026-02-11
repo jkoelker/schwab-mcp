@@ -34,14 +34,16 @@ def cli():
 @click.option(
     "--client-id",
     type=str,
-    required=True,
+    required=False,
+    default=None,
     envvar="SCHWAB_CLIENT_ID",
     help="Schwab Client ID",
 )
 @click.option(
     "--client-secret",
     type=str,
-    required=True,
+    required=False,
+    default=None,
     envvar="SCHWAB_CLIENT_SECRET",
     help="Schwab Client Secret",
 )
@@ -61,12 +63,24 @@ def cli():
 )
 def auth(
     token_path: str,
-    client_id: str,
-    client_secret: str,
+    client_id: str | None,
+    client_secret: str | None,
     callback_url: str,
     base_url: str,
 ) -> int:
     """Initialize Schwab client authentication."""
+    creds = tokens.load_credentials(tokens.credentials_path(APP_NAME))
+    client_id = client_id or creds.get("client_id")
+    client_secret = client_secret or creds.get("client_secret")
+    if not client_id or not client_secret:
+        click.echo(
+            "Error: client-id and client-secret are required. "
+            "Provide via --client-id/--client-secret, env vars, "
+            "or store in credentials file with 'schwab-mcp save-credentials'.",
+            err=True,
+        )
+        raise SystemExit(1)
+
     click.echo(f"Initializing authentication flow to create token at: {token_path}")
     token_manager = tokens.Manager(token_path)
 
@@ -99,14 +113,16 @@ def auth(
 @click.option(
     "--client-id",
     type=str,
-    required=True,
+    required=False,
+    default=None,
     envvar="SCHWAB_CLIENT_ID",
     help="Schwab Client ID",
 )
 @click.option(
     "--client-secret",
     type=str,
-    required=True,
+    required=False,
+    default=None,
     envvar="SCHWAB_CLIENT_SECRET",
     help="Schwab Client Secret",
 )
@@ -171,8 +187,8 @@ def auth(
 )
 def server(
     token_path: str,
-    client_id: str,
-    client_secret: str,
+    client_id: str | None,
+    client_secret: str | None,
     callback_url: str,
     base_url: str,
     jesus_take_the_wheel: bool,
@@ -184,6 +200,22 @@ def server(
     json_output: bool,
 ) -> int:
     """Run the Schwab MCP server."""
+    creds = tokens.load_credentials(tokens.credentials_path(APP_NAME))
+    client_id = client_id or creds.get("client_id")
+    client_secret = client_secret or creds.get("client_secret")
+    if not client_id or not client_secret:
+        send_error_response(
+            "client-id and client-secret are required. "
+            "Provide via --client-id/--client-secret, env vars, "
+            "or store in credentials file with 'schwab-mcp save-credentials'.",
+            code=400,
+            details={
+                "missing_client_id": not bool(client_id),
+                "missing_client_secret": not bool(client_secret),
+            },
+        )
+        return 1
+
     # No logging to stderr when in MCP mode (we'll use proper MCP responses)
     token_manager = tokens.Manager(token_path)
 
@@ -301,6 +333,26 @@ def server(
             f"Error running server: {str(e)}", code=500, details={"error": str(e)}
         )
         return 1
+
+
+@cli.command("save-credentials")
+@click.option(
+    "--client-id",
+    type=str,
+    prompt="Schwab Client ID",
+    help="Schwab Client ID",
+)
+@click.option(
+    "--client-secret",
+    type=str,
+    prompt="Schwab Client Secret",
+    help="Schwab Client Secret",
+)
+def save_credentials(client_id: str, client_secret: str) -> None:
+    """Save Schwab client credentials to a local file."""
+    path = tokens.credentials_path(APP_NAME)
+    tokens.save_credentials(path, client_id, client_secret)
+    click.echo(f"Credentials saved to: {path}")
 
 
 def main():
