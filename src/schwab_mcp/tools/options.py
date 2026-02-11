@@ -118,17 +118,28 @@ async def get_option_chain(
         )
         total_contracts = call_contracts + put_contracts
 
+        storage_status = (
+            f"Stored {total_contracts} contracts (snapshot_id: {snapshot_id})"
+            if snapshot_id
+            else f"WARNING: Failed to store to database, but fetched {total_contracts} contracts"
+        )
+
         return {
             "status": "SUCCESS",
-            "message": f"Stored {total_contracts} contracts for {symbol} (snapshot_id: {snapshot_id})",
+            "message": storage_status,
             "summary": {
                 "symbol": symbol,
                 "underlying_price": result.get("underlyingPrice"),
-                "contracts_stored": total_contracts,
+                "contracts_fetched": total_contracts,
                 "calls": call_contracts,
                 "puts": put_contracts,
                 "snapshot_id": snapshot_id,
-                "query_hint": f"Use query_stored_options(symbol='{symbol}') to retrieve specific contracts with filters",
+                "stored": snapshot_id is not None,
+                "query_hint": (
+                    f"Use query_stored_options(symbol='{symbol}') to retrieve specific contracts with filters"
+                    if snapshot_id
+                    else "Database storage failed - restart Claude to reconnect, or query was not stored"
+                ),
             },
         }
 
@@ -240,14 +251,11 @@ async def get_advanced_option_chain(
         },
     )
 
-    # When database is active, return a summary instead of full data to save context
+    # When database is configured, always return a summary to save context
+    # Even if ingestion fails, we still provide the summary (data loss is better than context overflow)
     from schwab_mcp.db._manager import NoOpDatabaseManager
 
-    if (
-        not isinstance(ctx.db, NoOpDatabaseManager)
-        and snapshot_id
-        and isinstance(result, dict)
-    ):
+    if not isinstance(ctx.db, NoOpDatabaseManager) and isinstance(result, dict):
         # Count contracts in the response
         call_contracts = sum(
             len(contracts)
@@ -263,18 +271,29 @@ async def get_advanced_option_chain(
         )
         total_contracts = call_contracts + put_contracts
 
+        storage_status = (
+            f"Stored {total_contracts} contracts (snapshot_id: {snapshot_id})"
+            if snapshot_id
+            else f"WARNING: Failed to store to database, but fetched {total_contracts} contracts"
+        )
+
         return {
             "status": "SUCCESS",
-            "message": f"Stored {total_contracts} contracts for {symbol} (snapshot_id: {snapshot_id})",
+            "message": storage_status,
             "summary": {
                 "symbol": symbol,
                 "underlying_price": result.get("underlyingPrice"),
-                "contracts_stored": total_contracts,
+                "contracts_fetched": total_contracts,
                 "calls": call_contracts,
                 "puts": put_contracts,
                 "snapshot_id": snapshot_id,
+                "stored": snapshot_id is not None,
                 "strategy": strategy,
-                "query_hint": f"Use query_stored_options(symbol='{symbol}') to retrieve specific contracts with filters",
+                "query_hint": (
+                    f"Use query_stored_options(symbol='{symbol}') to retrieve specific contracts with filters"
+                    if snapshot_id
+                    else "Database storage failed - restart Claude to reconnect, or query was not stored"
+                ),
             },
         }
 
