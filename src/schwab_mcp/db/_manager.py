@@ -107,6 +107,18 @@ class CloudSQLManager(DatabaseManager):
 
         await anyio.to_thread.run_sync(_run)
 
+    @staticmethod
+    def _is_connection_error(exc: Exception) -> bool:
+        return isinstance(exc, OSError) or type(exc).__name__ == "InterfaceError"
+
+    async def _reconnect(self) -> None:
+        logger.warning("Database connection lost, reconnecting…")
+        try:
+            await self.stop()
+        except Exception:
+            pass
+        await self.start()
+
     async def execute(
         self, sql: str, params: Sequence[Any] = ()
     ) -> list[tuple[Any, ...]]:
@@ -119,7 +131,13 @@ class CloudSQLManager(DatabaseManager):
             except Exception:
                 return []
 
-        return await anyio.to_thread.run_sync(_run)
+        try:
+            return await anyio.to_thread.run_sync(_run)
+        except Exception as exc:
+            if not self._is_connection_error(exc):
+                raise
+            await self._reconnect()
+            return await anyio.to_thread.run_sync(_run)
 
     async def execute_many(self, sql: str, params_seq: Sequence[Sequence[Any]]) -> None:
         def _run() -> None:
@@ -128,7 +146,13 @@ class CloudSQLManager(DatabaseManager):
                 cursor.execute(sql, tuple(params))
             self._conn.commit()
 
-        await anyio.to_thread.run_sync(_run)
+        try:
+            await anyio.to_thread.run_sync(_run)
+        except Exception as exc:
+            if not self._is_connection_error(exc):
+                raise
+            await self._reconnect()
+            await anyio.to_thread.run_sync(_run)
 
 
 class NoOpDatabaseManager(DatabaseManager):

@@ -98,11 +98,7 @@ async def get_option_chain(
     # When database is active, return a summary instead of full data to save context
     from schwab_mcp.db._manager import NoOpDatabaseManager
 
-    if (
-        not isinstance(ctx.db, NoOpDatabaseManager)
-        and snapshot_id
-        and isinstance(result, dict)
-    ):
+    if not isinstance(ctx.db, NoOpDatabaseManager) and isinstance(result, dict):
         # Count contracts in the response
         call_contracts = sum(
             len(contracts)
