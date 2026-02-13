@@ -133,8 +133,9 @@ def auth(
             )
 
             # Save token using our manager
-            if hasattr(client, "_session") and hasattr(client._session, "token"):
-                token_manager.write(client._session.token)
+            session = getattr(client, "_session", None)
+            if session is not None and hasattr(session, "token"):
+                token_manager.write(session.token)
         else:
             # This will initiate the automatic authentication flow
             schwab_auth.easy_client(

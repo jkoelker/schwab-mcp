@@ -7,7 +7,7 @@ import logging
 from dataclasses import dataclass
 from typing import Any, Sequence
 
-import anyio
+from anyio import to_thread
 
 logger = logging.getLogger(__name__)
 
@@ -64,7 +64,7 @@ class CloudSQLManager(DatabaseManager):
             )
             return connector, conn
 
-        self._connector, self._conn = await anyio.to_thread.run_sync(_connect)
+        self._connector, self._conn = await to_thread.run_sync(_connect)
 
         from schwab_mcp.db._schema import SCHEMA_SQL
 
@@ -88,7 +88,7 @@ class CloudSQLManager(DatabaseManager):
                 except Exception:
                     pass
 
-        await anyio.to_thread.run_sync(_close)
+        await to_thread.run_sync(_close)
 
     async def execute_script(self, sql: str) -> None:
         """Execute multi-statement SQL (e.g. schema DDL).
@@ -105,7 +105,7 @@ class CloudSQLManager(DatabaseManager):
                     cursor.execute(statement)
             self._conn.commit()
 
-        await anyio.to_thread.run_sync(_run)
+        await to_thread.run_sync(_run)
 
     @staticmethod
     def _is_connection_error(exc: Exception) -> bool:
@@ -132,12 +132,12 @@ class CloudSQLManager(DatabaseManager):
                 return []
 
         try:
-            return await anyio.to_thread.run_sync(_run)
+            return await to_thread.run_sync(_run)
         except Exception as exc:
             if not self._is_connection_error(exc):
                 raise
             await self._reconnect()
-            return await anyio.to_thread.run_sync(_run)
+            return await to_thread.run_sync(_run)
 
     async def execute_many(self, sql: str, params_seq: Sequence[Sequence[Any]]) -> None:
         def _run() -> None:
@@ -147,12 +147,12 @@ class CloudSQLManager(DatabaseManager):
             self._conn.commit()
 
         try:
-            await anyio.to_thread.run_sync(_run)
+            await to_thread.run_sync(_run)
         except Exception as exc:
             if not self._is_connection_error(exc):
                 raise
             await self._reconnect()
-            await anyio.to_thread.run_sync(_run)
+            await to_thread.run_sync(_run)
 
 
 class NoOpDatabaseManager(DatabaseManager):
