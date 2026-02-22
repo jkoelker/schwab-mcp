@@ -71,7 +71,7 @@ uv run ruff format . && uv run ruff check . && uv run pyright && uv run pytest
 ## Code Style & Formatting
 
 ### Python Version and Imports
-- Target Python 3.10+ (use `from __future__ import annotations` for forward refs)
+- Target Python 3.12+ (use `from __future__ import annotations` for forward refs)
 - Use explicit imports, no wildcards
 - Group imports: stdlib, third-party, local (ruff enforces this)
 - Prefer `from schwab_mcp.tools import module` over `from schwab_mcp.tools.module import func`
