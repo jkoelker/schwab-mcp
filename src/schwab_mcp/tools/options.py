@@ -6,6 +6,7 @@ import datetime
 from mcp.server.fastmcp import FastMCP
 
 from schwab_mcp.context import SchwabContext
+from schwab_mcp.db._ingestion import ingest_option_chain
 from schwab_mcp.tools._registration import register_tool
 from schwab_mcp.tools.utils import JSONType, call, parse_date
 
@@ -70,7 +71,7 @@ async def get_option_chain(
         parse_date(to_date),
     )
 
-    return await call(
+    result = await call(
         client.get_option_chain,
         symbol,
         contract_type=client.Options.ContractType[contract_type.upper()]
@@ -81,6 +82,64 @@ async def get_option_chain(
         from_date=from_date_obj,
         to_date=to_date_obj,
     )
+
+    snapshot_id = await ingest_option_chain(
+        ctx.db,
+        result,
+        symbol=symbol,
+        request_params={
+            "contract_type": contract_type,
+            "strike_count": strike_count,
+            "from_date": str(from_date_obj) if from_date_obj else None,
+            "to_date": str(to_date_obj) if to_date_obj else None,
+        },
+    )
+
+    # When database is active, return a summary instead of full data to save context
+    from schwab_mcp.db._manager import NoOpDatabaseManager
+
+    if not isinstance(ctx.db, NoOpDatabaseManager) and isinstance(result, dict):
+        # Count contracts in the response
+        call_contracts = sum(
+            len(contracts)
+            for exp_map in (result.get("callExpDateMap") or {}).values()
+            for contracts in exp_map.values()
+            if isinstance(contracts, list)
+        )
+        put_contracts = sum(
+            len(contracts)
+            for exp_map in (result.get("putExpDateMap") or {}).values()
+            for contracts in exp_map.values()
+            if isinstance(contracts, list)
+        )
+        total_contracts = call_contracts + put_contracts
+
+        storage_status = (
+            f"Stored {total_contracts} contracts (snapshot_id: {snapshot_id})"
+            if snapshot_id
+            else f"WARNING: Failed to store to database, but fetched {total_contracts} contracts"
+        )
+
+        return {
+            "status": "SUCCESS",
+            "message": storage_status,
+            "summary": {
+                "symbol": symbol,
+                "underlying_price": result.get("underlyingPrice"),
+                "contracts_fetched": total_contracts,
+                "calls": call_contracts,
+                "puts": put_contracts,
+                "snapshot_id": snapshot_id,
+                "stored": snapshot_id is not None,
+                "query_hint": (
+                    f"Use query_stored_options(symbol='{symbol}') to retrieve specific contracts with filters"
+                    if snapshot_id
+                    else "Database storage failed - restart Claude to reconnect, or query was not stored"
+                ),
+            },
+        }
+
+    return result
 
 
 async def get_advanced_option_chain(
@@ -148,7 +207,7 @@ async def get_advanced_option_chain(
         to_date_obj,
     )
 
-    return await call(
+    result = await call(
         client.get_option_chain,
         symbol,
         contract_type=client.Options.ContractType[contract_type.upper()]
@@ -173,6 +232,68 @@ async def get_advanced_option_chain(
         else None,
         option_type=client.Options.Type[option_type.upper()] if option_type else None,
     )
+
+    snapshot_id = await ingest_option_chain(
+        ctx.db,
+        result,
+        symbol=symbol,
+        request_params={
+            "contract_type": contract_type,
+            "strike_count": strike_count,
+            "strategy": strategy,
+            "strike_range": strike_range,
+            "from_date": str(from_date_obj) if from_date_obj else None,
+            "to_date": str(to_date_obj) if to_date_obj else None,
+        },
+    )
+
+    # When database is configured, always return a summary to save context
+    # Even if ingestion fails, we still provide the summary (data loss is better than context overflow)
+    from schwab_mcp.db._manager import NoOpDatabaseManager
+
+    if not isinstance(ctx.db, NoOpDatabaseManager) and isinstance(result, dict):
+        # Count contracts in the response
+        call_contracts = sum(
+            len(contracts)
+            for exp_map in (result.get("callExpDateMap") or {}).values()
+            for contracts in exp_map.values()
+            if isinstance(contracts, list)
+        )
+        put_contracts = sum(
+            len(contracts)
+            for exp_map in (result.get("putExpDateMap") or {}).values()
+            for contracts in exp_map.values()
+            if isinstance(contracts, list)
+        )
+        total_contracts = call_contracts + put_contracts
+
+        storage_status = (
+            f"Stored {total_contracts} contracts (snapshot_id: {snapshot_id})"
+            if snapshot_id
+            else f"WARNING: Failed to store to database, but fetched {total_contracts} contracts"
+        )
+
+        return {
+            "status": "SUCCESS",
+            "message": storage_status,
+            "summary": {
+                "symbol": symbol,
+                "underlying_price": result.get("underlyingPrice"),
+                "contracts_fetched": total_contracts,
+                "calls": call_contracts,
+                "puts": put_contracts,
+                "snapshot_id": snapshot_id,
+                "stored": snapshot_id is not None,
+                "strategy": strategy,
+                "query_hint": (
+                    f"Use query_stored_options(symbol='{symbol}') to retrieve specific contracts with filters"
+                    if snapshot_id
+                    else "Database storage failed - restart Claude to reconnect, or query was not stored"
+                ),
+            },
+        }
+
+    return result
 
 
 async def get_option_expiration_chain(

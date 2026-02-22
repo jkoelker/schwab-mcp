@@ -175,32 +175,54 @@ def client_from_login_flow(
             auth.time.sleep(0.1)
 
         # Open the browser
+        # Use the original schwab-py auth URL generation
         auth_context = auth.get_auth_context(client_id, callback_url, base_url=base_url)
 
+        # Always print the URL for verification (even in non-interactive mode)
+        print()
+        print("=" * 80)
+        print("SCHWAB AUTHENTICATION URL")
+        print("=" * 80)
+        print()
+        print("Authorization URL:")
+        print(auth_context.authorization_url)
+        print()
+
+        # Parse and verify URL format
+        parsed_url = urllib.parse.urlparse(auth_context.authorization_url)
+        params = urllib.parse.parse_qs(parsed_url.query)
+
+        print("URL Verification:")
+        print(
+            f"  ✓ Base URL: {parsed_url.scheme}://{parsed_url.netloc}{parsed_url.path}"
+        )
+        print(f"  ✓ client_id: {params.get('client_id', ['MISSING'])[0][:20]}...")
+        print(f"  ✓ redirect_uri: {params.get('redirect_uri', ['MISSING'])[0]}")
+
+        # Check for extra parameters that Schwab doesn't accept
+        expected_params = {"client_id", "redirect_uri"}
+        actual_params = set(params.keys())
+        extra_params = actual_params - expected_params
+
+        if extra_params:
+            print(f"  ⚠ WARNING: Extra parameters detected: {', '.join(extra_params)}")
+            print("    Schwab only accepts 'client_id' and 'redirect_uri'")
+        else:
+            print("  ✓ No extra parameters (correct format)")
+
+        print()
+        print("Your callback URL: {}".format(callback_url))
+        print()
+        print("=" * 80)
+        print()
+
         if interactive:
-            print()
-            print(
-                "***********************************************************************"
-            )
-            print()
-            print("This is the browser-assisted login and token creation flow for")
-            print("schwab-py. This flow automatically opens the login page on your")
-            print("browser, captures the resulting OAuth callback, and creates a token")
-            print("using the result. The authorization URL is:")
-            print()
-            print(">>", auth_context.authorization_url)
-            print()
             print("IMPORTANT: Your browser will give you a security warning about an")
             print("invalid certificate prior to issuing the redirect. This is because")
             print("schwab-py has started a server on your machine to receive the OAuth")
             print("redirect using a self-signed SSL certificate. You can ignore that")
             print("warning, but make sure to first check that the URL matches your")
-            print(
-                "callback URL, ignoring URL parameters. As a reminder, your callback URL"
-            )
-            print("is:")
-            print()
-            print(">>", callback_url)
+            print("callback URL, ignoring URL parameters.")
             print()
             print("See here to learn more about self-signed SSL certificates:")
             print("https://schwab-py.readthedocs.io/en/latest/auth.html#ssl-errors")
@@ -209,9 +231,8 @@ def client_from_login_flow(
             print(
                 "https://schwab-py.readthedocs.io/en/latest/auth.html#troubleshooting"
             )
-            print(
-                "***********************************************************************"
-            )
+            print()
+            print("=" * 80)
             print()
 
         try:

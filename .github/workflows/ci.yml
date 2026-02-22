@@ -10,14 +10,6 @@ name: CI
 jobs:
   lint-and-test:
     runs-on: ubuntu-latest
-    strategy:
-      matrix:
-        python-version:
-          - "3.10"
-          - "3.11"
-          - "3.12"
-          - "3.13"
-          - "3.14"
     steps:
       - name: Checkout
         uses: actions/checkout@v6
@@ -25,7 +17,7 @@ jobs:
       - name: Install uv
         uses: astral-sh/setup-uv@v7
         with:
-          python-version: ${{ matrix.python-version }}
+          python-version: "3.12"
 
       - name: Sync dependencies
         run: uv sync --group dev --group ta

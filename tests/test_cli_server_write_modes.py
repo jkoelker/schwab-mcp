@@ -60,6 +60,7 @@ def _patch_common(monkeypatch, captured: dict[str, Any]) -> None:
             allow_write,
             enable_technical_tools=True,
             use_json=False,
+            db_manager=None,
         ):
             captured["server_name"] = name
             captured["server_client"] = client
@@ -67,6 +68,7 @@ def _patch_common(monkeypatch, captured: dict[str, Any]) -> None:
             captured["allow_write"] = allow_write
             captured["enable_technical_tools"] = enable_technical_tools
             captured["use_json"] = use_json
+            captured["db_manager"] = db_manager
 
         async def run(self):
             captured["run_called"] = True

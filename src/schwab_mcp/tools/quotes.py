@@ -1,4 +1,5 @@
 #
+import re
 from collections.abc import Callable
 from typing import Annotated, Any
 
@@ -7,6 +8,19 @@ from mcp.server.fastmcp import FastMCP
 from schwab_mcp.context import SchwabContext
 from schwab_mcp.tools._registration import register_tool
 from schwab_mcp.tools.utils import JSONType, call
+
+_OPTION_RE = re.compile(r"^([A-Za-z$]+)\s+(\d{6})([PC])(\d+)$")
+
+
+def _normalize_option_symbol(symbol: str) -> str:
+    m = _OPTION_RE.match(symbol)
+    if not m:
+        return symbol
+    root, date, typ, strike_str = m.groups()
+    if len(strike_str) >= 8:
+        return symbol
+    strike_padded = f"{int(strike_str) * 1000:08d}"
+    return f"{root:<6}{date}{typ}{strike_padded}"
 
 
 async def get_quotes(
@@ -31,6 +45,8 @@ async def get_quotes(
 
     if isinstance(symbols, str):
         symbols = [s.strip() for s in symbols.split(",")]
+
+    symbols = [_normalize_option_symbol(s) for s in symbols]
 
     field_enums = None
     if fields:

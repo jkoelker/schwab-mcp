@@ -12,6 +12,7 @@ from schwab_mcp.approvals import (
     DiscordApprovalSettings,
     NoOpApprovalManager,
 )
+from schwab_mcp.db import CloudSQLManager, DatabaseConfig, NoOpDatabaseManager
 
 
 APP_NAME = "schwab-mcp"
@@ -61,12 +62,26 @@ def cli():
     default="https://api.schwabapi.com",
     help="Schwab API base URL",
 )
+@click.option(
+    "--browser",
+    type=str,
+    default=None,
+    help="Browser to use for authentication (e.g., 'safari', 'firefox'). Chrome often blocks self-signed certs.",
+)
+@click.option(
+    "--manual",
+    is_flag=True,
+    default=False,
+    help="Use manual flow - you'll paste the callback URL instead of using a local server.",
+)
 def auth(
     token_path: str,
     client_id: str | None,
     client_secret: str | None,
     callback_url: str,
     base_url: str,
+    browser: str | None,
+    manual: bool,
 ) -> int:
     """Initialize Schwab client authentication."""
     creds = tokens.load_credentials(tokens.credentials_path(APP_NAME))
@@ -81,25 +96,77 @@ def auth(
         )
         raise SystemExit(1)
 
-    click.echo(f"Initializing authentication flow to create token at: {token_path}")
+    click.echo("=" * 80)
+    click.echo("SCHWAB MCP AUTHENTICATION")
+    click.echo("=" * 80)
+    click.echo()
+    click.echo(f"Token will be saved to: {token_path}")
+    click.echo()
+    click.echo("Configuration:")
+    click.echo(f"  Client ID: {client_id[:20]}...")
+    click.echo(f"  Callback URL: {callback_url}")
+    click.echo(f"  Base URL: {base_url}")
+    click.echo()
+    click.echo(
+        "IMPORTANT: Verify these match EXACTLY with your Schwab Developer Portal:"
+    )
+    click.echo("  1. Go to: https://developer.schwab.com/dashboard")
+    click.echo("  2. Click on your app")
+    click.echo("  3. Compare the 'App Key' and 'Callback URL' values")
+    click.echo()
+    click.echo("=" * 80)
+    click.echo()
     token_manager = tokens.Manager(token_path)
 
     try:
-        # This will initiate the manual authentication flow
-        schwab_auth.easy_client(
-            client_id=client_id,
-            client_secret=client_secret,
-            callback_url=callback_url,
-            token_manager=token_manager,
-            max_token_age=TOKEN_MAX_AGE_SECONDS,
-            base_url=base_url,
-        )
+        if manual:
+            # Use manual flow - user pastes the callback URL
+            from schwab import auth as schwab_raw_auth
+
+            client = schwab_raw_auth.client_from_manual_flow(
+                api_key=client_id,
+                app_secret=client_secret,
+                callback_url=callback_url,
+                token_path=token_path,
+                asyncio=False,
+                base_url=base_url,
+            )
+
+            # Save token using our manager
+            session = getattr(client, "_session", None)
+            if session is not None and hasattr(session, "token"):
+                token_manager.write(session.token)
+        else:
+            # This will initiate the automatic authentication flow
+            schwab_auth.easy_client(
+                client_id=client_id,
+                client_secret=client_secret,
+                callback_url=callback_url,
+                token_manager=token_manager,
+                max_token_age=TOKEN_MAX_AGE_SECONDS,
+                base_url=base_url,
+                requested_browser=browser,
+            )
 
         # If we get here, the authentication was successful
-        click.echo(f"Authentication successful! Token saved to: {token_path}")
+        click.echo()
+        click.echo("=" * 80)
+        click.echo("✓ Authentication successful!")
+        click.echo("=" * 80)
+        click.echo(f"Token saved to: {token_path}")
         return 0
     except Exception as e:
-        click.echo(f"Authentication failed: {str(e)}", err=True)
+        click.echo()
+        click.echo("=" * 80)
+        click.echo("✗ Authentication failed")
+        click.echo("=" * 80)
+        click.echo(f"Error: {str(e)}", err=True)
+        click.echo()
+        click.echo("Common issues:")
+        click.echo("  1. Client ID or Secret doesn't match Developer Portal")
+        click.echo("  2. Callback URL doesn't match Developer Portal")
+        click.echo("  3. Callback URL was changed recently (wait until market close)")
+        click.echo("  4. Browser blocked the popup or redirect")
         return 1
 
 
@@ -185,6 +252,34 @@ def auth(
     is_flag=True,
     help="Return JSON payloads from tools instead of Toon-encoded strings.",
 )
+@click.option(
+    "--db-instance",
+    type=str,
+    envvar="SCHWAB_DB_INSTANCE",
+    help="Cloud SQL instance connection name (e.g., 'project:region:instance'). Enables data storage.",
+)
+@click.option(
+    "--db-name",
+    type=str,
+    envvar="SCHWAB_DB_NAME",
+    default="schwab_data",
+    show_default=True,
+    help="Database name on the Cloud SQL instance.",
+)
+@click.option(
+    "--db-user",
+    type=str,
+    envvar="SCHWAB_DB_USER",
+    default="agent_user",
+    show_default=True,
+    help="Database user for Cloud SQL connection.",
+)
+@click.option(
+    "--db-password",
+    type=str,
+    envvar="SCHWAB_DB_PASSWORD",
+    help="Database password for Cloud SQL connection.",
+)
 def server(
     token_path: str,
     client_id: str | None,
@@ -198,6 +293,10 @@ def server(
     discord_timeout: int,
     no_technical_tools: bool,
     json_output: bool,
+    db_instance: str | None,
+    db_name: str,
+    db_user: str,
+    db_password: str | None,
 ) -> int:
     """Run the Schwab MCP server."""
     creds = tokens.load_credentials(tokens.credentials_path(APP_NAME))
@@ -318,6 +417,18 @@ def server(
                 "Warning: --jesus-take-the-wheel bypasses Discord approvals.", err=True
             )
 
+        if db_instance and db_password:
+            db_manager = CloudSQLManager(
+                DatabaseConfig(
+                    instance_connection_name=db_instance,
+                    database=db_name,
+                    user=db_user,
+                    password=db_password,
+                )
+            )
+        else:
+            db_manager = NoOpDatabaseManager()
+
         server = SchwabMCPServer(
             APP_NAME,
             client,
@@ -325,6 +436,7 @@ def server(
             allow_write=allow_write,
             enable_technical_tools=not no_technical_tools,
             use_json=json_output,
+            db_manager=db_manager,
         )
         anyio.run(server.run, backend="asyncio")
         return 0
@@ -353,6 +465,65 @@ def save_credentials(client_id: str, client_secret: str) -> None:
     path = tokens.credentials_path(APP_NAME)
     tokens.save_credentials(path, client_id, client_secret)
     click.echo(f"Credentials saved to: {path}")
+
+
+@cli.command("init-db")
+@click.option(
+    "--db-instance",
+    type=str,
+    required=True,
+    envvar="SCHWAB_DB_INSTANCE",
+    help="Cloud SQL instance connection name (e.g., 'project:region:instance').",
+)
+@click.option(
+    "--db-name",
+    type=str,
+    envvar="SCHWAB_DB_NAME",
+    default="schwab_data",
+    show_default=True,
+    help="Database name on the Cloud SQL instance.",
+)
+@click.option(
+    "--db-user",
+    type=str,
+    envvar="SCHWAB_DB_USER",
+    default="agent_user",
+    show_default=True,
+    help="Database user for Cloud SQL connection.",
+)
+@click.option(
+    "--db-password",
+    type=str,
+    required=True,
+    envvar="SCHWAB_DB_PASSWORD",
+    help="Database password for Cloud SQL connection.",
+)
+def init_db(
+    db_instance: str,
+    db_name: str,
+    db_user: str,
+    db_password: str,
+) -> int:
+    """Initialize the schwab_data database schema."""
+    click.echo(f"Connecting to {db_instance}/{db_name} as {db_user}...")
+
+    db_manager = CloudSQLManager(
+        DatabaseConfig(
+            instance_connection_name=db_instance,
+            database=db_name,
+            user=db_user,
+            password=db_password,
+        )
+    )
+
+    try:
+        anyio.run(db_manager.start, backend="asyncio")
+        click.echo("Schema initialized successfully.")
+        anyio.run(db_manager.stop, backend="asyncio")
+        return 0
+    except Exception as e:
+        click.echo(f"Error: {e}", err=True)
+        return 1
 
 
 def main():
