@@ -14,7 +14,7 @@ The **Schwab Model Context Protocol (MCP) Server** connects your Schwab account 
 
 ### Prerequisites
 
-*   Python 3.10 or higher
+*   Python 3.12 or higher
 *   [uv](https://github.com/astral-sh/uv) (recommended) or `pip`
 *   A Schwab Developer App Key and Secret (from the [Schwab Developer Portal](https://developer.schwab.com/))
 
