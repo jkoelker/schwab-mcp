@@ -526,6 +526,76 @@ def init_db(
         return 1
 
 
+@cli.command("remote-server")
+def remote_server() -> int:
+    """Run the remote MCP server (Streamable HTTP + OAuth for claude.ai).
+
+    All configuration is read from environment variables:
+      SCHWAB_CLIENT_ID, SCHWAB_CLIENT_SECRET, SCHWAB_DB_INSTANCE,
+      SCHWAB_DB_PASSWORD, SERVER_URL, MCP_OAUTH_CLIENT_SECRET, etc.
+
+    This command starts an HTTP server suitable for Cloud Run deployment.
+    """
+    import logging
+    import uvicorn
+
+    from schwab_mcp.remote.config import RemoteServerConfig
+    from schwab_mcp.remote.app import create_app
+
+    logging.basicConfig(
+        level=logging.INFO,
+        format="%(asctime)s %(levelname)s %(name)s: %(message)s",
+    )
+
+    config = RemoteServerConfig.from_env()
+    errors = config.validate()
+    if errors:
+        for error in errors:
+            click.echo(f"Config error: {error}", err=True)
+        return 1
+
+    app = create_app(config)
+
+    click.echo(f"Starting remote MCP server on {config.host}:{config.port}")
+    uvicorn.run(app, host=config.host, port=config.port, log_level="info")
+    return 0
+
+
+@cli.command("admin")
+def admin_server() -> int:
+    """Run the admin service for Schwab OAuth re-authentication.
+
+    All configuration is read from environment variables:
+      SCHWAB_CLIENT_ID, SCHWAB_CLIENT_SECRET, SCHWAB_CALLBACK_URL,
+      SCHWAB_DB_INSTANCE, SCHWAB_DB_PASSWORD, ADMIN_PASSWORD, etc.
+
+    This command starts a web UI for periodic Schwab token refresh.
+    """
+    import logging
+    import uvicorn
+
+    from schwab_mcp.remote.config import AdminConfig
+    from schwab_mcp.admin.app import create_admin_app
+
+    logging.basicConfig(
+        level=logging.INFO,
+        format="%(asctime)s %(levelname)s %(name)s: %(message)s",
+    )
+
+    config = AdminConfig.from_env()
+    errors = config.validate()
+    if errors:
+        for error in errors:
+            click.echo(f"Config error: {error}", err=True)
+        return 1
+
+    app = create_admin_app(config)
+
+    click.echo(f"Starting admin service on {config.host}:{config.port}")
+    uvicorn.run(app, host=config.host, port=config.port, log_level="info")
+    return 0
+
+
 def main():
     """Main entry point for the application."""
     return cli()
