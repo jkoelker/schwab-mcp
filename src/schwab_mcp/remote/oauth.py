@@ -16,12 +16,9 @@ authenticates claude.ai sessions to this Cloud Run server.
 
 from __future__ import annotations
 
-import hashlib
-import hmac
 import logging
 import secrets
 import time
-from typing import Any
 
 from pydantic import AnyHttpUrl
 from starlette.requests import Request

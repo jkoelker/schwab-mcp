@@ -8,10 +8,8 @@ from pydantic import AnyHttpUrl
 from starlette.requests import Request
 
 from mcp.server.auth.provider import (
-    AccessToken,
     AuthorizationCode,
     AuthorizationParams,
-    RefreshToken,
 )
 from mcp.shared.auth import OAuthClientInformationFull, OAuthToken
 
