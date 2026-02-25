@@ -259,7 +259,6 @@ class SchwabMCPOAuthProvider(
             client_id=client.client_id,
             scopes=authorization_code.scopes,
             expires_at=now + REFRESH_TOKEN_TTL,
-            resource=authorization_code.resource,
         )
 
         del self._auth_codes[authorization_code.code]

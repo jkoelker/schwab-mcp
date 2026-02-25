@@ -4,7 +4,9 @@ from typing import Any, cast
 
 import pytest
 
-pd = pytest.importorskip("pandas")
+pytest.importorskip("pandas")
+
+import pandas as pd  # noqa: E402
 
 from schwab_mcp.context import SchwabContext  # noqa: E402
 from schwab_mcp.tools.technical import (  # noqa: E402

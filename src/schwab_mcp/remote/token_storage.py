@@ -122,9 +122,9 @@ class PostgresTokenStorage:
         # schwab-py calls this from a sync context during token refresh.
         # Try to persist to DB via the anyio thread bridge.
         try:
-            import anyio
+            from anyio.from_thread import run as _run_async
 
-            anyio.from_thread.run(self._write_to_db, token)
+            _run_async(self._write_to_db, token)
         except Exception:
             # If we're already in an async context or no event loop,
             # just keep the cache. The next async write will persist it.

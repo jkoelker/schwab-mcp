@@ -43,8 +43,6 @@ def make_auth_params(
         code_challenge=code_challenge,
         redirect_uri=AnyHttpUrl(redirect_uri),
         redirect_uri_provided_explicitly=True,
-        response_type="code",
-        resource=None,
     )
 
 
@@ -199,7 +197,7 @@ class TestTokenManagement:
         _, token = run(do_full_auth_flow(provider))
 
         # Manually expire the token
-        provider._access_tokens[token.access_token].expires_at = time.time() - 1
+        provider._access_tokens[token.access_token].expires_at = int(time.time()) - 1
 
         loaded = run(provider.load_access_token(token.access_token))
         assert loaded is None
@@ -233,7 +231,7 @@ class TestTokenManagement:
         client, token = run(do_full_auth_flow(provider))
 
         assert token.refresh_token is not None
-        provider._refresh_tokens[token.refresh_token].expires_at = time.time() - 1
+        provider._refresh_tokens[token.refresh_token].expires_at = int(time.time()) - 1
 
         loaded = run(provider.load_refresh_token(client, token.refresh_token))
         assert loaded is None
