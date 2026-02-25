@@ -17,7 +17,6 @@ import datetime
 import logging
 import secrets
 from collections.abc import AsyncGenerator
-from functools import wraps
 from typing import Any
 
 from schwab import auth as schwab_auth
@@ -33,22 +32,6 @@ from schwab_mcp.remote.token_storage import PostgresTokenStorage
 logger = logging.getLogger(__name__)
 
 
-def _require_auth(config: AdminConfig):
-    """Simple password-based auth decorator using session cookies."""
-
-    def decorator(func):
-        @wraps(func)
-        async def wrapper(request: Request) -> Response:
-            session_token = request.cookies.get("admin_session")
-            if session_token and session_token == request.app.state.session_token:
-                return await func(request)
-            return RedirectResponse(url="/login", status_code=302)
-
-        return wrapper
-
-    return decorator
-
-
 def create_admin_app(config: AdminConfig) -> Starlette:
     """Create the admin Starlette application."""
     errors = config.validate()
@@ -58,83 +41,6 @@ def create_admin_app(config: AdminConfig) -> Starlette:
     # PKCE / state storage for the Schwab OAuth flow
     _oauth_state: dict[str, Any] = {}
 
-    auth_check = _require_auth(config)
-
-    async def login_page(request: Request) -> Response:
-        """Show the login form."""
-        error = request.query_params.get("error", "")
-        error_html = f'<p style="color: red;">{error}</p>' if error else ""
-        html = f"""<!DOCTYPE html>
-<html>
-<head>
-    <title>Schwab MCP Admin - Login</title>
-    <meta name="viewport" content="width=device-width, initial-scale=1">
-    <style>
-        body {{
-            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
-            max-width: 400px; margin: 60px auto; padding: 20px;
-            background: #f5f5f5;
-        }}
-        .card {{
-            background: white; border-radius: 12px; padding: 32px;
-            box-shadow: 0 2px 8px rgba(0,0,0,0.1);
-        }}
-        h1 {{ font-size: 1.3em; margin-top: 0; }}
-        input[type=password] {{
-            width: 100%; padding: 10px; margin: 8px 0 16px;
-            border: 1px solid #d1d5db; border-radius: 6px; font-size: 1em;
-            box-sizing: border-box;
-        }}
-        button {{
-            width: 100%; padding: 12px; background: #2563eb; color: white;
-            border: none; border-radius: 8px; font-size: 1em; cursor: pointer;
-        }}
-        button:hover {{ background: #1d4ed8; }}
-    </style>
-</head>
-<body>
-    <div class="card">
-        <h1>Schwab MCP Admin</h1>
-        {error_html}
-        <form action="/login" method="post">
-            <label for="password">Admin Password:</label>
-            <input type="password" id="password" name="password" required autofocus>
-            <button type="submit">Login</button>
-        </form>
-    </div>
-</body>
-</html>"""
-        return HTMLResponse(content=html)
-
-    async def login_submit(request: Request) -> Response:
-        """Handle login form submission."""
-        form = await request.form()
-        password = form.get("password", "")
-
-        if not isinstance(password, str):
-            return RedirectResponse(
-                url="/login?error=Invalid+input", status_code=302
-            )
-
-        if not secrets.compare_digest(password, config.admin_password):
-            return RedirectResponse(
-                url="/login?error=Invalid+password", status_code=302
-            )
-
-        session_token = secrets.token_hex(32)
-        request.app.state.session_token = session_token
-        response = RedirectResponse(url="/", status_code=302)
-        response.set_cookie(
-            "admin_session",
-            session_token,
-            httponly=True,
-            secure=True,
-            samesite="lax",
-            max_age=3600,
-        )
-        return response
-
-    @auth_check
     async def index(request: Request) -> Response:
         """Admin dashboard."""
         token_storage: PostgresTokenStorage = request.app.state.token_storage
@@ -207,7 +113,6 @@ def create_admin_app(config: AdminConfig) -> Starlette:
 </html>"""
         return HTMLResponse(content=html)
 
-    @auth_check
     async def schwab_auth_start(request: Request) -> Response:
         """Initiate the Schwab OAuth flow."""
         auth_context = schwab_auth.get_auth_context(
@@ -331,10 +236,8 @@ def create_admin_app(config: AdminConfig) -> Starlette:
 
     routes = [
         Route("/", endpoint=index, methods=["GET"]),
-        Route("/login", endpoint=login_page, methods=["GET"]),
-        Route("/login", endpoint=login_submit, methods=["POST"]),
         Route("/schwab/auth", endpoint=schwab_auth_start, methods=["GET"]),
-        Route("/schwab/callback", endpoint=schwab_callback, methods=["GET"]),
+        Route("/datareceived", endpoint=schwab_callback, methods=["GET"]),
         Route("/status", endpoint=status_endpoint, methods=["GET"]),
     ]
 
@@ -355,7 +258,6 @@ def create_admin_app(config: AdminConfig) -> Starlette:
             await db_manager.stop()
 
     app = Starlette(routes=routes, lifespan=lifespan)
-    app.state.session_token = None
     return app
 
 

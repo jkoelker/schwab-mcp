@@ -328,7 +328,6 @@ class SchwabMCPOAuthProvider(
             client_id=client.client_id,
             scopes=effective_scopes,
             expires_at=now + ACCESS_TOKEN_TTL,
-            resource=refresh_token.resource,
         )
 
         self._refresh_tokens[new_refresh_str] = RefreshToken(
@@ -336,7 +335,6 @@ class SchwabMCPOAuthProvider(
             client_id=client.client_id,
             scopes=effective_scopes,
             expires_at=now + REFRESH_TOKEN_TTL,
-            resource=refresh_token.resource,
         )
 
         logger.info("Refreshed access token for client %s", client.client_id)

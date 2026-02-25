@@ -2,8 +2,9 @@ import math
 from types import SimpleNamespace
 from typing import Any, cast
 
-import pandas as pd
 import pytest
+
+pd = pytest.importorskip("pandas")
 
 from schwab_mcp.context import SchwabContext
 from schwab_mcp.tools.technical import (

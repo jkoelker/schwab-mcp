@@ -122,9 +122,6 @@ class AdminConfig:
     db_user: str = "agent_user"
     db_password: str = ""
 
-    # Admin auth
-    admin_password: str = ""
-
     # Server settings
     host: str = "0.0.0.0"
     port: int = 8080
@@ -140,7 +137,6 @@ class AdminConfig:
             db_name=os.environ.get("SCHWAB_DB_NAME", "schwab_data"),
             db_user=os.environ.get("SCHWAB_DB_USER", "agent_user"),
             db_password=os.environ.get("SCHWAB_DB_PASSWORD", ""),
-            admin_password=os.environ.get("ADMIN_PASSWORD", ""),
             host=os.environ.get("HOST", "0.0.0.0"),
             port=int(os.environ.get("PORT", "8080")),
         )
@@ -168,6 +164,4 @@ class AdminConfig:
             errors.append("SCHWAB_DB_INSTANCE is required")
         if not self.db_password:
             errors.append("SCHWAB_DB_PASSWORD is required")
-        if not self.admin_password:
-            errors.append("ADMIN_PASSWORD is required")
         return errors

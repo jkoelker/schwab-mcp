@@ -18,7 +18,6 @@
 #   DB_PASSWORD_SECRET  - Secret Manager secret name for DB password
 #   SCHWAB_CLIENT_ID_SECRET    - Secret for Schwab client ID
 #   SCHWAB_CLIENT_SECRET_SECRET - Secret for Schwab client secret
-#   ADMIN_PASSWORD_SECRET      - Secret for admin password
 #   MCP_OAUTH_SECRET           - Secret for MCP OAuth secret
 #
 set -euo pipefail
@@ -34,7 +33,6 @@ DB_USER="${DB_USER:-agent_user}"
 DB_PASSWORD_SECRET="${DB_PASSWORD_SECRET:-schwab-db-password}"
 SCHWAB_CLIENT_ID_SECRET="${SCHWAB_CLIENT_ID_SECRET:-schwab-client-id}"
 SCHWAB_CLIENT_SECRET_SECRET="${SCHWAB_CLIENT_SECRET_SECRET:-schwab-client-secret}"
-ADMIN_PASSWORD_SECRET="${ADMIN_PASSWORD_SECRET:-schwab-admin-password}"
 MCP_OAUTH_SECRET="${MCP_OAUTH_SECRET:-schwab-mcp-oauth-secret}"
 
 # Service names
@@ -113,7 +111,7 @@ deploy_admin() {
         --timeout 60 \
         --max-instances 1 \
         --set-env-vars "SCHWAB_DB_INSTANCE=$DB_INSTANCE,SCHWAB_DB_NAME=$DB_NAME,SCHWAB_DB_USER=$DB_USER" \
-        --set-secrets "SCHWAB_CLIENT_ID=${SCHWAB_CLIENT_ID_SECRET}:latest,SCHWAB_CLIENT_SECRET=${SCHWAB_CLIENT_SECRET_SECRET}:latest,SCHWAB_DB_PASSWORD=${DB_PASSWORD_SECRET}:latest,ADMIN_PASSWORD=${ADMIN_PASSWORD_SECRET}:latest" \
+        --set-secrets "SCHWAB_CLIENT_ID=${SCHWAB_CLIENT_ID_SECRET}:latest,SCHWAB_CLIENT_SECRET=${SCHWAB_CLIENT_SECRET_SECRET}:latest,SCHWAB_DB_PASSWORD=${DB_PASSWORD_SECRET}:latest" \
         --add-cloudsql-instances "$DB_INSTANCE"
 
     ADMIN_URL=$(gcloud run services describe "$ADMIN_SERVICE" \
@@ -124,7 +122,7 @@ deploy_admin() {
     echo "Admin Service deployed: $ADMIN_URL"
 
     # Update callback URL to point to admin service
-    CALLBACK_URL="${ADMIN_URL}/schwab/callback"
+    CALLBACK_URL="https://admin.authority.bot/datareceived"
     gcloud run services update "$ADMIN_SERVICE" \
         --project "$PROJECT_ID" \
         --region "$REGION" \
