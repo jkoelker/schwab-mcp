@@ -11,6 +11,20 @@ src/schwab_mcp/
   auth.py             # OAuth browser flow helpers
   tokens.py           # Token load/save, validation
   approvals/          # Discord approval workflow
+  db/                 # Cloud SQL Postgres integration
+    __init__.py       # DatabaseManager, CloudSQLManager exports
+    _manager.py       # Connection management, reconnect logic
+    _schema.py        # DDL for option chain storage
+    _ingestion.py     # Option chain data ingestion
+  remote/             # Cloud Run remote server
+    __init__.py
+    app.py            # Starlette app: OAuth + MCP streamable HTTP
+    config.py         # RemoteServerConfig, AdminConfig (from env vars)
+    oauth.py          # OAuth 2.1 provider for claude.ai auth
+    token_storage.py  # Postgres-backed Schwab token storage + cache
+  admin/              # Admin service for Schwab re-auth
+    __init__.py
+    app.py            # Starlette app: dashboard + Schwab OAuth flow
   tools/              # MCP tool implementations
     __init__.py       # register_tools() aggregator
     _registration.py  # register_tool(), approval wrapping
@@ -25,6 +39,9 @@ src/schwab_mcp/
     quotes.py         # Quote retrieval tools
     transactions.py   # Transaction history tools
     technical/        # Optional pandas-ta indicators (sma, rsi, etc.)
+docs/
+  discord-setup.md    # Discord approval bot setup
+  cloud-run-deployment.md  # Cloud Run deployment guide
 tests/
   test_*.py           # Mirror source structure
 ```

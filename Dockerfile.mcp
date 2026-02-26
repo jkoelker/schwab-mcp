@@ -1,4 +1,8 @@
 # syntax=docker/dockerfile:1.21
+#
+# Dockerfile for the remote MCP server (Streamable HTTP + OAuth)
+# Deployed to Cloud Run as schwab-mcp
+#
 
 FROM ghcr.io/astral-sh/uv:python3.12-trixie-slim AS uv-tools
 
@@ -29,6 +33,7 @@ RUN uv build --wheel --out-dir /dist && \
     uv export \
         --format requirements-txt \
         --group ta \
+        --group remote \
         --no-emit-project \
         --output-file /dist/requirements.txt
 
@@ -58,9 +63,11 @@ RUN uv pip install --system --no-cache -r /tmp/dist/requirements.txt \
     && uv pip install --system --no-cache /tmp/dist/*.whl \
     && rm -rf /tmp/dist
 
-LABEL org.opencontainers.image.title="Schwab MCP Server" \
-      org.opencontainers.image.description="Model Context Protocol server for Schwab built on schwab-mcp." \
+LABEL org.opencontainers.image.title="Schwab MCP Remote Server" \
+      org.opencontainers.image.description="Remote MCP server for Schwab with OAuth and Streamable HTTP transport." \
       org.opencontainers.image.source="https://github.com/jkoelker/schwab-mcp"
 
+EXPOSE 8080
+
 ENTRYPOINT ["schwab-mcp"]
-CMD ["server"]
+CMD ["remote-server"]

@@ -2,11 +2,14 @@ import math
 from types import SimpleNamespace
 from typing import Any, cast
 
-import pandas as pd
 import pytest
 
-from schwab_mcp.context import SchwabContext
-from schwab_mcp.tools.technical import (
+pytest.importorskip("pandas")
+
+import pandas as pd  # noqa: E402
+
+from schwab_mcp.context import SchwabContext  # noqa: E402
+from schwab_mcp.tools.technical import (  # noqa: E402
     base,
     moving_average,
     momentum,
@@ -15,7 +18,7 @@ from schwab_mcp.tools.technical import (
     volatility,
 )
 
-from conftest import run
+from conftest import run  # noqa: E402
 
 
 def run_tool(coro) -> dict[str, Any]:

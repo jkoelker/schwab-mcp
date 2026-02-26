@@ -41,6 +41,12 @@ ta = [
 db = [
     "cloud-sql-python-connector[pg8000]>=1.9.0",
 ]
+remote = [
+    "cloud-sql-python-connector[pg8000]>=1.9.0",
+    "starlette>=0.45.0",
+    "uvicorn>=0.34.0",
+    "pydantic>=2.0.0",
+]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

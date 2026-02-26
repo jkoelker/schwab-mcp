@@ -166,6 +166,10 @@ schwab-mcp server \
 
 Set `GOOGLE_APPLICATION_CREDENTIALS` environment variable to authenticate to Cloud SQL.
 
+### Cloud Run Deployment
+
+For running as a remote MCP server on Google Cloud Run (with OAuth for claude.ai), see the [Cloud Run Deployment Guide](docs/cloud-run-deployment.md).
+
 ### Container Usage
 
 A Docker/Podman image is available at `ghcr.io/jkoelker/schwab-mcp`.
