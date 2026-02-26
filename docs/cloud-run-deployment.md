@@ -15,7 +15,7 @@ Both services connect to a shared Cloud SQL Postgres database. Secrets are store
 - `gcloud` CLI installed and authenticated (`gcloud auth login`)
 - Docker or Podman
 - A Schwab Developer Portal app with API credentials
-- DNS control over `admin.authority.bot`
+- A custom domain for the admin service (e.g., `admin.example.com`), or use the default Cloud Run URL
 
 ```bash
 # Verify gcloud is configured
@@ -141,7 +141,14 @@ gcloud run services add-iam-policy-binding schwab-mcp-admin \
 
 ## 4. Deploy Services
 
-The `deploy.sh` script handles building and deploying both services. It uses `gcloud run deploy --source .` with the respective Dockerfiles (`Dockerfile.mcp` and `Dockerfile.admin`).
+The `deploy.sh` script handles building and deploying both services. It runs `gcloud run deploy --source .` which uploads the source and builds container images in Cloud Build using `Dockerfile.mcp` (MCP server) and `Dockerfile.admin` (admin service). Both Dockerfiles use a multi-stage build: a builder stage compiles a wheel and exports dependencies, then a slim runtime stage installs only what's needed.
+
+Key things `deploy.sh` does:
+
+- Wires Secret Manager secrets into environment variables on each service
+- Attaches the Cloud SQL instance via `--add-cloudsql-instances`
+- For the MCP service: deploys once, reads back the assigned URL, then updates `SERVER_URL` (needed for OAuth redirects)
+- For the admin service: sets `SCHWAB_CALLBACK_URL` using `ADMIN_DOMAIN` (if set) or the Cloud Run-assigned URL
 
 ### Environment Variables
 
@@ -161,11 +168,18 @@ Secret names (referencing Secret Manager, not the values):
 | `SCHWAB_CLIENT_SECRET_SECRET` | `schwab-client-secret` |
 | `DB_PASSWORD_SECRET` | `schwab-db-password` |
 | `MCP_OAUTH_SECRET` | `schwab-mcp-oauth-secret` |
+| `ADMIN_DOMAIN` | *(none — uses Cloud Run URL)* |
+
+Set `ADMIN_DOMAIN` to your custom domain (e.g., `admin.example.com`) if you configured one in [§5](#5-domain-mapping-optional). When unset, the Schwab callback URL defaults to the Cloud Run-assigned URL.
 
 ### Deploy Both Services
 
 ```bash
 DB_INSTANCE="your-project:us-west1:schwab-mcp-db" ./deploy.sh
+
+# With a custom admin domain:
+ADMIN_DOMAIN="admin.example.com" \
+  DB_INSTANCE="your-project:us-west1:schwab-mcp-db" ./deploy.sh
 ```
 
 ### Deploy Individually
@@ -185,14 +199,43 @@ The MCP server needs its own URL set as `SERVER_URL` for OAuth to work. The depl
 
 On subsequent deploys this is a no-op update since the URL doesn't change.
 
-## 5. Domain Mapping
+### Trading and Discord Approval
 
-Map `admin.authority.bot` to the admin Cloud Run service:
+The remote MCP server supports the same Discord approval workflow as the local server. Without Discord configured, trading tools are **not registered** — the server is read-only by default.
+
+To enable trading with Discord approval, add these secrets and environment variables to the MCP service:
 
 ```bash
+# Store Discord secrets
+echo -n "YOUR_DISCORD_BOT_TOKEN" | \
+    gcloud secrets create schwab-mcp-discord-token --data-file=- --project="$PROJECT_ID"
+
+# Update the MCP service with Discord config
+gcloud run services update schwab-mcp \
+    --region="$REGION" \
+    --project="$PROJECT_ID" \
+    --set-secrets "SCHWAB_MCP_DISCORD_TOKEN=schwab-mcp-discord-token:latest" \
+    --update-env-vars "SCHWAB_MCP_DISCORD_CHANNEL_ID=YOUR_CHANNEL_ID,SCHWAB_MCP_DISCORD_APPROVERS=YOUR_USER_ID"
+```
+
+See [Discord Setup Guide](discord-setup.md) for creating the bot and obtaining these values.
+
+> **⚠️ Warning:** Setting `JESUS_TAKE_THE_WHEEL=true` bypasses all approval checks. Do not use in production unless you fully understand the risks.
+
+## 5. Domain Mapping (Optional)
+
+> **Note:** A custom domain is optional. If you skip this step, use the Cloud Run-assigned URL as your Schwab callback URL instead. The `deploy.sh` script handles this automatically when `ADMIN_DOMAIN` is not set.
+
+Replace `admin.example.com` below with your own domain.
+
+Map it to the admin Cloud Run service:
+
+```bash
+ADMIN_DOMAIN="admin.example.com"
+
 gcloud beta run domain-mappings create \
     --service=schwab-mcp-admin \
-    --domain=admin.authority.bot \
+    --domain="$ADMIN_DOMAIN" \
     --region="$REGION" \
     --project="$PROJECT_ID"
 ```
@@ -200,7 +243,7 @@ gcloud beta run domain-mappings create \
 Then add a DNS CNAME record:
 
 ```
-admin.authority.bot.  CNAME  ghs.googlehosted.com.
+admin.example.com.  CNAME  ghs.googlehosted.com.
 ```
 
 Cloud Run automatically provisions and renews the SSL certificate. Provisioning takes a few minutes after DNS propagates.
@@ -209,7 +252,7 @@ Check mapping status:
 
 ```bash
 gcloud beta run domain-mappings describe \
-    --domain=admin.authority.bot \
+    --domain="$ADMIN_DOMAIN" \
     --region="$REGION" \
     --project="$PROJECT_ID"
 ```
@@ -219,16 +262,18 @@ After the domain is mapped, update the admin service callback URL:
 ```bash
 gcloud run services update schwab-mcp-admin \
     --region="$REGION" \
-    --update-env-vars "SCHWAB_CALLBACK_URL=https://admin.authority.bot/datareceived" \
+    --update-env-vars "SCHWAB_CALLBACK_URL=https://${ADMIN_DOMAIN}/datareceived" \
     --project="$PROJECT_ID"
 ```
 
 ## 6. Schwab Developer Portal Configuration
 
-In the [Schwab Developer Portal](https://developer.schwab.com/), update your app's callback URL to:
+In the [Schwab Developer Portal](https://developer.schwab.com/), update your app's callback URL to match the callback URL printed by `deploy.sh`:
 
 ```
-https://admin.authority.bot/datareceived
+https://admin.example.com/datareceived
+# or if using the default Cloud Run URL:
+https://<ADMIN_SERVICE_URL>/datareceived
 ```
 
 > **Note:** Schwab callback URL changes typically only take effect after market close. Plan accordingly.
@@ -239,7 +284,7 @@ After deployment, you need to complete the Schwab OAuth flow once to seed the to
 
 ### Option A: Access via IAM-Authenticated Browser
 
-If you have `roles/run.invoker` on the admin service, navigate to `https://admin.authority.bot` in a browser where you're signed into the authorized Google account. Cloud Run's IAP handles authentication automatically.
+If you have `roles/run.invoker` on the admin service, navigate to `https://<ADMIN_DOMAIN>` (or the Cloud Run-assigned URL) in a browser where you're signed into the authorized Google account. Cloud Run's IAP handles authentication automatically.
 
 ### Option B: Proxy Locally
 
@@ -286,7 +331,7 @@ Once the MCP server is deployed and has a valid token:
 ```bash
 # Admin service status endpoint
 curl -H "Authorization: Bearer $(gcloud auth print-identity-token)" \
-    https://admin.authority.bot/status
+    https://<ADMIN_DOMAIN>/status
 
 # MCP server token status (public)
 curl https://<MCP_SERVICE_URL>/token-status
@@ -325,3 +370,44 @@ gcloud run services logs read schwab-mcp \
 | `SCHWAB_CALLBACK_URL is required` | Missing env var on admin service | Update with `gcloud run services update` |
 | Domain mapping stuck on "pending" | DNS not propagated | Verify CNAME record points to `ghs.googlehosted.com` |
 | OAuth callback fails after portal update | Schwab hasn't activated the new callback URL | Wait until after market close |
+
+## Cost Estimates
+
+This deployment uses minimal resources. Approximate monthly costs (as of 2025):
+
+| Resource | Tier | Estimated Cost |
+|----------|------|----------------|
+| Cloud SQL (Postgres) | `db-f1-micro` | ~$7–10/mo |
+| Cloud Run (MCP server) | 512 MiB, max 1 instance | Free tier likely covers it; ~$0–5/mo |
+| Cloud Run (Admin service) | 256 MiB, max 1 instance | Free tier likely covers it; ~$0–2/mo |
+| Secret Manager | 4 secrets | Free (< 10K access ops/mo) |
+| Cloud Build | Source builds on deploy | Free tier (120 min/day) |
+
+Cloud Run charges only for request processing time, not idle time. With light usage the total is roughly **$7–15/month**, dominated by Cloud SQL.
+
+> **Tip:** For lower costs, consider stopping the Cloud SQL instance when not in use: `gcloud sql instances patch schwab-mcp-db --activation-policy=NEVER`.
+
+## Teardown
+
+To remove all deployed resources:
+
+```bash
+PROJECT_ID=$(gcloud config get-value project)
+REGION=us-west1
+
+# Delete Cloud Run services
+gcloud run services delete schwab-mcp --region="$REGION" --project="$PROJECT_ID" --quiet
+gcloud run services delete schwab-mcp-admin --region="$REGION" --project="$PROJECT_ID" --quiet
+
+# Delete domain mapping (if configured)
+# gcloud beta run domain-mappings delete --domain="admin.example.com" --region="$REGION" --project="$PROJECT_ID"
+
+# Delete Cloud SQL instance (destroys all data!)
+gcloud sql instances delete schwab-mcp-db --project="$PROJECT_ID" --quiet
+
+# Delete secrets
+gcloud secrets delete schwab-client-id --project="$PROJECT_ID" --quiet
+gcloud secrets delete schwab-client-secret --project="$PROJECT_ID" --quiet
+gcloud secrets delete schwab-db-password --project="$PROJECT_ID" --quiet
+gcloud secrets delete schwab-mcp-oauth-secret --project="$PROJECT_ID" --quiet
+```

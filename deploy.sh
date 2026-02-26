@@ -35,6 +35,9 @@ SCHWAB_CLIENT_ID_SECRET="${SCHWAB_CLIENT_ID_SECRET:-schwab-client-id}"
 SCHWAB_CLIENT_SECRET_SECRET="${SCHWAB_CLIENT_SECRET_SECRET:-schwab-client-secret}"
 MCP_OAUTH_SECRET="${MCP_OAUTH_SECRET:-schwab-mcp-oauth-secret}"
 
+# Admin domain (used for Schwab callback URL)
+ADMIN_DOMAIN="${ADMIN_DOMAIN:-}"
+
 # Service names
 MCP_SERVICE="schwab-mcp"
 ADMIN_SERVICE="schwab-mcp-admin"
@@ -122,7 +125,11 @@ deploy_admin() {
     echo "Admin Service deployed: $ADMIN_URL"
 
     # Update callback URL to point to admin service
-    CALLBACK_URL="https://admin.authority.bot/datareceived"
+    if [[ -n "$ADMIN_DOMAIN" ]]; then
+        CALLBACK_URL="https://${ADMIN_DOMAIN}/datareceived"
+    else
+        CALLBACK_URL="${ADMIN_URL}/datareceived"
+    fi
     gcloud run services update "$ADMIN_SERVICE" \
         --project "$PROJECT_ID" \
         --region "$REGION" \
