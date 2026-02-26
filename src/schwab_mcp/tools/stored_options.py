@@ -70,6 +70,9 @@ async def query_stored_options(
         conditions.append("oc.total_volume >= %s")
         params.append(min_volume)
 
+    # SECURITY: `conditions` contains only hardcoded SQL fragments with %s
+    # placeholders; all user-supplied values are in `params`. Do not interpolate
+    # user input into condition strings — that would create a SQL injection risk.
     where = " AND ".join(conditions)
     params.append(limit)
 
