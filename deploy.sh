@@ -60,14 +60,24 @@ echo "DB Instance: $DB_INSTANCE"
 echo ""
 
 # --- Helper ---
+
+# gcloud run deploy --source uses the Dockerfile in the source directory.
+# We copy the correct Dockerfile before each deploy and clean up after.
+use_dockerfile() {
+    local dockerfile="$1"
+    cp "$dockerfile" Dockerfile
+    trap 'rm -f Dockerfile' EXIT
+}
+
 deploy_mcp() {
     echo "--- Deploying MCP Server ($MCP_SERVICE) ---"
+
+    use_dockerfile Dockerfile.mcp
 
     # Get the service URL after deploy for SERVER_URL env var
     # First deploy without it, then update
     gcloud run deploy "$MCP_SERVICE" \
         --source . \
-        --dockerfile Dockerfile.mcp \
         --project "$PROJECT_ID" \
         --region "$REGION" \
         --allow-unauthenticated \
@@ -103,9 +113,29 @@ deploy_mcp() {
 deploy_admin() {
     echo "--- Deploying Admin Service ($ADMIN_SERVICE) ---"
 
+    use_dockerfile Dockerfile.admin
+
+    # Determine callback URL upfront so the container can start.
+    # On first deploy without ADMIN_DOMAIN, we use a placeholder and
+    # update after the service URL is known.
+    if [[ -n "$ADMIN_DOMAIN" ]]; then
+        CALLBACK_URL="https://${ADMIN_DOMAIN}/datareceived"
+    else
+        # Check if service already exists to get its URL
+        ADMIN_URL=$(gcloud run services describe "$ADMIN_SERVICE" \
+            --project "$PROJECT_ID" \
+            --region "$REGION" \
+            --format 'value(status.url)' 2>/dev/null || true)
+        if [[ -n "$ADMIN_URL" ]]; then
+            CALLBACK_URL="${ADMIN_URL}/datareceived"
+        else
+            # First deploy: use a placeholder, will update after
+            CALLBACK_URL="https://placeholder.invalid/datareceived"
+        fi
+    fi
+
     gcloud run deploy "$ADMIN_SERVICE" \
         --source . \
-        --dockerfile Dockerfile.admin \
         --project "$PROJECT_ID" \
         --region "$REGION" \
         --no-allow-unauthenticated \
@@ -113,7 +143,7 @@ deploy_admin() {
         --memory 256Mi \
         --timeout 60 \
         --max-instances 1 \
-        --set-env-vars "SCHWAB_DB_INSTANCE=$DB_INSTANCE,SCHWAB_DB_NAME=$DB_NAME,SCHWAB_DB_USER=$DB_USER" \
+        --set-env-vars "SCHWAB_DB_INSTANCE=$DB_INSTANCE,SCHWAB_DB_NAME=$DB_NAME,SCHWAB_DB_USER=$DB_USER,SCHWAB_CALLBACK_URL=$CALLBACK_URL" \
         --set-secrets "SCHWAB_CLIENT_ID=${SCHWAB_CLIENT_ID_SECRET}:latest,SCHWAB_CLIENT_SECRET=${SCHWAB_CLIENT_SECRET_SECRET}:latest,SCHWAB_DB_PASSWORD=${DB_PASSWORD_SECRET}:latest" \
         --add-cloudsql-instances "$DB_INSTANCE"
 
@@ -124,16 +154,14 @@ deploy_admin() {
 
     echo "Admin Service deployed: $ADMIN_URL"
 
-    # Update callback URL to point to admin service
-    if [[ -n "$ADMIN_DOMAIN" ]]; then
-        CALLBACK_URL="https://${ADMIN_DOMAIN}/datareceived"
-    else
+    # If we used a placeholder, update with the real URL now
+    if [[ "$CALLBACK_URL" == *"placeholder.invalid"* ]]; then
         CALLBACK_URL="${ADMIN_URL}/datareceived"
+        gcloud run services update "$ADMIN_SERVICE" \
+            --project "$PROJECT_ID" \
+            --region "$REGION" \
+            --update-env-vars "SCHWAB_CALLBACK_URL=$CALLBACK_URL"
     fi
-    gcloud run services update "$ADMIN_SERVICE" \
-        --project "$PROJECT_ID" \
-        --region "$REGION" \
-        --update-env-vars "SCHWAB_CALLBACK_URL=$CALLBACK_URL"
 
     echo ""
     echo "IMPORTANT: Update your Schwab Developer Portal callback URL to:"

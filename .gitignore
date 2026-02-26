@@ -48,6 +48,9 @@ info/
 # Environment files
 .env
 
+# Deploy symlink (created by deploy.sh)
+Dockerfile
+
 # Python
 __pycache__/
 *.py[cod]

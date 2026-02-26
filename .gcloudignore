@@ -1,0 +1,22 @@
+# This file controls which files are uploaded by gcloud run deploy --source.
+# Without this file, gcloud falls back to .gitignore, which excludes Dockerfile.
+
+.git/
+.venv/
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
+.coverage
+htmlcov/
+__pycache__/
+*.py[cod]
+*.egg-info/
+dist/
+build/
+tests/
+docs/
+.github/
+.claude/
+*.log
+.env
+.DS_Store
