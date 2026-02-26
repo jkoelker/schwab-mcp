@@ -54,7 +54,7 @@ def equity_buy_limit(
     return (
         __equity_base_builder(session, duration)
         .set_order_type(OrderType.LIMIT)
-        .set_price(price)
+        .set_price(str(price))
         .add_equity_leg(EquityInstruction.BUY, symbol, quantity)
     )
 
@@ -68,7 +68,7 @@ def equity_sell_limit(
     return (
         __equity_base_builder(session, duration)
         .set_order_type(OrderType.LIMIT)
-        .set_price(price)
+        .set_price(str(price))
         .add_equity_leg(EquityInstruction.SELL, symbol, quantity)
     )
 
@@ -82,7 +82,7 @@ def equity_buy_stop(
     return (
         __equity_base_builder(session, duration)
         .set_order_type(OrderType.STOP)
-        .set_stop_price(stop_price)
+        .set_stop_price(str(stop_price))
         .add_equity_leg(EquityInstruction.BUY, symbol, quantity)
     )
 
@@ -96,7 +96,7 @@ def equity_sell_stop(
     return (
         __equity_base_builder(session, duration)
         .set_order_type(OrderType.STOP)
-        .set_stop_price(stop_price)
+        .set_stop_price(str(stop_price))
         .add_equity_leg(EquityInstruction.SELL, symbol, quantity)
     )
 
@@ -115,8 +115,8 @@ def equity_buy_stop_limit(
     return (
         __equity_base_builder(session, duration)
         .set_order_type(OrderType.STOP_LIMIT)
-        .set_stop_price(stop_price)
-        .set_price(limit_price)
+        .set_stop_price(str(stop_price))
+        .set_price(str(limit_price))
         .add_equity_leg(EquityInstruction.BUY, symbol, quantity)
     )
 
@@ -135,8 +135,8 @@ def equity_sell_stop_limit(
     return (
         __equity_base_builder(session, duration)
         .set_order_type(OrderType.STOP_LIMIT)
-        .set_stop_price(stop_price)
-        .set_price(limit_price)
+        .set_stop_price(str(stop_price))
+        .set_price(str(limit_price))
         .add_equity_leg(EquityInstruction.SELL, symbol, quantity)
     )
 
@@ -214,7 +214,7 @@ def option_buy_to_open_limit(
     return (
         __option_base_builder(session, duration)
         .set_order_type(OrderType.LIMIT)
-        .set_price(price)
+        .set_price(str(price))
         .add_option_leg(OptionInstruction.BUY_TO_OPEN, symbol, quantity)
     )
 
@@ -228,7 +228,7 @@ def option_sell_to_open_limit(
     return (
         __option_base_builder(session, duration)
         .set_order_type(OrderType.LIMIT)
-        .set_price(price)
+        .set_price(str(price))
         .add_option_leg(OptionInstruction.SELL_TO_OPEN, symbol, quantity)
     )
 
@@ -242,7 +242,7 @@ def option_buy_to_close_limit(
     return (
         __option_base_builder(session, duration)
         .set_order_type(OrderType.LIMIT)
-        .set_price(price)
+        .set_price(str(price))
         .add_option_leg(OptionInstruction.BUY_TO_CLOSE, symbol, quantity)
     )
 
@@ -256,7 +256,7 @@ def option_sell_to_close_limit(
     return (
         __option_base_builder(session, duration)
         .set_order_type(OrderType.LIMIT)
-        .set_price(price)
+        .set_price(str(price))
         .add_option_leg(OptionInstruction.SELL_TO_CLOSE, symbol, quantity)
     )
 
