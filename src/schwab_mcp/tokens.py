@@ -124,7 +124,7 @@ def credentials_path(app_name: str, filename: str = "credentials.yaml") -> str:
         The path to the credentials file
     """
     data_dir = user_data_dir(app_name)
-    pathlib.Path(data_dir).mkdir(parents=True, exist_ok=True)
+    pathlib.Path(data_dir).mkdir(mode=0o700, parents=True, exist_ok=True)
     return os.path.join(data_dir, filename)
 
 

@@ -377,6 +377,12 @@ def server(
         allow_write = False
 
         if jesus_take_the_wheel:
+            click.echo(
+                "WARNING: --jesus-take-the-wheel is active. "
+                "ALL write tool invocations (trades, orders) will be "
+                "auto-approved WITHOUT human review.",
+                err=True,
+            )
             approval_manager = NoOpApprovalManager()
             allow_write = True
         elif discord_requested:

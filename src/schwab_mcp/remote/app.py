@@ -9,7 +9,6 @@ Combines:
 from __future__ import annotations
 
 import contextlib
-import datetime
 import logging
 from collections.abc import AsyncGenerator
 from typing import Any, Callable
@@ -76,13 +75,15 @@ def _create_approval_manager(
 ) -> tuple[ApprovalManager, bool]:
     """Create the approval manager based on config. Returns (manager, allow_write)."""
     if config.jesus_take_the_wheel:
+        logger.warning(
+            "JESUS_TAKE_THE_WHEEL is active. "
+            "ALL write tool invocations will be auto-approved WITHOUT human review."
+        )
         return NoOpApprovalManager(), True
 
     if config.discord_token and config.discord_channel_id:
         approver_ids_raw = [
-            int(x.strip())
-            for x in config.discord_approvers.split(",")
-            if x.strip()
+            int(x.strip()) for x in config.discord_approvers.split(",") if x.strip()
         ]
         approver_ids = DiscordApprovalManager.authorized_user_ids(
             approver_ids_raw or None
@@ -199,42 +200,11 @@ def create_app(config: RemoteServerConfig) -> Starlette:
     async def health(request: Request) -> Response:
         return JSONResponse({"status": "ok", "service": "schwab-mcp"})
 
-    # Token status endpoint
-    async def token_status(request: Request) -> Response:
-        token_storage: PostgresTokenStorage | None = getattr(
-            request.app.state, "token_storage", None
-        )
-        if token_storage is None:
-            return JSONResponse({"error": "not initialized"}, status_code=503)
-        try:
-            token = await token_storage.load_async()
-            info: dict[str, Any] = {
-                "exists": True,
-                "has_access_token": "access_token" in token,
-                "has_refresh_token": "refresh_token" in token,
-            }
-            if "creation_timestamp" in token:
-                created = datetime.datetime.fromtimestamp(
-                    token["creation_timestamp"], tz=datetime.timezone.utc
-                )
-                info["created_at"] = created.isoformat()
-                age_days = (
-                    datetime.datetime.now(datetime.timezone.utc) - created
-                ).total_seconds() / 86400
-                info["age_days"] = round(age_days, 2)
-                info["refresh_likely_valid"] = age_days < 7
-            return JSONResponse(info)
-        except FileNotFoundError:
-            return JSONResponse({"exists": False}, status_code=404)
-        except Exception as e:
-            return JSONResponse({"error": str(e)}, status_code=500)
-
     # Combine all routes
     all_routes = list(oauth_routes) + [
         Route("/consent", endpoint=consent_page, methods=["GET"]),
         Route("/consent/approve", endpoint=consent_approve, methods=["POST"]),
         Route("/health", endpoint=health, methods=["GET"]),
-        Route("/token-status", endpoint=token_status, methods=["GET"]),
     ]
 
     @contextlib.asynccontextmanager

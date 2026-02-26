@@ -14,6 +14,7 @@ from __future__ import annotations
 
 import contextlib
 import datetime
+import html
 import logging
 import secrets
 from collections.abc import AsyncGenerator
@@ -38,8 +39,22 @@ def create_admin_app(config: AdminConfig) -> Starlette:
     if errors:
         raise ValueError(f"Invalid admin configuration: {'; '.join(errors)}")
 
-    # PKCE / state storage for the Schwab OAuth flow
+    # PKCE / state storage for the Schwab OAuth flow.
+    # Entries are cleaned up after 10 minutes to prevent memory leaks.
+    _OAUTH_STATE_TTL_SECONDS = 600
     _oauth_state: dict[str, Any] = {}
+
+    def _cleanup_expired_state() -> None:
+        """Remove OAuth state entries older than the TTL."""
+        now = datetime.datetime.now(datetime.timezone.utc)
+        expired = [
+            key
+            for key, val in _oauth_state.items()
+            if (now - datetime.datetime.fromisoformat(val["timestamp"])).total_seconds()
+            > _OAUTH_STATE_TTL_SECONDS
+        ]
+        for key in expired:
+            _oauth_state.pop(key, None)
 
     async def index(request: Request) -> Response:
         """Admin dashboard."""
@@ -115,6 +130,8 @@ def create_admin_app(config: AdminConfig) -> Starlette:
 
     async def schwab_auth_start(request: Request) -> Response:
         """Initiate the Schwab OAuth flow."""
+        _cleanup_expired_state()
+
         auth_context = schwab_auth.get_auth_context(
             config.schwab_client_id,
             config.schwab_callback_url,
@@ -149,13 +166,10 @@ def create_admin_app(config: AdminConfig) -> Starlette:
         auth_context = None
         if state and state in _oauth_state:
             auth_context = _oauth_state.pop(state)["auth_context"]
-        elif _oauth_state:
-            latest_key = max(_oauth_state.keys())
-            auth_context = _oauth_state.pop(latest_key)["auth_context"]
 
         if auth_context is None:
             return HTMLResponse(
-                "<h1>Error</h1><p>OAuth state expired. Please try again.</p>",
+                "<h1>Error</h1><p>OAuth state missing or expired. Please try again.</p>",
                 status_code=400,
             )
 
@@ -219,7 +233,7 @@ def create_admin_app(config: AdminConfig) -> Starlette:
 </head>
 <body>
     <h1 class="error">Authentication Failed</h1>
-    <p>{str(e)}</p>
+    <p>{html.escape(str(e))}</p>
     <p><a href="/">Back to Admin</a></p>
 </body>
 </html>""",
@@ -285,5 +299,10 @@ async def _get_token_info(token_storage: PostgresTokenStorage) -> dict[str, Any]
         return info
     except FileNotFoundError:
         return {"exists": False, "refresh_likely_valid": False}
-    except Exception as e:
-        return {"exists": None, "error": str(e), "refresh_likely_valid": False}
+    except Exception:
+        logger.exception("Failed to load token info")
+        return {
+            "exists": None,
+            "error": "internal error",
+            "refresh_likely_valid": False,
+        }
