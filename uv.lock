@@ -2130,7 +2130,7 @@ requires-dist = [
     { name = "platformdirs", specifier = ">=4.5.0" },
     { name = "python-toon", specifier = ">=0.1.2" },
     { name = "pyyaml", specifier = ">=6.0.3" },
-    { name = "schwab-py", git = "https://github.com/jkoelker/schwab-py.git?rev=proxy_support" },
+    { name = "schwab-py", git = "https://github.com/jkoelker/schwab-py.git?rev=a55cb29e9c9110e42b9744bde2e1d1dfccfc7589" },
 ]
 
 [package.metadata.requires-dev]
@@ -2149,7 +2149,7 @@ ta = [
 [[package]]
 name = "schwab-py"
 version = "1.5.1"
-source = { git = "https://github.com/jkoelker/schwab-py.git?rev=proxy_support#fef17718b811b88dcf5391f1d0cf1b39c12c0236" }
+source = { git = "https://github.com/jkoelker/schwab-py.git?rev=a55cb29e9c9110e42b9744bde2e1d1dfccfc7589#a55cb29e9c9110e42b9744bde2e1d1dfccfc7589" }
 dependencies = [
     { name = "authlib" },
     { name = "autopep8" },
