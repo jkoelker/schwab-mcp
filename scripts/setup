@@ -1,0 +1,23 @@
+#!/usr/bin/env bash
+
+set -e
+
+cd "$(dirname "$0")/.."
+
+# uv (Python package/venv manager — this project's build tool)
+curl -LsSf https://astral.sh/uv/install.sh | sh
+export PATH="$HOME/.local/bin:$PATH"
+
+# Project deps: dev tools + technical-analysis extras, pinned to uv.lock
+uv sync --frozen --group dev --group ta
+
+# act (run GitHub Actions locally)
+curl --proto '=https' --tlsv1.2 -sSf https://raw.githubusercontent.com/nektos/act/master/install.sh | sudo BINDIR=/usr/local/bin bash
+
+# pre-commit (installed as a standalone uv tool, not a project dep)
+uv tool install pre-commit
+pre-commit install
+
+# Editor / agent CLIs
+curl -fsSL https://cursor.com/install | bash
+curl -fsSL https://claude.ai/install.sh | bash
