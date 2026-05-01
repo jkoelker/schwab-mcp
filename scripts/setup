@@ -11,8 +11,8 @@ export PATH="$HOME/.local/bin:$PATH"
 # Project deps: dev tools + technical-analysis extras, pinned to uv.lock
 uv sync --frozen --group dev --group ta
 
-# act (run GitHub Actions locally)
-curl --proto '=https' --tlsv1.2 -sSf https://raw.githubusercontent.com/nektos/act/master/install.sh | sudo BINDIR=/usr/local/bin bash
+# act (run GitHub Actions locally) — installed as a gh extension, invoked as `gh act`
+gh extension install nektos/gh-act
 
 # pre-commit (installed as a standalone uv tool, not a project dep)
 uv tool install pre-commit
