@@ -3,6 +3,7 @@ from enum import Enum
 from conftest import make_ctx, run
 
 from schwab_mcp.tools import quotes
+from schwab_mcp.tools.quotes import _normalize_option_symbol
 
 
 class DummyQuotesClient:
@@ -154,3 +155,37 @@ def test_compact_quote_fields_membership_check_works():
     """'in' membership check must still work on a tuple."""
     assert "lastPrice" in quotes._COMPACT_QUOTE_FIELDS
     assert "bidSize" not in quotes._COMPACT_QUOTE_FIELDS
+
+
+# ---------------------------------------------------------------------------
+# OCC option symbol normalization
+# ---------------------------------------------------------------------------
+
+
+def test_normalize_option_symbol_pads_root_and_strike():
+    assert _normalize_option_symbol("SPX 260821P06550") == "SPX   260821P06550000"
+
+
+def test_normalize_option_symbol_already_correct():
+    assert _normalize_option_symbol("SPX   260821P06550000") == "SPX   260821P06550000"
+
+
+def test_normalize_option_symbol_regular_stock():
+    assert _normalize_option_symbol("AAPL") == "AAPL"
+
+
+def test_normalize_option_symbol_short_strike():
+    assert _normalize_option_symbol("SPY 260207C500") == "SPY   260207C00500000"
+
+
+def test_get_quotes_normalizes_option_symbols(monkeypatch, fake_call_factory):
+    captured, fake_call = fake_call_factory()
+    monkeypatch.setattr(quotes, "call", fake_call)
+
+    client = DummyQuotesClient()
+    ctx = make_ctx(client)
+    result = run(quotes.get_quotes(ctx, "SPX 260821P06550"))
+
+    assert result == "ok"
+    args = captured["args"]
+    assert args == (["SPX   260821P06550000"],)
