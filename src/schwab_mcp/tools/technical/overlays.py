@@ -3,6 +3,7 @@ from __future__ import annotations
 from collections.abc import Callable
 from typing import Annotated, Any
 
+import pandas as pd
 from mcp.server.fastmcp import FastMCP
 from schwab_mcp.context import SchwabContext
 from schwab_mcp.tools._registration import register_tool
@@ -23,6 +24,85 @@ from .base import (
 )
 
 __all__ = ["register"]
+
+# pandas_ta_classic (the pinned indicator library, aliased as `pandas_ta` in
+# .base) has no `pivot_points` attribute under any version we've run against
+# (confirmed empty on 0.3.59 — no top-level function, no submodule), so the
+# indicator is computed directly below instead. vwap/bbands still use
+# pandas_ta since those genuinely exist there.
+
+_PIVOT_METHODS = ("standard", "fibonacci", "camarilla", "woodie", "demark")
+
+
+def _compute_pivot_points(
+    frame: pd.DataFrame, *, method: str, lookback: int | None
+) -> pd.DataFrame:
+    """Compute floor-trader pivot levels from the prior period's H/L/C."""
+    method = method.lower()
+    if method not in _PIVOT_METHODS:
+        raise ValueError(
+            f"Unsupported pivot method '{method}'. "
+            f"Choose from: {', '.join(_PIVOT_METHODS)}."
+        )
+
+    window = lookback if lookback and lookback > 0 else 1
+    high = frame["high"].rolling(window=window).max().shift(1)
+    low = frame["low"].rolling(window=window).min().shift(1)
+    close = frame["close"].shift(1)
+    diff = high - low
+
+    result = pd.DataFrame(index=frame.index)
+
+    if method == "standard":
+        pp = (high + low + close) / 3
+        result["PP"] = pp
+        result["R1"] = 2 * pp - low
+        result["S1"] = 2 * pp - high
+        result["R2"] = pp + diff
+        result["S2"] = pp - diff
+        result["R3"] = high + 2 * (pp - low)
+        result["S3"] = low - 2 * (high - pp)
+    elif method == "fibonacci":
+        pp = (high + low + close) / 3
+        result["PP"] = pp
+        result["R1"] = pp + 0.382 * diff
+        result["S1"] = pp - 0.382 * diff
+        result["R2"] = pp + 0.618 * diff
+        result["S2"] = pp - 0.618 * diff
+        result["R3"] = pp + diff
+        result["S3"] = pp - diff
+    elif method == "camarilla":
+        result["PP"] = (high + low + close) / 3
+        result["R1"] = close + diff * 1.1 / 12
+        result["S1"] = close - diff * 1.1 / 12
+        result["R2"] = close + diff * 1.1 / 6
+        result["S2"] = close - diff * 1.1 / 6
+        result["R3"] = close + diff * 1.1 / 4
+        result["S3"] = close - diff * 1.1 / 4
+        result["R4"] = close + diff * 1.1 / 2
+        result["S4"] = close - diff * 1.1 / 2
+    elif method == "woodie":
+        pp = (high + low + 2 * close) / 4
+        result["PP"] = pp
+        result["R1"] = 2 * pp - low
+        result["S1"] = 2 * pp - high
+        result["R2"] = pp + diff
+        result["S2"] = pp - diff
+    else:  # demark
+        if "open" not in frame.columns:
+            raise ValueError(
+                "demark pivot method requires an 'open' column in price history."
+            )
+        open_ = frame["open"].shift(1)
+        x = high + low + 2 * close  # close == open case
+        x = x.mask(close < open_, high + 2 * low + close)
+        x = x.mask(close > open_, 2 * high + low + close)
+        pp = x / 4
+        result["PP"] = pp
+        result["R1"] = x / 2 - low
+        result["S1"] = x / 2 - high
+
+    return result
 
 
 async def vwap(
@@ -109,12 +189,8 @@ async def pivot_points(
     return await compute_frame_indicator(
         ctx,
         symbol,
-        indicator_fn=lambda frame: pandas_ta.pivot_points(
-            high=frame["high"],
-            low=frame["low"],
-            close=frame["close"],
-            method=method,
-            lookback=lookback,
+        indicator_fn=lambda frame: _compute_pivot_points(
+            frame, method=method, lookback=lookback
         ),
         indicator_name="pivot_points",
         interval=interval,
