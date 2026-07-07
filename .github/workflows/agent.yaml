@@ -59,7 +59,7 @@ jobs:
 
       - name: Checkout
         # yamllint disable-line rule:line-length rule:comments
-        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd  # v6.0.2
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0  # v7.0.0
         with:
           # github.head_ref: PR events (pull_request, pull_request_target)
           # github.event.pull_request.head.ref: PR review/comment events
