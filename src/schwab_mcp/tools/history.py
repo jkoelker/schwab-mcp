@@ -43,7 +43,8 @@ async def get_advanced_price_history(
     """
     Get price history with advanced period/frequency options. Specify period/frequency OR start/end datetimes.
 
-    For intraday candles use frequency_type=MINUTE with frequency 1/5/10/15/30.
+    For intraday candles use period_type=DAY with frequency_type=MINUTE and
+    frequency 1/5/10/15/30; MINUTE frequency is only valid when period_type=DAY.
     Period type options: DAY, MONTH, YEAR, YEAR_TO_DATE
     Period options (by period_type):
       DAY: ONE_DAY, TWO_DAYS, ..., TEN_DAYS (default)
