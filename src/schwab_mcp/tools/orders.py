@@ -40,6 +40,70 @@ from schwab_mcp.tools.order_helpers import (
 from schwab_mcp.tools.utils import JSONType, ResponseHandler, call
 
 
+_COMPACT_ORDER_TOP_FIELDS = frozenset(
+    {
+        "orderId",
+        "status",
+        "quantity",
+        "filledQuantity",
+        "remainingQuantity",
+        "price",
+        "stopPrice",
+        "orderType",
+        "session",
+        "duration",
+        "orderStrategyType",
+        "enteredTime",
+        "closeTime",
+    }
+)
+
+
+def _order_legs_summary(order: dict[str, Any]) -> list[dict[str, Any]]:
+    legs = order.get("orderLegCollection", [])
+    result = []
+    for leg in legs:
+        if not isinstance(leg, dict):
+            continue
+        instrument = leg.get("instrument")
+        symbol = instrument.get("symbol") if isinstance(instrument, dict) else None
+        result.append(
+            {
+                "symbol": symbol,
+                "instruction": leg.get("instruction"),
+                "quantity": leg.get("quantity"),
+            }
+        )
+    return result
+
+
+def _prune_order(order: JSONType) -> JSONType:
+    if not isinstance(order, dict):
+        return order
+    result: dict[str, JSONType] = {
+        k: v for k, v in order.items() if k in _COMPACT_ORDER_TOP_FIELDS
+    }
+    order_legs = order.get("orderLegCollection")
+    if isinstance(order_legs, list) and order_legs:
+        legs_summary = _order_legs_summary(order)
+        if legs_summary:
+            result["legs"] = legs_summary
+    child_strategies = order.get("childOrderStrategies")
+    if isinstance(child_strategies, list) and child_strategies:
+        result["childOrderStrategies"] = [
+            _prune_order(child) for child in child_strategies
+        ]
+    return result
+
+
+def _prune_orders(payload: JSONType) -> JSONType:
+    return (
+        [_prune_order(o) for o in payload]
+        if isinstance(payload, list)
+        else _prune_order(payload)
+    )
+
+
 # Internal helper function to apply session and duration settings
 def _apply_order_settings(order_spec, session: str | None, duration: str | None):
     """Internal helper to apply session and duration to an order spec builder."""
@@ -212,12 +276,21 @@ async def get_order(
     ctx: SchwabContext,
     account_hash: Annotated[str, "Account hash for the Schwab account"],
     order_id: Annotated[str, "Order ID to get details for"],
+    verbose: Annotated[
+        bool,
+        "Return the full raw order payload (routing metadata, full nested child orders, execution activity) instead of the compact default.",
+    ] = False,
 ) -> JSONType:
     """
-    Returns details for a specific order (ID, status, price, quantity, execution details). Params: account_hash, order_id.
+    Returns details for a specific order. By default returns compact fields only
+    (orderId, status, quantity, filledQuantity, remainingQuantity, price, stopPrice,
+    orderType, session, duration, orderStrategyType, enteredTime, closeTime, legs
+    summary, and recursively-pruned childOrderStrategies); pass verbose=True for
+    the full raw payload. Params: account_hash, order_id.
     """
     client = ctx.orders
-    return await call(client.get_order, order_id=order_id, account_hash=account_hash)
+    result = await call(client.get_order, order_id=order_id, account_hash=account_hash)
+    return result if verbose else _prune_order(result)
 
 
 async def get_orders(
@@ -235,9 +308,17 @@ async def get_orders(
         list[str] | str | None,
         "Filter by order status (e.g., WORKING, FILLED, CANCELED). See full list below.",
     ] = None,
+    verbose: Annotated[
+        bool,
+        "Return the full raw order payload (routing metadata, full nested child orders, execution activity) instead of the compact default.",
+    ] = False,
 ) -> JSONType:
     """
-    Returns order history for an account. Filter by date range (max 60 days past) and status.
+    Returns order history for an account. By default returns compact fields only
+    (orderId, status, quantity, filledQuantity, remainingQuantity, price, stopPrice,
+    orderType, session, duration, orderStrategyType, enteredTime, closeTime, legs
+    summary, and recursively-pruned childOrderStrategies); pass verbose=True for
+    the full raw payload. Filter by date range (max 60 days past) and status.
     Params: account_hash, max_results, from_date (YYYY-MM-DD), to_date (YYYY-MM-DD), status (list/str).
     Status options: AWAITING_PARENT_ORDER, AWAITING_CONDITION, AWAITING_STOP_CONDITION, AWAITING_MANUAL_REVIEW, ACCEPTED, AWAITING_UR_OUT, PENDING_ACTIVATION, QUEUED, WORKING, REJECTED, PENDING_CANCEL, CANCELED, PENDING_REPLACE, REPLACED, FILLED, EXPIRED, NEW, AWAITING_RELEASE_TIME, PENDING_ACKNOWLEDGEMENT, PENDING_RECALL.
     Use tomorrow's date as to_date for today's orders. Use WORKING/PENDING_ACTIVATION for open orders.
@@ -257,7 +338,7 @@ async def get_orders(
         if isinstance(status, str):
             # Single status: direct API call
             kwargs["status"] = client.Order.Status[status.upper()]
-            return await call(
+            result: JSONType = await call(
                 client.get_orders_for_account,
                 account_hash,
                 **kwargs,
@@ -269,24 +350,26 @@ async def get_orders(
             seen_order_ids: set[str] = set()
             for s in status:
                 kwargs["status"] = client.Order.Status[s.upper()]
-                result = await call(
+                partial = await call(
                     client.get_orders_for_account,
                     account_hash,
                     **kwargs,
                 )
-                if result:
-                    for order in cast(list[Any], result):
+                if partial:
+                    for order in cast(list[Any], partial):
                         order_id = str(order.get("orderId", ""))
                         if order_id and order_id not in seen_order_ids:
                             seen_order_ids.add(order_id)
                             all_orders.append(order)
-            return all_orders if all_orders else []
+            result = all_orders if all_orders else []
+    else:
+        result = await call(
+            client.get_orders_for_account,
+            account_hash,
+            **kwargs,
+        )
 
-    return await call(
-        client.get_orders_for_account,
-        account_hash,
-        **kwargs,
-    )
+    return result if verbose else _prune_orders(result)
 
 
 async def cancel_order(
@@ -678,8 +761,12 @@ async def place_bracket_order(
     quantity: Annotated[int, "Number of shares to trade"],
     entry_instruction: Annotated[str, "BUY or SELL for the entry order"],
     entry_type: Annotated[str, "Entry order type: MARKET, LIMIT, STOP, or STOP_LIMIT"],
-    profit_price: Annotated[float | None, "Take-profit limit price (optional if loss_price provided)"] = None,
-    loss_price: Annotated[float | None, "Stop-loss trigger price (optional if profit_price provided)"] = None,
+    profit_price: Annotated[
+        float | None, "Take-profit limit price (optional if loss_price provided)"
+    ] = None,
+    loss_price: Annotated[
+        float | None, "Stop-loss trigger price (optional if profit_price provided)"
+    ] = None,
     entry_price: Annotated[
         float | None, "Required for LIMIT entry; Limit price for STOP_LIMIT entry"
     ] = None,
@@ -711,9 +798,7 @@ async def place_bracket_order(
     """
     # Validate that at least one exit price is provided
     if profit_price is None and loss_price is None:
-        raise ValueError(
-            "At least one of profit_price or loss_price must be provided"
-        )
+        raise ValueError("At least one of profit_price or loss_price must be provided")
 
     # Validate entry instruction
     client = ctx.orders
@@ -763,13 +848,17 @@ async def place_bracket_order(
     if profit_price is not None and loss_price is not None:
         # Both prices: entry triggers OCO(profit, loss)
         oco_exit_order_builder = oco_builder(profit_order_builder, loss_order_builder)
-        bracket_order_builder = trigger_builder(entry_order_builder, oco_exit_order_builder)
+        bracket_order_builder = trigger_builder(
+            entry_order_builder, oco_exit_order_builder
+        )
     elif loss_price is not None:
         # Stop-loss only: entry triggers single stop order
         bracket_order_builder = trigger_builder(entry_order_builder, loss_order_builder)
     else:
         # Take-profit only: entry triggers single limit order
-        bracket_order_builder = trigger_builder(entry_order_builder, profit_order_builder)
+        bracket_order_builder = trigger_builder(
+            entry_order_builder, profit_order_builder
+        )
 
     # Build the final complex bracket order dictionary
     bracket_order_dict = cast(dict[str, Any], bracket_order_builder.build())

@@ -124,6 +124,203 @@ class TestGetOrder:
         assert captured["kwargs"]["order_id"] == "order456"
 
 
+class TestGetOrderCompact:
+    _RAW_ORDER: dict[str, Any] = {
+        "orderId": "99",
+        "status": "FILLED",
+        "quantity": 10.0,
+        "filledQuantity": 10.0,
+        "remainingQuantity": 0.0,
+        "price": 1.5,
+        "stopPrice": None,
+        "orderType": "LIMIT",
+        "session": "NORMAL",
+        "duration": "DAY",
+        "orderStrategyType": "SINGLE",
+        "enteredTime": "2024-04-01T10:00:00Z",
+        "closeTime": "2024-04-01T10:01:00Z",
+        # noise fields
+        "requestedDestination": "AUTO",
+        "destinationLinkName": "ETMM",
+        "tag": "sometag",
+        "accountNumber": "abc123",
+        "complexOrderStrategyType": "NONE",
+        "cancelable": False,
+        "editable": False,
+        "orderActivityCollection": [
+            {
+                "activityType": "EXECUTION",
+                "executionLegs": [{"price": 1.5, "quantity": 10}],
+            }
+        ],
+        "orderLegCollection": [
+            {
+                "orderLegType": "EQUITY",
+                "legId": 1,
+                "instrument": {"symbol": "AAPL", "assetType": "EQUITY"},
+                "instruction": "BUY",
+                "positionEffect": "OPENING",
+                "quantity": 10.0,
+            }
+        ],
+        "childOrderStrategies": [
+            {
+                "orderId": "100",
+                "status": "WORKING",
+                "quantity": 10.0,
+                "filledQuantity": 0.0,
+                "remainingQuantity": 10.0,
+                "price": 2.0,
+                "stopPrice": None,
+                "orderType": "LIMIT",
+                "session": "NORMAL",
+                "duration": "GTC",
+                "orderStrategyType": "SINGLE",
+                "enteredTime": "2024-04-01T10:01:00Z",
+                "closeTime": None,
+                # noise
+                "requestedDestination": "AUTO",
+                "tag": "childtag",
+                "orderActivityCollection": [],
+                "orderLegCollection": [
+                    {
+                        "orderLegType": "EQUITY",
+                        "legId": 1,
+                        "instrument": {"symbol": "AAPL", "assetType": "EQUITY"},
+                        "instruction": "SELL",
+                        "positionEffect": "CLOSING",
+                        "quantity": 10.0,
+                    }
+                ],
+            }
+        ],
+    }
+
+    def test_compact_default_prunes_noise(self, monkeypatch):
+        async def fake_call(func, *args, **kwargs):
+            return dict(self._RAW_ORDER)
+
+        monkeypatch.setattr(orders, "call", fake_call)
+
+        class DummyClient:
+            async def get_order(self, *args, **kwargs):
+                return None
+
+        ctx = make_ctx(DummyClient())
+        result = run(orders.get_order(ctx, "hash123", "99"))
+
+        assert isinstance(result, dict)
+        # Compact fields kept
+        assert result["orderId"] == "99"
+        assert result["status"] == "FILLED"
+        assert result["orderType"] == "LIMIT"
+        # Noise fields dropped
+        assert "requestedDestination" not in result
+        assert "destinationLinkName" not in result
+        assert "tag" not in result
+        assert "orderActivityCollection" not in result
+        assert "accountNumber" not in result
+        # legs summary present
+        assert result["legs"] == [
+            {"symbol": "AAPL", "instruction": "BUY", "quantity": 10.0}
+        ]
+        # child order also pruned
+        assert "childOrderStrategies" in result
+        child = result["childOrderStrategies"][0]
+        assert child["orderId"] == "100"
+        assert child["status"] == "WORKING"
+        assert "requestedDestination" not in child
+        assert "tag" not in child
+        assert "orderActivityCollection" not in child
+        assert child["legs"] == [
+            {"symbol": "AAPL", "instruction": "SELL", "quantity": 10.0}
+        ]
+
+    def test_verbose_returns_raw_payload(self, monkeypatch):
+        raw = dict(self._RAW_ORDER)
+
+        async def fake_call(func, *args, **kwargs):
+            return raw
+
+        monkeypatch.setattr(orders, "call", fake_call)
+
+        class DummyClient:
+            async def get_order(self, *args, **kwargs):
+                return None
+
+        ctx = make_ctx(DummyClient())
+        result = run(orders.get_order(ctx, "hash123", "99", verbose=True))
+
+        assert result is raw
+        assert "requestedDestination" in result
+        assert "orderActivityCollection" in result
+
+
+class TestGetOrdersCompact:
+    def test_compact_default_prunes_list(self, monkeypatch):
+        raw_orders = [
+            {
+                "orderId": "1",
+                "status": "FILLED",
+                "quantity": 5.0,
+                "filledQuantity": 5.0,
+                "remainingQuantity": 0.0,
+                "price": 10.0,
+                "stopPrice": None,
+                "orderType": "LIMIT",
+                "session": "NORMAL",
+                "duration": "DAY",
+                "orderStrategyType": "SINGLE",
+                "enteredTime": "2024-04-01T10:00:00Z",
+                "closeTime": "2024-04-01T10:01:00Z",
+                # noise
+                "requestedDestination": "AUTO",
+                "tag": "noise",
+                "orderActivityCollection": [],
+                "orderLegCollection": [
+                    {
+                        "instrument": {"symbol": "MSFT"},
+                        "instruction": "BUY",
+                        "quantity": 5.0,
+                    }
+                ],
+            }
+        ]
+
+        async def fake_call(func, *args, **kwargs):
+            return raw_orders
+
+        monkeypatch.setattr(orders, "call", fake_call)
+
+        ctx = make_ctx(DummyOrdersClient())
+        result = run(orders.get_orders(ctx, "hash123"))
+
+        assert isinstance(result, list)
+        assert len(result) == 1
+        order = result[0]
+        assert order["orderId"] == "1"
+        assert "requestedDestination" not in order
+        assert "tag" not in order
+        assert "orderActivityCollection" not in order
+        assert order["legs"] == [
+            {"symbol": "MSFT", "instruction": "BUY", "quantity": 5.0}
+        ]
+
+    def test_verbose_returns_raw_list(self, monkeypatch):
+        raw_orders = [{"orderId": "1", "status": "FILLED", "tag": "noise"}]
+
+        async def fake_call(func, *args, **kwargs):
+            return raw_orders
+
+        monkeypatch.setattr(orders, "call", fake_call)
+
+        ctx = make_ctx(DummyOrdersClient())
+        result = run(orders.get_orders(ctx, "hash123", verbose=True))
+
+        assert result is raw_orders
+        assert result[0]["tag"] == "noise"
+
+
 class TestCancelOrder:
     def test_calls_client_with_correct_args(self, monkeypatch):
         captured: dict[str, Any] = {}
@@ -863,3 +1060,98 @@ class TestOrderResponseHandler:
         assert isinstance(payload, dict)
         assert "location" in payload
         assert "orderId" not in payload
+
+
+# ---------------------------------------------------------------------------
+# Fix #5: _order_legs_summary type guards for non-dict legs / instrument
+# ---------------------------------------------------------------------------
+
+
+class TestOrderLegsSummaryTypeGuards:
+    def test_skips_non_dict_legs(self):
+        """Non-dict entries in orderLegCollection must be silently skipped."""
+        order: dict[str, Any] = {
+            "orderLegCollection": [
+                "not-a-dict",
+                42,
+                {"instrument": {"symbol": "AAPL"}, "instruction": "BUY", "quantity": 5},
+            ]
+        }
+        result = orders._order_legs_summary(order)
+        assert result == [{"symbol": "AAPL", "instruction": "BUY", "quantity": 5}]
+
+    def test_instrument_not_dict_yields_none_symbol(self):
+        """When instrument is not a dict, symbol must be None (not raise)."""
+        order: dict[str, Any] = {
+            "orderLegCollection": [
+                {"instrument": None, "instruction": "SELL", "quantity": 3},
+            ]
+        }
+        result = orders._order_legs_summary(order)
+        assert result == [{"symbol": None, "instruction": "SELL", "quantity": 3}]
+
+    def test_instrument_missing_yields_none_symbol(self):
+        """When instrument key is absent, symbol must be None."""
+        order: dict[str, Any] = {
+            "orderLegCollection": [
+                {"instruction": "BUY", "quantity": 10},
+            ]
+        }
+        result = orders._order_legs_summary(order)
+        assert result == [{"symbol": None, "instruction": "BUY", "quantity": 10}]
+
+
+# ---------------------------------------------------------------------------
+# Fix #6: _prune_order validates list types before processing
+# ---------------------------------------------------------------------------
+
+
+class TestPruneOrderTypeGuards:
+    def test_order_leg_collection_as_dict_not_processed(self):
+        """orderLegCollection that is a dict (not a list) must not add legs key."""
+        order: dict[str, Any] = {
+            "orderId": "1",
+            "status": "WORKING",
+            "orderLegCollection": {"unexpected": "dict"},
+        }
+        result = orders._prune_order(order)
+        assert isinstance(result, dict)
+        assert "legs" not in result.keys()
+
+    def test_child_order_strategies_as_dict_not_processed(self):
+        """childOrderStrategies that is a dict must not add childOrderStrategies key."""
+        order: dict[str, Any] = {
+            "orderId": "2",
+            "status": "WORKING",
+            "childOrderStrategies": {"unexpected": "dict"},
+        }
+        result = orders._prune_order(order)
+        assert isinstance(result, dict)
+        assert "childOrderStrategies" not in result.keys()
+
+    def test_empty_order_leg_collection_list_omits_legs_key(self):
+        """An empty orderLegCollection list must not add a legs key."""
+        order: dict[str, Any] = {
+            "orderId": "3",
+            "status": "FILLED",
+            "orderLegCollection": [],
+        }
+        result = orders._prune_order(order)
+        assert isinstance(result, dict)
+        assert "legs" not in result.keys()
+
+    def test_all_non_dict_legs_omits_legs_key(self):
+        """When all legs are non-dict, the resulting summary is empty, so legs key is omitted."""
+        order: dict[str, Any] = {
+            "orderId": "4",
+            "status": "FILLED",
+            "orderLegCollection": ["bad", 99],
+        }
+        result = orders._prune_order(order)
+        assert isinstance(result, dict)
+        assert "legs" not in result.keys()
+
+    def test_non_dict_order_passes_through(self):
+        """Non-dict input to _prune_order must be returned unchanged."""
+        assert orders._prune_order("raw") == "raw"
+        assert orders._prune_order(None) is None
