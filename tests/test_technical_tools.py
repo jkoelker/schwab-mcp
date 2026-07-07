@@ -252,41 +252,59 @@ def test_vwap_requires_positive_volume(monkeypatch, dummy_ctx, ohlcv_data):
 
 
 def test_pivot_points_returns_levels(monkeypatch, dummy_ctx, ohlcv_data):
+    # pandas_ta_classic has no pivot_points implementation (confirmed empty on
+    # 0.3.59), so this indicator is computed directly rather than delegated —
+    # no pandas_ta monkeypatch needed here, unlike the other overlay tools.
     frame, metadata = ohlcv_data
 
     async def fake_fetch(ctx, symbol, **kwargs):
         return frame, metadata
 
-    def fake_pivots(high, low, close, *, method="standard", lookback=None):
-        data = pd.DataFrame(
-            {
-                "pp": pd.Series([10, 11, 12, 13, 14, 15], index=close.index),
-                "r1": pd.Series([11, 12, 13, 14, 15, 16], index=close.index),
-                "s1": pd.Series([9, 10, 11, 12, 13, 14], index=close.index),
-            }
-        )
-        return data
-
     monkeypatch.setattr(base, "fetch_price_frame", fake_fetch)
-    monkeypatch.setattr(
-        overlays,
-        "pandas_ta",
-        SimpleNamespace(
-            pivot_points=fake_pivots,
-            vwap=lambda *args, **kwargs: None,
-            bbands=lambda *args, **kwargs: None,
-        ),
-    )
 
     result = run_tool(
         overlays.pivot_points(
-            dummy_ctx, "HOOD", method="standard", lookback=5, points=2
+            dummy_ctx, "HOOD", method="standard", lookback=1, points=2
         )
     )
 
     values = result["values"]
     assert len(values) == 2
-    assert {"timestamp", "pp", "r1", "s1"}.issubset(values[-1].keys())
+    assert {"timestamp", "PP", "R1", "S1", "R2", "S2", "R3", "S3"}.issubset(
+        values[-1].keys()
+    )
+
+    high = frame["high"].shift(1)
+    low = frame["low"].shift(1)
+    close = frame["close"].shift(1)
+    expected_pp = ((high + low + close) / 3).dropna().tail(2).to_numpy()
+    for row, expected in zip(values, expected_pp):
+        assert row["PP"] == pytest.approx(float(expected))
+
+
+def test_pivot_points_rejects_unknown_method(monkeypatch, dummy_ctx, ohlcv_data):
+    frame, metadata = ohlcv_data
+
+    async def fake_fetch(ctx, symbol, **kwargs):
+        return frame, metadata
+
+    monkeypatch.setattr(base, "fetch_price_frame", fake_fetch)
+
+    with pytest.raises(ValueError, match="Unsupported pivot method"):
+        run(overlays.pivot_points(dummy_ctx, "HOOD", method="bogus"))
+
+
+def test_pivot_points_demark_requires_open_column(monkeypatch, dummy_ctx, ohlcv_data):
+    frame, metadata = ohlcv_data
+    frame = frame.drop(columns=["open"])
+
+    async def fake_fetch(ctx, symbol, **kwargs):
+        return frame, metadata
+
+    monkeypatch.setattr(base, "fetch_price_frame", fake_fetch)
+
+    with pytest.raises(ValueError, match="requires an 'open' column"):
+        run(overlays.pivot_points(dummy_ctx, "HOOD", method="demark"))
 
 
 def test_bollinger_bands_returns_values(monkeypatch, dummy_ctx, price_data):
