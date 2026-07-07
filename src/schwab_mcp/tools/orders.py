@@ -4,7 +4,9 @@ from collections.abc import Callable
 from typing import Annotated, Any, cast
 
 import copy
+import uuid
 from mcp.server.fastmcp import FastMCP
+from mcp.types import ToolAnnotations
 from schwab.utils import (
     AccountHashMismatchException,
     UnsuccessfulOrderException,
@@ -16,8 +18,9 @@ from schwab.orders.common import one_cancels_other as oco_builder
 from schwab.orders.options import OptionSymbol
 from schwab.orders.generic import OrderBuilder
 
+from schwab_mcp.approvals import ApprovalDecision, ApprovalRequest
 from schwab_mcp.context import SchwabContext
-from schwab_mcp.tools._registration import register_tool
+from schwab_mcp.tools._registration import register_tool, run_approval
 from schwab_mcp.tools.utils import parse_date
 from schwab_mcp.tools.order_helpers import (
     equity_buy_limit,
@@ -76,6 +79,52 @@ def _order_legs_summary(order: dict[str, Any]) -> list[dict[str, Any]]:
             }
         )
     return result
+
+
+_FALLBACK_ORDER_SUMMARY = "[complex order — see order_spec for details]"
+_FALLBACK_LEG_SUMMARY = "[leg with missing details — see order_spec]"
+
+
+def _collect_leg_summaries(order: dict[str, Any], parts: list[str]) -> None:
+    order_type = order.get("orderType")
+    price = order.get("price")
+    stop_price = order.get("stopPrice")
+    for leg in _order_legs_summary(order):
+        instruction = leg.get("instruction")
+        quantity = leg.get("quantity")
+        symbol = leg.get("symbol")
+        if instruction is None or quantity is None or symbol is None:
+            # Don't silently drop a malformed leg from the reviewer-facing
+            # summary -- flag it explicitly instead.
+            parts.append(_FALLBACK_LEG_SUMMARY)
+            continue
+
+        piece = f"{instruction} {quantity} {symbol}"
+        if order_type:
+            piece += f" {order_type}"
+        if stop_price is not None:
+            piece += f" stop@{stop_price}"
+        if price is not None:
+            piece += f" @ {price}"
+        parts.append(piece)
+
+    for child in order.get("childOrderStrategies", []):
+        if isinstance(child, dict):
+            _collect_leg_summaries(child, parts)
+
+
+def _summarize_order_spec(order_spec: dict[str, Any]) -> str:
+    """Build a short human-readable summary of an order spec for display to an
+    approval reviewer (e.g. "BUY 10 AAPL LIMIT @ 150.0"). Recurses through
+    childOrderStrategies for OCO/trigger/bracket specs. Falls back to a fixed
+    placeholder for specs it can't summarize rather than raising.
+    """
+    try:
+        parts: list[str] = []
+        _collect_leg_summaries(order_spec, parts)
+        return "; ".join(parts) if parts else _FALLBACK_ORDER_SUMMARY
+    except Exception:
+        return _FALLBACK_ORDER_SUMMARY
 
 
 def _prune_order(order: JSONType) -> JSONType:
@@ -450,6 +499,8 @@ async def place_equity_order(
     Params: account_hash, symbol, quantity, instruction (BUY/SELL), order_type.
     Optional/Conditional: price (for LIMIT/STOP_LIMIT), stop_price (for STOP/STOP_LIMIT), session (default NORMAL), duration (default DAY).
     Note: FILL_OR_KILL duration is only valid for LIMIT and STOP_LIMIT orders.
+    For drift-proof placement (guarantees what's submitted matches what was
+    reviewed), consider preview_order() + submit_previewed_order() instead.
     *Write operation.*
     """
     # Build the core order specification builder
@@ -499,6 +550,8 @@ async def place_option_order(
     Params: account_hash, symbol, quantity, instruction (BUY_TO_OPEN/etc.), order_type.
     Optional/Conditional: price (for LIMIT), session (default NORMAL), duration (default DAY).
     Note: FILL_OR_KILL duration is only valid for LIMIT orders.
+    For drift-proof placement (guarantees what's submitted matches what was
+    reviewed), consider preview_order() + submit_previewed_order() instead.
     *Write operation.*
     """
     # Build the core order specification builder
@@ -550,6 +603,8 @@ async def place_equity_trailing_stop_order(
     Params: account_hash, symbol, quantity, instruction (BUY/SELL), trail_offset.
     Defaults: trail_type=VALUE (dollars), session=NORMAL, duration=DAY.
     Example: SELL 100 shares with $5 trailing stop triggers market sell if price drops $5 from high.
+    For drift-proof placement (guarantees what's submitted matches what was
+    reviewed), consider preview_order() + submit_previewed_order() instead.
     *Write operation.*
     """
     client = ctx.orders
@@ -694,7 +749,10 @@ async def place_one_cancels_other_order(
     """
     Creates OCO order: execution of one cancels the other. Use for take-profit/stop-loss pairs.
     Params: account_hash, first_order_spec (dict), second_order_spec (dict).
-    *Use build_equity_order_spec() or build_option_order_spec() to create the required spec dictionaries.* *Write operation.*
+    *Use build_equity_order_spec() or build_option_order_spec() to create the required spec dictionaries.*
+    For drift-proof placement (guarantees what's submitted matches what was
+    reviewed), consider preview_order() + submit_previewed_order() instead.
+    *Write operation.*
     """
     # Manually construct the OCO order dictionary structure
     # This structure is correct according to schwab-py's oco_builder
@@ -729,7 +787,10 @@ async def place_first_triggers_second_order(
     """
     Creates conditional order: second order placed only after first executes. Use for activating exits after entry.
     Params: account_hash, first_order_spec (dict), second_order_spec (dict).
-    *Use build_equity_order_spec() or build_option_order_spec() to create the required spec dictionaries.* *Write operation.*
+    *Use build_equity_order_spec() or build_option_order_spec() to create the required spec dictionaries.*
+    For drift-proof placement (guarantees what's submitted matches what was
+    reviewed), consider preview_order() + submit_previewed_order() instead.
+    *Write operation.*
     """
     # Use the schwab-py library's construct_repeat_order to convert dicts to OrderBuilder objects,
     # then use the trigger_builder helper (same approach as place_bracket_order)
@@ -837,6 +898,8 @@ async def place_bracket_order(
     Optional/Conditional: entry_price (for LIMIT/STOP_LIMIT), entry_stop_price (for STOP/STOP_LIMIT), session (default NORMAL), duration (default DAY).
     Ensure profit/loss prices are correctly positioned relative to entry (e.g., profit > entry for BUY).
     Note: Duration applies to all legs of the order. FILL_OR_KILL is not typically used with bracket orders.
+    For drift-proof placement (guarantees what's submitted matches what was
+    reviewed), consider preview_order() + submit_previewed_order() instead.
     *Write operation.*
     """
     # Validate that at least one exit price is provided
@@ -952,6 +1015,8 @@ async def place_option_combo_order(
     Notes:
     - LIMIT is recommended for combos; MARKET support may vary by account/venue.
     - The API infers debit/credit from leg directions; pass a positive price.
+    - For drift-proof placement (guarantees what's submitted matches what was
+      reviewed), consider preview_order() + submit_previewed_order() instead.
     *Write operation.*
     """
     if not legs or len(legs) < 2:
@@ -989,6 +1054,97 @@ async def place_option_combo_order(
     )
 
 
+async def preview_order(
+    ctx: SchwabContext,
+    account_hash: Annotated[str, "Account hash for the Schwab account"],
+    order_spec: Annotated[
+        dict[str, Any],
+        "Order specification dict (from build_equity_order_spec/build_option_order_spec/"
+        "build_equity_trailing_stop_order_spec, or a hand-built OCO/trigger/combo spec)",
+    ],
+) -> JSONType:
+    """
+    Previews an order against Schwab's previewOrder endpoint without placing it.
+    Schwab's preview is stateless and advisory only (validation, estimated
+    commissions/fees) -- it has no server-side ability to later submit "the order
+    that was previewed". To close that gap, this tool stores the exact order_spec
+    that was previewed and returns a `preview_id`. Pass that `preview_id` to
+    submit_previewed_order() to submit the exact stored order spec that was
+    previewed, guaranteeing what gets submitted matches what was previewed and
+    reviewed. Previews expire after a short TTL and are one-time use.
+    Params: account_hash, order_spec (dict).
+    """
+    client = ctx.orders
+    preview_response = await call(
+        client.preview_order, account_hash=account_hash, order_spec=order_spec
+    )
+    summary = _summarize_order_spec(order_spec)
+    entry = ctx.previews.put(account_hash, order_spec, preview_response, summary)
+    return {
+        "preview_id": entry.preview_id,
+        "summary": summary,
+        "preview": preview_response,
+    }
+
+
+async def submit_previewed_order(
+    ctx: SchwabContext,
+    account_hash: Annotated[str, "Account hash for the Schwab account"],
+    preview_id: Annotated[str, "preview_id returned by a prior preview_order() call"],
+) -> JSONType:
+    """
+    Submits the exact order spec previously previewed via preview_order(),
+    referenced by preview_id, rather than trusting the caller to resend order
+    details that could drift from what was reviewed. Requires reviewer approval
+    (subject to the same Discord approval workflow and --jesus-take-the-wheel
+    bypass as other write tools); the reviewer sees a resolved order summary, not
+    just the opaque preview_id. Previews are one-time use and expire after a short
+    TTL -- if the reviewer takes longer than the TTL to decide, the preview may
+    have expired by the time approval is granted, and a fresh preview is required.
+    Params: account_hash, preview_id. *Write operation.*
+    """
+    entry = ctx.previews.peek(preview_id)
+    if entry.account_hash != account_hash:
+        raise ValueError(
+            f"Preview {preview_id!r} was created for a different account_hash"
+        )
+
+    request = ApprovalRequest(
+        id=str(uuid.uuid4()),
+        tool_name=submit_previewed_order.__name__,
+        request_id=ctx.request_id,
+        client_id=ctx.client_id,
+        arguments={
+            "account_hash": account_hash,
+            "preview_id": preview_id,
+            "order_summary": entry.summary,
+        },
+    )
+    decision = await run_approval(ctx, request)
+
+    if decision is ApprovalDecision.APPROVED:
+        # account_hash was already validated against this (frozen, immutable)
+        # entry before requesting approval above; no need to re-check here.
+        entry = ctx.previews.pop(preview_id)
+        client = ctx.orders
+        return await call(
+            client.place_order,
+            account_hash=account_hash,
+            order_spec=entry.order_spec,
+            response_handler=_order_response_handler(ctx, account_hash),
+        )
+
+    message = (
+        "Write operation for tool 'submit_previewed_order' denied by reviewer."
+        if decision is ApprovalDecision.DENIED
+        else "Approval request for tool 'submit_previewed_order' expired."
+    )
+    await ctx.warning(message)
+    if decision is ApprovalDecision.DENIED:
+        raise PermissionError(message)
+    raise TimeoutError(message)
+
+
 _READ_ONLY_TOOLS = (
     get_order,
     get_orders,
@@ -1024,3 +1180,16 @@ def register(
 
     for func in _WRITE_TOOLS:
         register_tool(server, func, write=True, result_transform=result_transform)
+
+    # preview_order/submit_previewed_order are only useful when writes are
+    # allowed (nothing can ever be submitted otherwise). submit_previewed_order
+    # manages its own approval flow (see run_approval usage above) rather than
+    # going through register_tool's automatic write-wrapping, so the reviewer
+    # sees a resolved order summary instead of an opaque preview_id.
+    register_tool(server, preview_order, result_transform=result_transform)
+    register_tool(
+        server,
+        submit_previewed_order,
+        annotations=ToolAnnotations(readOnlyHint=False, destructiveHint=True),
+        result_transform=result_transform,
+    )

@@ -63,6 +63,18 @@ schwab-mcp server \
 
 > **Note**: For trading capabilities, you must set up a Discord bot for approvals. See [Discord Setup Guide](docs/discord-setup.md).
 
+### Previewing Orders Before Submission
+
+`preview_order` validates an order spec against Schwab's `previewOrder` endpoint
+(estimated commissions/fees, validation errors) without placing it, and returns a
+`preview_id`. Pass that `preview_id` to `submit_previewed_order` to submit the
+exact stored order spec that was previewed, rather than trusting the caller to
+resend order details that could drift from what was reviewed. `submit_previewed_order`
+is still gated behind the same Discord approval workflow (and `--jesus-take-the-wheel`
+bypass) as every other write tool — the reviewer sees a resolved order summary, not
+just the opaque ID. Previews are held in memory for a short TTL and are one-time use;
+they do not survive a server restart.
+
 ## Configuration
 
 You can configure the server using CLI flags or Environment Variables.
