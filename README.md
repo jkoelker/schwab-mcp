@@ -75,7 +75,7 @@ You can configure the server using CLI flags or Environment Variables.
 | `--token-path` | N/A | Path to save/load token (default: `~/.local/share/...`). |
 | `--jesus-take-the-wheel`| N/A | **DANGER**. Bypasses Discord approval for trades. |
 | `--no-technical-tools` | N/A | Disables technical analysis tools (SMA, RSI, etc.). |
-| `--json` | N/A | Returns raw JSON instead of formatted text (useful for some agents). |
+| `--json` | N/A | Returns JSON instead of formatted text (useful for some agents). Null/empty fields are stripped to reduce token usage. |
 
 ### Container Usage
 

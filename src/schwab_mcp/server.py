@@ -11,6 +11,7 @@ from mcp.server.fastmcp import FastMCP
 from schwab.client import AsyncClient
 
 from schwab_mcp.tools import register_tools
+from schwab_mcp.tools.utils import strip_noise
 from schwab_mcp.resources import register_resources
 from schwab_mcp.context import SchwabServerContext
 from schwab_mcp.approvals import ApprovalManager
@@ -59,7 +60,6 @@ class SchwabMCPServer:
         enable_technical_tools: bool = True,
         use_json: bool = False,
     ) -> None:
-        result_transform: Callable[[Any], Any] | None = None
         if not use_json:
             try:
                 from toon import encode as toon_encode
@@ -72,9 +72,17 @@ class SchwabMCPServer:
             def _toon_transform(payload: Any) -> str:
                 if isinstance(payload, str):
                     return payload
-                return toon_encode(payload)
+                return toon_encode(strip_noise(payload))
 
-            result_transform = _toon_transform
+            result_transform: Callable[[Any], Any] | None = _toon_transform
+        else:
+
+            def _json_strip_transform(payload: Any) -> Any:
+                if isinstance(payload, str):
+                    return payload
+                return strip_noise(payload)
+
+            result_transform = _json_strip_transform
 
         self._server = FastMCP(
             name=name,
