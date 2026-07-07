@@ -12,6 +12,55 @@ from schwab_mcp.tools.utils import JSONType, call, parse_date
 
 _EXPIRATION_WINDOW_DAYS = 60
 
+_COMPACT_CONTRACT_FIELDS = frozenset(
+    {
+        "strike",
+        "bid",
+        "ask",
+        "last",
+        "mark",
+        "bidSize",
+        "askSize",
+        "volume",
+        "openInterest",
+        "delta",
+        "gamma",
+        "theta",
+        "vega",
+        "rho",
+        "impliedVolatility",
+        "inTheMoney",
+        "expirationDate",
+        "daysToExpiration",
+        "expirationType",
+    }
+)
+
+
+def _prune_contract(contract: dict[str, JSONType]) -> dict[str, JSONType]:
+    return {k: v for k, v in contract.items() if k in _COMPACT_CONTRACT_FIELDS}
+
+
+def _prune_option_chain(payload: JSONType) -> JSONType:
+    """Prune contract fields in-place. Safe because ``call()`` always returns
+    a freshly-parsed JSON object with no other references."""
+    if not isinstance(payload, dict):
+        return payload
+    for map_key in ("callExpDateMap", "putExpDateMap"):
+        exp_map = payload.get(map_key)
+        if not isinstance(exp_map, dict):
+            continue
+        for _date_key, strikes in exp_map.items():
+            if not isinstance(strikes, dict):
+                continue
+            for strike_key, contracts in strikes.items():
+                if not isinstance(contracts, list):
+                    continue
+                strikes[strike_key] = [
+                    _prune_contract(c) if isinstance(c, dict) else c for c in contracts
+                ]
+    return payload
+
 
 def _normalize_expiration_window(
     from_date: datetime.date | None,
@@ -57,11 +106,16 @@ async def get_option_chain(
         str | datetime.date | None,
         "End date for option expiration ('YYYY-MM-DD' or datetime.date)",
     ] = None,
+    verbose: Annotated[
+        bool,
+        "Return all raw contract fields instead of the compact default. Compact mode keeps price/greeks/liquidity fields only.",
+    ] = False,
 ) -> JSONType:
     """
     Returns option chain data (strikes, expirations, prices) for a symbol. Use for standard chains.
     Params: symbol, contract_type (CALL/PUT/ALL), strike_count (default 25), include_quotes (bool), from_date (YYYY-MM-DD), to_date (YYYY-MM-DD).
     Limit data returned using strike_count and date parameters. When both dates are omitted the tool defaults to the next 60 calendar days to avoid oversized responses.
+    By default returns compact per-contract fields only; pass verbose=True for the full raw payload.
     """
     client = ctx.options
 
@@ -70,7 +124,7 @@ async def get_option_chain(
         parse_date(to_date),
     )
 
-    return await call(
+    result = await call(
         client.get_option_chain,
         symbol,
         contract_type=client.Options.ContractType[contract_type.upper()]
@@ -81,6 +135,7 @@ async def get_option_chain(
         from_date=from_date_obj,
         to_date=to_date_obj,
     )
+    return result if verbose else _prune_option_chain(result)
 
 
 async def get_advanced_option_chain(
@@ -133,11 +188,16 @@ async def get_advanced_option_chain(
     option_type: Annotated[
         str | None, "Filter option type: STANDARD, NON_STANDARD, ALL (default)"
     ] = None,
+    verbose: Annotated[
+        bool,
+        "Return all raw contract fields instead of the compact default. Compact mode keeps price/greeks/liquidity fields only.",
+    ] = False,
 ) -> JSONType:
     """
     Returns advanced option chain data with strategies, filters, and theoretical calculations. Use for complex analysis.
     Params: symbol, contract_type, strike_count, include_quotes, strategy (SINGLE/ANALYTICAL/etc.), interval, strike, strike_range (ITM/NTM/etc.), from/to_date, volatility/underlying_price/interest_rate/days_to_expiration (for ANALYTICAL), exp_month, option_type (STANDARD/NON_STANDARD/ALL).
     Limit data returned using strike_count and date parameters. When both dates are omitted the tool defaults to the next 60 calendar days to avoid oversized responses.
+    By default returns compact per-contract fields only; pass verbose=True for the full raw payload.
     """
     client = ctx.options
 
@@ -148,7 +208,7 @@ async def get_advanced_option_chain(
         to_date_obj,
     )
 
-    return await call(
+    result = await call(
         client.get_option_chain,
         symbol,
         contract_type=client.Options.ContractType[contract_type.upper()]
@@ -173,6 +233,7 @@ async def get_advanced_option_chain(
         else None,
         option_type=client.Options.Type[option_type.upper()] if option_type else None,
     )
+    return result if verbose else _prune_option_chain(result)
 
 
 async def get_option_expiration_chain(
