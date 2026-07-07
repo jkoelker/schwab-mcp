@@ -189,10 +189,29 @@ TRADING_SESSIONS: dict[str, Any] = {
             "description": "Order remains active until filled or canceled",
             "max_days": 180,
             "default": False,
+            "alias": "GTC",
         },
         "FILL_OR_KILL": {
             "description": "Must fill immediately and completely, or cancel",
             "valid_for": ["LIMIT", "STOP_LIMIT"],
+            "default": False,
+            "alias": "FOK",
+        },
+        "IMMEDIATE_OR_CANCEL": {
+            "description": "Fill immediately (fully or partially); cancel any unfilled remainder",
+            "default": False,
+            "alias": "IOC",
+        },
+        "END_OF_WEEK": {
+            "description": "Order remains active until the end of the current trading week",
+            "default": False,
+        },
+        "END_OF_MONTH": {
+            "description": "Order remains active until the end of the current calendar month",
+            "default": False,
+        },
+        "NEXT_END_OF_MONTH": {
+            "description": "Order remains active until the end of the following calendar month",
             "default": False,
         },
     },
@@ -200,6 +219,8 @@ TRADING_SESSIONS: dict[str, Any] = {
         "Extended hours have wider spreads and lower liquidity",
         "Not all securities trade in extended hours",
         "FILL_OR_KILL only works with LIMIT and STOP_LIMIT orders",
+        "Common shorthand is accepted: GTC, IOC, and FOK are normalized to "
+        "their full duration names before submission",
     ],
 }
 

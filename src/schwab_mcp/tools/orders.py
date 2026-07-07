@@ -10,6 +10,7 @@ from schwab.utils import (
     UnsuccessfulOrderException,
     Utils as SchwabUtils,
 )
+from schwab.orders.common import Duration
 from schwab.orders.common import first_triggers_second as trigger_builder
 from schwab.orders.common import one_cancels_other as oco_builder
 from schwab.orders.options import OptionSymbol
@@ -104,15 +105,56 @@ def _prune_orders(payload: JSONType) -> JSONType:
     )
 
 
+# Common shorthand aliases for schwab-py's Duration enum values. GTC is the
+# most frequently used trading abbreviation and is not recognized by
+# schwab-py itself; IOC/FOK are included as the same kind of well-known
+# shorthand. There is no unambiguous shorthand for END_OF_WEEK/END_OF_MONTH/
+# NEXT_END_OF_MONTH, so those are only accepted by their exact enum names.
+_DURATION_ALIASES: dict[str, str] = {
+    "GTC": "GOOD_TILL_CANCEL",
+    "IOC": "IMMEDIATE_OR_CANCEL",
+    "FOK": "FILL_OR_KILL",
+}
+
+# Derived from schwab-py's real Duration enum (rather than hardcoded) so this
+# automatically tracks any values schwab-py adds in future releases.
+_VALID_DURATIONS: frozenset[str] = frozenset(d.name for d in Duration)
+
+
+def _normalize_duration(duration: str | Duration) -> str:
+    """Resolve a duration string/alias to a canonical schwab-py Duration name.
+
+    Accepts common shorthand (e.g. ``GTC``) in addition to the exact
+    schwab-py enum names, case-insensitively. Also accepts a ``Duration``
+    enum instance directly. Raises ``ValueError`` locally (before any Schwab
+    API call) if the value isn't recognized.
+    """
+    if isinstance(duration, Duration):
+        return duration.name
+    if not isinstance(duration, str):
+        raise ValueError(
+            f"Invalid duration: {duration!r}. Must be a string or Duration enum value."
+        )
+    candidate = duration.strip().upper()
+    candidate = _DURATION_ALIASES.get(candidate, candidate)
+
+    if candidate not in _VALID_DURATIONS:
+        raise ValueError(
+            f"Invalid duration: {duration!r}. Must be one of: "
+            f"{', '.join(sorted(_VALID_DURATIONS))} "
+            f"(aliases accepted: {', '.join(sorted(_DURATION_ALIASES))})"
+        )
+
+    return candidate
+
+
 # Internal helper function to apply session and duration settings
 def _apply_order_settings(order_spec, session: str | None, duration: str | None):
     """Internal helper to apply session and duration to an order spec builder."""
     if session:
         order_spec = order_spec.set_session(session)
-    # Apply duration only if it's provided and applicable (not None)
-    # Let schwab-py or the API handle invalid duration types for specific orders
-    if duration:
-        order_spec = order_spec.set_duration(duration)
+    if duration is not None:
+        order_spec = order_spec.set_duration(_normalize_duration(duration))
     return order_spec
 
 
@@ -400,7 +442,7 @@ async def place_equity_order(
     ] = "NORMAL",
     duration: Annotated[
         str | None,
-        "Order duration: DAY (default), GOOD_TILL_CANCEL, FILL_OR_KILL (Limit/StopLimit only)",
+        "Order duration: DAY (default), GOOD_TILL_CANCEL (alias: GTC), IMMEDIATE_OR_CANCEL (alias: IOC), FILL_OR_KILL (alias: FOK; Limit/StopLimit only). Invalid values raise ValueError locally.",
     ] = "DAY",
 ) -> JSONType:
     """
@@ -449,7 +491,7 @@ async def place_option_order(
     ] = "NORMAL",
     duration: Annotated[
         str | None,
-        "Order duration: DAY (default), GOOD_TILL_CANCEL, FILL_OR_KILL (Limit only)",
+        "Order duration: DAY (default), GOOD_TILL_CANCEL (alias: GTC), IMMEDIATE_OR_CANCEL (alias: IOC), FILL_OR_KILL (alias: FOK; Limit only). Invalid values raise ValueError locally.",
     ] = "DAY",
 ) -> JSONType:
     """
@@ -500,7 +542,7 @@ async def place_equity_trailing_stop_order(
     ] = "NORMAL",
     duration: Annotated[
         str | None,
-        "Order duration: DAY (default) or GOOD_TILL_CANCEL",
+        "Order duration: DAY (default), GOOD_TILL_CANCEL (alias: GTC), or IMMEDIATE_OR_CANCEL (alias: IOC). Invalid values raise ValueError locally.",
     ] = "DAY",
 ) -> JSONType:
     """
@@ -545,7 +587,7 @@ async def build_equity_order_spec(
     ] = "NORMAL",
     duration: Annotated[
         str | None,
-        "Order duration: DAY (default), GOOD_TILL_CANCEL, FILL_OR_KILL (Limit/StopLimit only)",
+        "Order duration: DAY (default), GOOD_TILL_CANCEL (alias: GTC), IMMEDIATE_OR_CANCEL (alias: IOC), FILL_OR_KILL (alias: FOK; Limit/StopLimit only). Invalid values raise ValueError locally.",
     ] = "DAY",
 ) -> dict[str, Any]:
     """
@@ -583,7 +625,7 @@ async def build_equity_trailing_stop_order_spec(
     ] = "NORMAL",
     duration: Annotated[
         str | None,
-        "Order duration: DAY (default) or GOOD_TILL_CANCEL",
+        "Order duration: DAY (default), GOOD_TILL_CANCEL (alias: GTC), or IMMEDIATE_OR_CANCEL (alias: IOC). Invalid values raise ValueError locally.",
     ] = "DAY",
 ) -> dict[str, Any]:
     """
@@ -618,7 +660,7 @@ async def build_option_order_spec(
     ] = "NORMAL",
     duration: Annotated[
         str | None,
-        "Order duration: DAY (default), GOOD_TILL_CANCEL, FILL_OR_KILL (Limit only)",
+        "Order duration: DAY (default), GOOD_TILL_CANCEL (alias: GTC), IMMEDIATE_OR_CANCEL (alias: IOC), FILL_OR_KILL (alias: FOK; Limit only). Invalid values raise ValueError locally.",
     ] = "DAY",
 ) -> dict[str, Any]:
     """
@@ -777,7 +819,8 @@ async def place_bracket_order(
         str | None, "Trading session: NORMAL (default), AM, PM, or SEAMLESS"
     ] = "NORMAL",
     duration: Annotated[
-        str | None, "Order duration: DAY (default), GOOD_TILL_CANCEL"
+        str | None,
+        "Order duration: DAY (default), GOOD_TILL_CANCEL (alias: GTC), or IMMEDIATE_OR_CANCEL (alias: IOC). Invalid values raise ValueError locally.",
     ] = "DAY",
 ) -> JSONType:
     """
@@ -890,7 +933,8 @@ async def place_option_combo_order(
         str | None, "Trading session: NORMAL (default), AM, PM, or SEAMLESS"
     ] = "NORMAL",
     duration: Annotated[
-        str | None, "Order duration: DAY (default) or GOOD_TILL_CANCEL"
+        str | None,
+        "Order duration: DAY (default), GOOD_TILL_CANCEL (alias: GTC), or IMMEDIATE_OR_CANCEL (alias: IOC). Invalid values raise ValueError locally.",
     ] = "DAY",
     complex_order_strategy_type: Annotated[
         str | None,

@@ -20,6 +20,61 @@ class DummyOrdersClient:
         return None
 
 
+class TestNormalizeDuration:
+    @pytest.mark.parametrize(
+        "raw,expected",
+        [
+            ("DAY", "DAY"),
+            ("day", "DAY"),
+            ("GOOD_TILL_CANCEL", "GOOD_TILL_CANCEL"),
+            ("GTC", "GOOD_TILL_CANCEL"),
+            ("gtc", "GOOD_TILL_CANCEL"),
+            (" GTC ", "GOOD_TILL_CANCEL"),
+            ("FILL_OR_KILL", "FILL_OR_KILL"),
+            ("FOK", "FILL_OR_KILL"),
+            ("IOC", "IMMEDIATE_OR_CANCEL"),
+            ("IMMEDIATE_OR_CANCEL", "IMMEDIATE_OR_CANCEL"),
+            ("END_OF_WEEK", "END_OF_WEEK"),
+        ],
+    )
+    def test_resolves_valid_values_and_aliases(self, raw, expected):
+        assert orders._normalize_duration(raw) == expected
+
+    def test_rejects_unknown_value_with_helpful_message(self):
+        with pytest.raises(ValueError, match="Invalid duration: 'BOGUS'"):
+            orders._normalize_duration("BOGUS")
+
+    def test_rejects_non_string_with_helpful_message(self):
+        with pytest.raises(ValueError, match="Invalid duration"):
+            orders._normalize_duration(123)  # type: ignore[arg-type]
+
+    def test_accepts_duration_enum_instance(self):
+        assert (
+            orders._normalize_duration(orders.Duration.GOOD_TILL_CANCEL)
+            == "GOOD_TILL_CANCEL"
+        )
+
+    def test_empty_string_raises_before_api_call(
+        self, monkeypatch, place_order_client_factory
+    ):
+        place_order_client = place_order_client_factory(account_hash="acc", order_id=1)
+        ctx = make_ctx(place_order_client)
+        with pytest.raises(ValueError, match="Invalid duration"):
+            run(
+                orders.place_equity_order(
+                    ctx,
+                    "acc",
+                    "AAPL",
+                    50,
+                    "buy",
+                    "limit",
+                    price=175.00,
+                    duration="",
+                )
+            )
+        assert place_order_client.captured is None
+
+
 class TestGetOrders:
     def test_maps_single_status_and_dates(self, monkeypatch):
         captured: dict[str, Any] = {}
@@ -437,6 +492,47 @@ class TestPlaceEquityOrder:
         order_spec = place_order_client.captured["kwargs"]["order_spec"]
         assert order_spec["session"] == "AM"
         assert order_spec["duration"] == "GOOD_TILL_CANCEL"
+
+    @pytest.mark.parametrize("alias", ["GTC", "gtc", " GTC "])
+    def test_gtc_alias_matches_good_till_cancel(
+        self, place_order_client, account_hash, alias
+    ):
+        ctx = make_ctx(place_order_client)
+        run(
+            orders.place_equity_order(
+                ctx,
+                account_hash,
+                "AAPL",
+                50,
+                "buy",
+                "limit",
+                price=175.00,
+                duration=alias,
+            )
+        )
+
+        order_spec = place_order_client.captured["kwargs"]["order_spec"]
+        assert order_spec["duration"] == "GOOD_TILL_CANCEL"
+
+    def test_invalid_duration_raises_before_api_call(
+        self, place_order_client, account_hash
+    ):
+        ctx = make_ctx(place_order_client)
+        with pytest.raises(ValueError, match="Invalid duration"):
+            run(
+                orders.place_equity_order(
+                    ctx,
+                    account_hash,
+                    "AAPL",
+                    50,
+                    "buy",
+                    "limit",
+                    price=175.00,
+                    duration="BOGUS",
+                )
+            )
+
+        assert place_order_client.captured is None
 
 
 class TestPlaceOptionOrder:
