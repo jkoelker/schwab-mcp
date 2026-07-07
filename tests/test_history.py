@@ -2,8 +2,6 @@ import datetime
 from enum import Enum
 from types import SimpleNamespace
 
-import pytest
-
 from schwab_mcp.tools import history
 
 from conftest import make_ctx, run
@@ -17,27 +15,6 @@ class DummyHistoryClient:
     )
 
     async def get_price_history(self, *args, **kwargs):
-        return None
-
-    async def get_price_history_every_minute(self, *args, **kwargs):
-        return None
-
-    async def get_price_history_every_five_minutes(self, *args, **kwargs):
-        return None
-
-    async def get_price_history_every_ten_minutes(self, *args, **kwargs):
-        return None
-
-    async def get_price_history_every_fifteen_minutes(self, *args, **kwargs):
-        return None
-
-    async def get_price_history_every_thirty_minutes(self, *args, **kwargs):
-        return None
-
-    async def get_price_history_every_day(self, *args, **kwargs):
-        return None
-
-    async def get_price_history_every_week(self, *args, **kwargs):
         return None
 
 
@@ -82,137 +59,47 @@ def test_get_advanced_price_history_normalizes_inputs(monkeypatch, fake_call_fac
     assert kwargs["end_datetime"] == datetime.datetime(2024, 1, 1, 16, 0)
 
 
-def test_get_price_history_every_minute_passes_flags(monkeypatch, fake_call_factory):
-    captured, fake_call = fake_call_factory()
+def test_get_advanced_price_history_no_params(monkeypatch, fake_call_factory):
+    captured, fake_call = fake_call_factory(return_value={"candles": []})
 
     monkeypatch.setattr(history, "call", fake_call)
 
     client = DummyHistoryClient()
     ctx = make_ctx(client)
-    result = run(
-        history.get_price_history_every_minute(
-            ctx,
-            "MSFT",
-            start_datetime="2024-02-02T09:30:00",
-            end_datetime="2024-02-02T09:35:00",
-            extended_hours=False,
-            previous_close=True,
-        )
-    )
+    result = run(history.get_advanced_price_history(ctx, "AAPL"))
 
-    assert result == "ok"
-    assert captured["func"] == client.get_price_history_every_minute
-
-    args = captured["args"]
-    assert isinstance(args, tuple)
-    assert args == ("MSFT",)
-
-    kwargs = captured["kwargs"]
-    assert isinstance(kwargs, dict)
-    assert kwargs["start_datetime"] == datetime.datetime(2024, 2, 2, 9, 30)
-    assert kwargs["end_datetime"] == datetime.datetime(2024, 2, 2, 9, 35)
-    assert kwargs["need_extended_hours_data"] is False
-    assert kwargs["need_previous_close"] is True
+    assert result == {"candles": []}
+    assert captured["func"] == client.get_price_history
+    assert captured["args"] == ("AAPL",)
+    assert captured["kwargs"]["period_type"] is None
+    assert captured["kwargs"]["period"] is None
+    assert captured["kwargs"]["frequency_type"] is None
+    assert captured["kwargs"]["frequency"] is None
 
 
-class TestSimplePriceHistoryFunctions:
-    @pytest.fixture
-    def client(self):
-        return DummyHistoryClient()
+def test_get_advanced_price_history_intraday(monkeypatch, fake_call_factory):
+    """Verify intraday use: frequency_type=MINUTE with frequency 1/5/10/15/30."""
+    captured, fake_call = fake_call_factory(return_value={})
 
-    @pytest.fixture
-    def ctx(self, client):
-        return make_ctx(client)
+    monkeypatch.setattr(history, "call", fake_call)
 
-    @pytest.mark.parametrize(
-        ("func", "client_method"),
-        [
-            (
-                history.get_price_history_every_five_minutes,
-                "get_price_history_every_five_minutes",
-            ),
-            (
-                history.get_price_history_every_ten_minutes,
-                "get_price_history_every_ten_minutes",
-            ),
-            (
-                history.get_price_history_every_fifteen_minutes,
-                "get_price_history_every_fifteen_minutes",
-            ),
-            (
-                history.get_price_history_every_thirty_minutes,
-                "get_price_history_every_thirty_minutes",
-            ),
-            (history.get_price_history_every_day, "get_price_history_every_day"),
-            (history.get_price_history_every_week, "get_price_history_every_week"),
-        ],
-    )
-    def test_calls_correct_client_method(
-        self, monkeypatch, ctx, client, func, client_method, fake_call_factory
-    ):
-        captured, fake_call = fake_call_factory(return_value={"candles": []})
+    client = DummyHistoryClient()
+    ctx = make_ctx(client)
 
-        monkeypatch.setattr(history, "call", fake_call)
-
-        result = run(func(ctx, "AAPL"))
-
-        assert result == {"candles": []}
-        assert captured["func"].__name__ == client_method
-        assert captured["args"] == ("AAPL",)
-
-    @pytest.mark.parametrize(
-        "func",
-        [
-            history.get_price_history_every_five_minutes,
-            history.get_price_history_every_ten_minutes,
-            history.get_price_history_every_fifteen_minutes,
-            history.get_price_history_every_thirty_minutes,
-            history.get_price_history_every_day,
-            history.get_price_history_every_week,
-        ],
-    )
-    def test_parses_iso_datetimes(
-        self, monkeypatch, ctx, client, func, fake_call_factory
-    ):
-        captured, fake_call = fake_call_factory(return_value={})
-
-        monkeypatch.setattr(history, "call", fake_call)
-
+    for freq in [1, 5, 10, 15, 30]:
         run(
-            func(
+            history.get_advanced_price_history(
                 ctx,
                 "SPY",
+                period_type="DAY",
+                frequency_type="MINUTE",
+                frequency=freq,
                 start_datetime="2024-03-01T09:30:00",
                 end_datetime="2024-03-01T16:00:00",
             )
         )
-
-        assert captured["kwargs"]["start_datetime"] == datetime.datetime(
-            2024, 3, 1, 9, 30, 0
+        assert (
+            captured["kwargs"]["frequency_type"]
+            is client.PriceHistory.FrequencyType.MINUTE
         )
-        assert captured["kwargs"]["end_datetime"] == datetime.datetime(
-            2024, 3, 1, 16, 0, 0
-        )
-
-    @pytest.mark.parametrize(
-        "func",
-        [
-            history.get_price_history_every_five_minutes,
-            history.get_price_history_every_ten_minutes,
-            history.get_price_history_every_fifteen_minutes,
-            history.get_price_history_every_thirty_minutes,
-            history.get_price_history_every_day,
-            history.get_price_history_every_week,
-        ],
-    )
-    def test_passes_extended_hours_and_previous_close(
-        self, monkeypatch, ctx, client, func, fake_call_factory
-    ):
-        captured, fake_call = fake_call_factory(return_value={})
-
-        monkeypatch.setattr(history, "call", fake_call)
-
-        run(func(ctx, "SPY", extended_hours=True, previous_close=False))
-
-        assert captured["kwargs"]["need_extended_hours_data"] is True
-        assert captured["kwargs"]["need_previous_close"] is False
+        assert captured["kwargs"]["frequency"] == freq
