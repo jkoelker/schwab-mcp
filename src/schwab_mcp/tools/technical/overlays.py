@@ -10,6 +10,7 @@ from schwab_mcp.tools._registration import register_tool
 from schwab_mcp.tools.utils import JSONType
 
 from .base import (
+    DEFAULT_POINTS,
     EndTime,
     Interval,
     Points,
@@ -149,10 +150,9 @@ async def vwap(
     if vwap_series.empty:
         raise ValueError("Not enough price history to compute VWAP.")
 
-    default_points = length if length is not None else 30
     values = series_to_json(
         vwap_series,
-        limit=points if points is not None else default_points,
+        limit=points if points is not None else DEFAULT_POINTS,
         value_key="vwap",
     )
 
@@ -198,7 +198,6 @@ async def pivot_points(
         end=end,
         bars=bars or 50,
         points=points,
-        default_points=lookback if lookback is not None else 10,
         required_columns=("high", "low", "close"),
         extra_metadata={"method": method, "lookback": lookback},
     )
@@ -236,7 +235,6 @@ async def bollinger_bands(
         end=end,
         bars=compute_window(length, multiplier=3, min_padding=20),
         points=points,
-        default_points=length,
         extra_metadata={"length": length, "std_dev": std_dev, "ma_mode": ma_mode},
     )
 

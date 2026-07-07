@@ -46,7 +46,6 @@ async def rsi(
         end=end,
         bars=compute_window(length, multiplier=3, min_padding=20),
         points=points,
-        default_points=length,
         value_key=f"rsi_{length}",
         extra_metadata={"length": length},
     )
@@ -88,7 +87,6 @@ async def stoch(
         end=end,
         bars=compute_window(longest, multiplier=3, min_padding=5),
         points=points,
-        default_points=k_length,
         required_columns=("high", "low", "close"),
         extra_metadata={
             "k_length": k_length,

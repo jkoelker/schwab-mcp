@@ -109,7 +109,7 @@ def test_sma_returns_expected_values(monkeypatch, dummy_ctx, price_data):
         assert row["sma_3"] == pytest.approx(float(expected_value))
 
 
-def test_ema_defaults_to_length_points(monkeypatch, dummy_ctx, price_data):
+def test_ema_defaults_to_default_points(monkeypatch, dummy_ctx, price_data):
     frame, metadata = price_data
 
     async def fake_fetch(ctx, symbol, **kwargs):
@@ -126,12 +126,12 @@ def test_ema_defaults_to_length_points(monkeypatch, dummy_ctx, price_data):
         SimpleNamespace(ema=fake_ema),
     )
 
-    result = run_tool(moving_average.ema(dummy_ctx, "HOOD", length=4))
+    result = run_tool(moving_average.ema(dummy_ctx, "HOOD", length=5))
 
     values = result["values"]
-    assert len(values) == 4
-    last_value = frame["close"].ewm(span=4, adjust=False).mean().iloc[-1]
-    assert values[-1]["ema_4"] == pytest.approx(float(last_value))
+    assert len(values) == base.DEFAULT_POINTS
+    last_value = frame["close"].ewm(span=5, adjust=False).mean().iloc[-1]
+    assert values[-1]["ema_5"] == pytest.approx(float(last_value))
 
 
 def test_rsi_returns_expected_values(monkeypatch, dummy_ctx, price_data):
@@ -716,3 +716,95 @@ def test_expected_move_honors_custom_multiplier(monkeypatch, dummy_ctx):
 
     assert result["adjusted_move"] == pytest.approx(4.0 * 1.2)
     assert result["boundaries"]["upper_1x"] == pytest.approx(100.0 + 4.8)
+
+
+def test_sma_defaults_to_default_points_not_length(monkeypatch, dummy_ctx, price_data):
+    frame, metadata = price_data
+
+    async def fake_fetch(ctx, symbol, **kwargs):
+        return frame, metadata
+
+    def fake_sma(series, *, length):
+        return series.rolling(length, min_periods=1).mean()
+
+    monkeypatch.setattr(base, "fetch_price_frame", fake_fetch)
+    monkeypatch.setattr(
+        moving_average,
+        "pandas_ta",
+        SimpleNamespace(sma=fake_sma),
+    )
+
+    result = run_tool(moving_average.sma(dummy_ctx, "HOOD", length=5))
+
+    values = result["values"]
+    assert len(values) == base.DEFAULT_POINTS
+    last_value = frame["close"].rolling(5, min_periods=1).mean().iloc[-1]
+    assert values[-1]["sma_5"] == pytest.approx(float(last_value))
+
+
+def test_atr_defaults_to_default_points_not_length(monkeypatch, dummy_ctx, ohlcv_data):
+    frame, metadata = ohlcv_data
+
+    async def fake_fetch(ctx, symbol, **kwargs):
+        return frame, metadata
+
+    def fake_atr(high, low, close, *, length):
+        return pd.Series([1.0 + idx for idx in range(len(close))], index=close.index)
+
+    monkeypatch.setattr(base, "fetch_price_frame", fake_fetch)
+    monkeypatch.setattr(
+        trend,
+        "pandas_ta",
+        SimpleNamespace(
+            atr=fake_atr,
+            adx=lambda *args, **kwargs: None,
+            macd=lambda *args, **kwargs: None,
+        ),
+    )
+
+    result = run_tool(trend.atr(dummy_ctx, "HOOD", length=5))
+
+    values = result["values"]
+    assert len(values) == base.DEFAULT_POINTS
+    assert values[-1]["atr_5"] == pytest.approx(1.0 + len(frame) - 1)
+
+
+def test_vwap_defaults_to_default_points_not_length(monkeypatch, dummy_ctx, ohlcv_data):
+    frame, metadata = ohlcv_data
+
+    async def fake_fetch(ctx, symbol, **kwargs):
+        return frame, metadata
+
+    def fake_vwap(high, low, close, volume, *, length=None):
+        return pd.Series([100.0 + idx for idx in range(len(close))], index=close.index)
+
+    monkeypatch.setattr(overlays, "fetch_price_frame", fake_fetch)
+    monkeypatch.setattr(
+        overlays,
+        "pandas_ta",
+        SimpleNamespace(vwap=fake_vwap, pivot_points=None, bbands=None),
+    )
+
+    result = run_tool(overlays.vwap(dummy_ctx, "HOOD", length=5))
+
+    values = result["values"]
+    assert len(values) == base.DEFAULT_POINTS
+    assert values[-1]["vwap"] == pytest.approx(100.0 + len(frame) - 1)
+
+
+def test_pivot_points_defaults_to_default_points_not_lookback(
+    monkeypatch, dummy_ctx, ohlcv_data
+):
+    frame, metadata = ohlcv_data
+
+    async def fake_fetch(ctx, symbol, **kwargs):
+        return frame, metadata
+
+    monkeypatch.setattr(base, "fetch_price_frame", fake_fetch)
+
+    result = run_tool(
+        overlays.pivot_points(dummy_ctx, "HOOD", method="standard", lookback=1)
+    )
+
+    values = result["values"]
+    assert len(values) == base.DEFAULT_POINTS

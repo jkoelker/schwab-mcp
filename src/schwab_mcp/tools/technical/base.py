@@ -3,7 +3,7 @@ from __future__ import annotations
 import datetime as _dt
 from dataclasses import dataclass
 from collections.abc import Callable
-from typing import Annotated, Any, Iterable, Mapping, TypeAlias, cast
+from typing import Annotated, Any, Final, Iterable, Mapping, TypeAlias, cast
 
 import pandas as pd
 
@@ -27,6 +27,7 @@ __all__ = [
     "StartTime",
     "EndTime",
     "Points",
+    "DEFAULT_POINTS",
 ]
 
 Symbol: TypeAlias = Annotated[str, "Symbol of the security"]
@@ -49,11 +50,16 @@ EndTime: TypeAlias = Annotated[
     "Optional ISO-8601 timestamp for the final candle (defaults to now in UTC).",
 ]
 
+DEFAULT_POINTS: Final[int] = 3
+
 Points: TypeAlias = Annotated[
     int | None,
     (
-        "Limit the number of indicator values returned. Defaults to the primary "
-        "length parameter. Use a larger number to inspect more history."
+        "Number of rows to return (not the calculation window). "
+        f"When omitted, defaults to up to {DEFAULT_POINTS} most-recent rows "
+        "(fewer if less data is available). "
+        "Pass points=1 for a cheap latest-value read. "
+        "A larger length does NOT by itself increase the number of returned rows."
     ),
 ]
 
@@ -180,7 +186,6 @@ async def compute_series_indicator(
     end: str | None,
     bars: int,
     points: int | None,
-    default_points: int,
     value_key: str,
     required_columns: tuple[str, ...] = ("close",),
     extra_metadata: dict[str, Any] | None = None,
@@ -211,7 +216,7 @@ async def compute_series_indicator(
 
     values = series_to_json(
         result,
-        limit=points if points is not None else default_points,
+        limit=points if points is not None else DEFAULT_POINTS,
         value_key=value_key,
     )
 
@@ -239,7 +244,6 @@ async def compute_frame_indicator(
     end: str | None,
     bars: int,
     points: int | None,
-    default_points: int,
     required_columns: tuple[str, ...] = ("close",),
     extra_metadata: dict[str, Any] | None = None,
 ) -> JSONType:
@@ -269,7 +273,7 @@ async def compute_frame_indicator(
 
     values = frame_to_json(
         result,
-        limit=points if points is not None else default_points,
+        limit=points if points is not None else DEFAULT_POINTS,
     )
 
     response: dict[str, Any] = {

@@ -55,7 +55,6 @@ async def macd(
         end=end,
         bars=max(slow_length * 5, slow_length + signal_length + 20),
         points=points,
-        default_points=slow_length,
         extra_metadata={
             "fast_length": fast_length,
             "slow_length": slow_length,
@@ -92,7 +91,6 @@ async def atr(
         end=end,
         bars=compute_window(length, multiplier=4, min_padding=20),
         points=points,
-        default_points=length,
         value_key=f"atr_{length}",
         required_columns=("high", "low", "close"),
         extra_metadata={"length": length},
@@ -127,7 +125,6 @@ async def adx(
         end=end,
         bars=compute_window(length, multiplier=4, min_padding=20),
         points=points,
-        default_points=length,
         required_columns=("high", "low", "close"),
         extra_metadata={"length": length},
     )
