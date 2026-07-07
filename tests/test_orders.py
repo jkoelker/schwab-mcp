@@ -513,6 +513,87 @@ class TestPlaceBracketOrder:
                 )
             )
 
+    def test_bracket_order_stop_only_no_oco(self, place_order_client, account_hash):
+        """loss_price only: TRIGGER > SINGLE(stop), no OCO wrapper."""
+        ctx = make_ctx(place_order_client)
+
+        run(
+            orders.place_bracket_order(
+                ctx,
+                account_hash,
+                "SPY",
+                100,
+                "BUY",
+                "MARKET",
+                loss_price=140.00,
+            )
+        )
+
+        order_spec = place_order_client.captured["kwargs"]["order_spec"]
+        assert order_spec["orderStrategyType"] == "TRIGGER"
+        assert "childOrderStrategies" in order_spec
+
+        child = order_spec["childOrderStrategies"][0]
+        # Must NOT be an OCO wrapper
+        assert child.get("orderStrategyType") != "OCO"
+        # Must be a single stop order
+        assert child["orderType"] == "STOP"
+        assert float(child["stopPrice"]) == 140.00
+        leg = child["orderLegCollection"][0]
+        assert leg["instruction"] == "SELL"
+
+    def test_bracket_order_profit_only_no_oco(self, place_order_client, account_hash):
+        """profit_price only: TRIGGER > SINGLE(limit), no OCO wrapper."""
+        ctx = make_ctx(place_order_client)
+
+        run(
+            orders.place_bracket_order(
+                ctx,
+                account_hash,
+                "SPY",
+                100,
+                "BUY",
+                "MARKET",
+                profit_price=160.00,
+            )
+        )
+
+        order_spec = place_order_client.captured["kwargs"]["order_spec"]
+        assert order_spec["orderStrategyType"] == "TRIGGER"
+        assert "childOrderStrategies" in order_spec
+
+        child = order_spec["childOrderStrategies"][0]
+        # Must NOT be an OCO wrapper
+        assert child.get("orderStrategyType") != "OCO"
+        # Must be a single limit order
+        assert child["orderType"] == "LIMIT"
+        assert float(child["price"]) == 160.00
+        leg = child["orderLegCollection"][0]
+        assert leg["instruction"] == "SELL"
+
+    def test_bracket_order_neither_price_raises_before_submit(
+        self, place_order_client, account_hash
+    ):
+        """Neither price provided: raises ValueError, client never called."""
+        ctx = make_ctx(place_order_client)
+
+        with pytest.raises(
+            ValueError,
+            match="At least one of profit_price or loss_price must be provided",
+        ):
+            run(
+                orders.place_bracket_order(
+                    ctx,
+                    account_hash,
+                    "SPY",
+                    100,
+                    "BUY",
+                    "MARKET",
+                )
+            )
+
+        assert place_order_client.captured is None
+
 
 class TestPlaceOneCancelsOtherOrder:
     @pytest.fixture

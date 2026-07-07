@@ -678,8 +678,8 @@ async def place_bracket_order(
     quantity: Annotated[int, "Number of shares to trade"],
     entry_instruction: Annotated[str, "BUY or SELL for the entry order"],
     entry_type: Annotated[str, "Entry order type: MARKET, LIMIT, STOP, or STOP_LIMIT"],
-    profit_price: Annotated[float, "Take-profit limit price"],
-    loss_price: Annotated[float, "Stop-loss trigger price"],
+    profit_price: Annotated[float | None, "Take-profit limit price (optional if loss_price provided)"] = None,
+    loss_price: Annotated[float | None, "Stop-loss trigger price (optional if profit_price provided)"] = None,
     entry_price: Annotated[
         float | None, "Required for LIMIT entry; Limit price for STOP_LIMIT entry"
     ] = None,
@@ -694,13 +694,27 @@ async def place_bracket_order(
     ] = "DAY",
 ) -> JSONType:
     """
-    Creates a bracket order: entry + OCO take-profit/stop-loss. Exits trigger after entry executes.
+    Creates a bracket order: entry + exit leg(s) that trigger after entry executes.
+
+    Exit behavior depends on which prices are provided:
+    - Both profit_price and loss_price: TRIGGER > OCO(limit, stop) — full bracket with take-profit and stop-loss.
+    - Only loss_price: TRIGGER > SINGLE(stop) — stop-loss only, no take-profit leg.
+    - Only profit_price: TRIGGER > SINGLE(limit) — take-profit only, no stop-loss leg.
+    - Neither: raises ValueError before any order is submitted.
+
     Params: account_hash, symbol, quantity, entry_instruction (BUY/SELL), entry_type (MARKET/LIMIT/STOP/STOP_LIMIT), profit_price, loss_price.
+    At least one of profit_price or loss_price must be provided.
     Optional/Conditional: entry_price (for LIMIT/STOP_LIMIT), entry_stop_price (for STOP/STOP_LIMIT), session (default NORMAL), duration (default DAY).
     Ensure profit/loss prices are correctly positioned relative to entry (e.g., profit > entry for BUY).
     Note: Duration applies to all legs of the order. FILL_OR_KILL is not typically used with bracket orders.
     *Write operation.*
     """
+    # Validate that at least one exit price is provided
+    if profit_price is None and loss_price is None:
+        raise ValueError(
+            "At least one of profit_price or loss_price must be provided"
+        )
+
     # Validate entry instruction
     client = ctx.orders
 
@@ -725,29 +739,37 @@ async def place_bracket_order(
     # Apply settings to entry order builder
     entry_order_builder = _apply_order_settings(entry_order_builder, session, duration)
 
-    # Create take-profit (limit) order spec builder
-    if exit_instruction == "BUY":
-        profit_order_builder = equity_buy_limit(symbol, quantity, profit_price)
-    else:  # SELL
-        profit_order_builder = equity_sell_limit(symbol, quantity, profit_price)
-    # Apply settings to profit order builder
-    profit_order_builder = _apply_order_settings(
-        profit_order_builder, session, duration
-    )
+    # Build exit leg(s) based on which prices are provided
+    if profit_price is not None:
+        # Create take-profit (limit) order spec builder
+        if exit_instruction == "BUY":
+            profit_order_builder = equity_buy_limit(symbol, quantity, profit_price)
+        else:  # SELL
+            profit_order_builder = equity_sell_limit(symbol, quantity, profit_price)
+        profit_order_builder = _apply_order_settings(
+            profit_order_builder, session, duration
+        )
 
-    # Create stop-loss (stop) order spec builder
-    if exit_instruction == "BUY":
-        loss_order_builder = equity_buy_stop(symbol, quantity, loss_price)
-    else:  # SELL
-        loss_order_builder = equity_sell_stop(symbol, quantity, loss_price)
-    # Apply settings to loss order builder
-    loss_order_builder = _apply_order_settings(loss_order_builder, session, duration)
+    if loss_price is not None:
+        # Create stop-loss (stop) order spec builder
+        if exit_instruction == "BUY":
+            loss_order_builder = equity_buy_stop(symbol, quantity, loss_price)
+        else:  # SELL
+            loss_order_builder = equity_sell_stop(symbol, quantity, loss_price)
+        loss_order_builder = _apply_order_settings(
+            loss_order_builder, session, duration
+        )
 
-    # Create OCO order builder for take-profit and stop-loss using the builder helper
-    oco_exit_order_builder = oco_builder(profit_order_builder, loss_order_builder)
-
-    # Create the trigger order builder (entry triggers OCO) using the builder helper
-    bracket_order_builder = trigger_builder(entry_order_builder, oco_exit_order_builder)
+    if profit_price is not None and loss_price is not None:
+        # Both prices: entry triggers OCO(profit, loss)
+        oco_exit_order_builder = oco_builder(profit_order_builder, loss_order_builder)
+        bracket_order_builder = trigger_builder(entry_order_builder, oco_exit_order_builder)
+    elif loss_price is not None:
+        # Stop-loss only: entry triggers single stop order
+        bracket_order_builder = trigger_builder(entry_order_builder, loss_order_builder)
+    else:
+        # Take-profit only: entry triggers single limit order
+        bracket_order_builder = trigger_builder(entry_order_builder, profit_order_builder)
 
     # Build the final complex bracket order dictionary
     bracket_order_dict = cast(dict[str, Any], bracket_order_builder.build())
