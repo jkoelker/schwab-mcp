@@ -1,4 +1,4 @@
-# syntax=docker/dockerfile:1.23
+# syntax=docker/dockerfile:1.25
 
 FROM ghcr.io/astral-sh/uv:python3.12-trixie-slim AS uv-tools
 
