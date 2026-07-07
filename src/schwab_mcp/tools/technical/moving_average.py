@@ -45,7 +45,6 @@ async def sma(
         end=end,
         bars=compute_window(length, multiplier=2, min_padding=10),
         points=points,
-        default_points=length,
         value_key=f"sma_{length}",
         extra_metadata={"length": length},
     )
@@ -74,7 +73,6 @@ async def ema(
         end=end,
         bars=compute_window(length, multiplier=2, min_padding=10),
         points=points,
-        default_points=length,
         value_key=f"ema_{length}",
         extra_metadata={"length": length},
     )
