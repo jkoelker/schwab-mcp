@@ -120,6 +120,32 @@ def _format_argument(value: Any) -> str:
     return text
 
 
+async def run_approval(
+    context: SchwabContext, request: ApprovalRequest
+) -> ApprovalDecision:
+    """Run an approval request through progress reporting and the configured
+    :class:`ApprovalManager`, returning the resulting decision.
+
+    Shared by the automatic write-tool approval wrapping below and by tools
+    that need to build their own :class:`ApprovalRequest` (e.g. to surface
+    resolved state rather than raw call arguments to the reviewer).
+    """
+    if _has_progress_token(context):
+        await context.report_progress(0, 1, _APPROVAL_WAIT_MESSAGE)
+    keepalive_task = _start_approval_keepalive(context)
+
+    try:
+        decision = await context.approvals.require(request)
+    finally:
+        if keepalive_task is not None:
+            keepalive_task.cancel()
+            with suppress(asyncio.CancelledError):
+                await keepalive_task
+
+    await _report_approval_completion(context, decision)
+    return decision
+
+
 def _wrap_with_approval(func: ToolFn) -> ToolFn:
     signature, ctx_params = _resolve_context_parameters(func)
     if not ctx_params:
@@ -170,19 +196,7 @@ def _wrap_with_approval(func: ToolFn) -> ToolFn:
             arguments=arguments,
         )
 
-        if _has_progress_token(context):
-            await context.report_progress(0, 1, _APPROVAL_WAIT_MESSAGE)
-        keepalive_task = _start_approval_keepalive(context)
-
-        try:
-            decision = await context.approvals.require(request)
-        finally:
-            if keepalive_task is not None:
-                keepalive_task.cancel()
-                with suppress(asyncio.CancelledError):
-                    await keepalive_task
-
-        await _report_approval_completion(context, decision)
+        decision = await run_approval(context, request)
         logger.info(
             "Approval decision %s for tool '%s' (approval_id=%s, client_id=%s, request_id=%s)",
             decision.value,
@@ -331,4 +345,4 @@ def register_tool(
     )(func)
 
 
-__all__ = ["register_tool"]
+__all__ = ["register_tool", "run_approval"]
