@@ -16,12 +16,24 @@ class DummyApprovalManager(ApprovalManager):
         return ApprovalDecision.APPROVED
 
 
+class _DummySession:
+    """Minimal MCP session stub for tests that invoke ctx.warning/log."""
+
+    async def send_log_message(self, **kwargs: Any) -> None:  # noqa: ARG002
+        pass
+
+
 def make_ctx(client: Any) -> SchwabContext:
     lifespan_context = SchwabServerContext(
         client=cast(AsyncClient, client),
         approval_manager=DummyApprovalManager(),
     )
-    request_context = SimpleNamespace(lifespan_context=lifespan_context)
+    request_context = SimpleNamespace(
+        lifespan_context=lifespan_context,
+        request_id="test-request-id",
+        meta=None,
+        session=_DummySession(),
+    )
     return SchwabContext.model_construct(
         _request_context=cast(Any, request_context),
         _fastmcp=None,
