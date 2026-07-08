@@ -33,6 +33,7 @@ dev = [
     "pytest>=8.4.2",
     "pytest-cov>=6.0.0",
     "ruff>=0.14.0",
+    "vulture>=2.14",
 ]
 ta = [
     "pandas>=2.2.2",
@@ -73,6 +74,11 @@ venvPath = "."
 venv = ".venv"
 reportMissingImports = false
 typeCheckingMode = "basic"
+
+[tool.vulture]
+paths = ["src"]
+min_confidence = 80
+exclude = ["src/schwab_mcp/tools/_protocols.py"]
 
 [tool.uv.sources]
 schwab-py = { git = "https://github.com/jkoelker/schwab-py.git", rev = "proxy_support" }
