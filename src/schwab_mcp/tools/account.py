@@ -101,16 +101,16 @@ async def get_accounts(
     ctx: SchwabContext,
     include_positions: Annotated[
         bool,
-        "Include holdings/positions (symbol, quantity, marketValue, averagePrice, unrealizedPL) for each account.",
+        "Request holdings/positions for each account. In compact mode (default) positions are pruned to symbol, quantity, marketValue, averagePrice, unrealizedPL; verbose=True returns the raw, unpruned position fields instead.",
     ] = False,
     verbose: Annotated[
         bool,
-        "Return the full raw payload (all balance types, full position fields) instead of the compact default.",
+        "Return the full raw payload (all balance types, and full position fields if include_positions=True) instead of the compact default.",
     ] = False,
 ) -> JSONType:
     """
     Returns balances/info for all linked accounts (funds, cash, margin); pass include_positions=True to also include holdings. Does not return hashes; use get_account_numbers first.
-    By default returns compact fields only (account type/number, equity/buyingPower/cashBalance/cashAvailableForTrading/liquidationValue from currentBalances; initialBalances and projectedBalances are dropped; positions if included are reduced to symbol, net quantity (positive=long/negative=short), marketValue, averagePrice, unrealizedPL); pass verbose=True for the full raw payload.
+    By default returns compact fields only (account type/number, equity/buyingPower/cashBalance/cashAvailableForTrading/liquidationValue from currentBalances; initialBalances and projectedBalances are dropped; positions if included are reduced to symbol, net quantity (positive=long/negative=short), marketValue, averagePrice, unrealizedPL); pass verbose=True for the full raw payload (positions unpruned if include_positions=True).
     """
     kwargs: dict[str, Any] = {}
     if include_positions:
@@ -124,16 +124,16 @@ async def get_account(
     account_hash: Annotated[str, "Account hash for the Schwab account"],
     include_positions: Annotated[
         bool,
-        "Include holdings/positions (symbol, quantity, marketValue, averagePrice, unrealizedPL).",
+        "Request holdings/positions. In compact mode (default) positions are pruned to symbol, quantity, marketValue, averagePrice, unrealizedPL; verbose=True returns the raw, unpruned position fields instead.",
     ] = False,
     verbose: Annotated[
         bool,
-        "Return the full raw payload (all balance types, full position fields) instead of the compact default.",
+        "Return the full raw payload (all balance types, and full position fields if include_positions=True) instead of the compact default.",
     ] = False,
 ) -> JSONType:
     """
     Returns balance/info for a specific account via account_hash (from get_account_numbers); pass include_positions=True to also include holdings. Includes funds, cash, margin info.
-    By default returns compact fields only (account type/number, equity/buyingPower/cashBalance/cashAvailableForTrading/liquidationValue from currentBalances; initialBalances and projectedBalances are dropped; positions if included are reduced to symbol, net quantity (positive=long/negative=short), marketValue, averagePrice, unrealizedPL); pass verbose=True for the full raw payload.
+    By default returns compact fields only (account type/number, equity/buyingPower/cashBalance/cashAvailableForTrading/liquidationValue from currentBalances; initialBalances and projectedBalances are dropped; positions if included are reduced to symbol, net quantity (positive=long/negative=short), marketValue, averagePrice, unrealizedPL); pass verbose=True for the full raw payload (positions unpruned if include_positions=True).
     """
     kwargs: dict[str, Any] = {}
     if include_positions:

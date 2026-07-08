@@ -106,7 +106,7 @@ The server provides a rich set of tools for LLMs.
 | Tool | Description |
 |------|-------------|
 | `get_accounts` | List linked accounts (pass `include_positions=True` for holdings). |
-| `get_account` | Balances/positions for one account by hash. |
+| `get_account` | Balances for one account by hash (pass `include_positions=True` for holdings). |
 | `get_transactions` | History of trades and transfers. |
 | `get_orders` | Status of open and filled orders. |
 
