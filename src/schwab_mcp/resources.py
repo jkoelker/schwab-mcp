@@ -104,12 +104,12 @@ ORDER_TYPES: dict[str, Any] = {
         "OCO": {
             "description": "One Cancels Other - execution of one cancels the other",
             "use_case": "Take-profit and stop-loss pairs",
-            "tool": "place_one_cancels_other_order",
+            "tool": "place_oco_order",
         },
         "TRIGGER": {
             "description": "First Triggers Second - second order placed after first executes",
             "use_case": "Activate exit orders after entry fills",
-            "tool": "place_first_triggers_second_order",
+            "tool": "place_trigger_order",
         },
         "BRACKET": {
             "description": "Entry + OCO take-profit/stop-loss",

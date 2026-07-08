@@ -2461,6 +2461,7 @@ dependencies = [
     { name = "python-toon" },
     { name = "pyyaml" },
     { name = "schwab-py" },
+    { name = "typing-extensions" },
 ]
 
 [package.dev-dependencies]
@@ -2489,6 +2490,7 @@ requires-dist = [
     { name = "python-toon", specifier = ">=0.1.2" },
     { name = "pyyaml", specifier = ">=6.0.3" },
     { name = "schwab-py", git = "https://github.com/jkoelker/schwab-py.git?rev=proxy_support" },
+    { name = "typing-extensions", specifier = ">=4.12.0" },
 ]
 
 [package.metadata.requires-dev]

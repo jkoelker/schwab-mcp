@@ -17,6 +17,7 @@ dependencies = [
     "python-toon>=0.1.2",
     "pyyaml>=6.0.3",
     "schwab-py",
+    "typing-extensions>=4.12.0",
 ]
 
 [project.scripts]
