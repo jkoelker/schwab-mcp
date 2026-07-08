@@ -174,6 +174,7 @@ _EQUITY_ORDER_BUILDERS: dict[tuple[str, str], tuple[Any, bool, bool]] = {
 }
 
 _EQUITY_ORDER_TYPES = frozenset({"MARKET", "LIMIT", "STOP", "STOP_LIMIT"})
+_BRACKET_LOSS_TYPES = frozenset({"STOP", "STOP_LIMIT", "LIMIT"})
 _EQUITY_INSTRUCTIONS = frozenset({"BUY", "SELL"})
 
 _TRAILING_STOP_LINK_TYPES = frozenset({"VALUE", "PERCENT"})
@@ -581,6 +582,8 @@ def _prepare_bracket_order(
     duration: str | None = "DAY",
     exit_session: str | None = None,
     exit_duration: str | None = None,
+    loss_type: str = "STOP",
+    loss_limit_price: float | None = None,
 ) -> dict[str, Any]:
     if profit_price is None and loss_price is None:
         raise ValueError("At least one of profit_price or loss_price must be provided")
@@ -610,6 +613,8 @@ def _prepare_bracket_order(
         loss_price,
         eff_exit_session,
         eff_exit_duration,
+        loss_type=loss_type,
+        loss_limit_price=loss_limit_price,
     )
     return cast(dict[str, Any], bracket_builder.build())
 
@@ -827,6 +832,8 @@ def _build_bracket_exit_order(
     loss_price: float | None,
     exit_session: str | None,
     exit_duration: str | None,
+    loss_type: str = "STOP",
+    loss_limit_price: float | None = None,
 ) -> Any:
     """Build the exit leg(s) for a bracket order and assemble the
     TRIGGER > OCO/SINGLE builder around the given entry leg."""
@@ -843,9 +850,31 @@ def _build_bracket_exit_order(
         )
 
     loss_order_builder = None
-    if loss_price is not None:
+    if loss_price is None:
+        if loss_type.upper() != "STOP" or loss_limit_price is not None:
+            raise ValueError(
+                "loss_type/loss_limit_price require loss_price to be provided"
+            )
+    else:
+        loss_type = loss_type.upper()
+        if loss_type not in _BRACKET_LOSS_TYPES:
+            raise ValueError(
+                f"Invalid loss_type: {loss_type}. Must be one of: STOP, STOP_LIMIT, LIMIT"
+            )
+        if loss_type == "STOP_LIMIT" and loss_limit_price is None:
+            raise ValueError("STOP_LIMIT loss orders require loss_limit_price")
+        if loss_type != "STOP_LIMIT" and loss_limit_price is not None:
+            raise ValueError(
+                f"{loss_type} loss orders should not include loss_limit_price"
+            )
+        if loss_type == "STOP":
+            ot, p, sp = "STOP", None, loss_price
+        elif loss_type == "LIMIT":
+            ot, p, sp = "LIMIT", loss_price, None
+        else:  # STOP_LIMIT
+            ot, p, sp = "STOP_LIMIT", loss_limit_price, loss_price
         loss_order_builder = _build_equity_order_spec(
-            symbol, quantity, exit_instruction, "STOP", stop_price=loss_price
+            symbol, quantity, exit_instruction, ot, price=p, stop_price=sp
         )
         loss_order_builder = _apply_order_settings(
             loss_order_builder, exit_session, exit_duration
@@ -1113,7 +1142,20 @@ async def preview_bracket_order(
         float | None, "Take-profit limit price (optional if loss_price provided)"
     ] = None,
     loss_price: Annotated[
-        float | None, "Stop-loss trigger price (optional if profit_price provided)"
+        float | None,
+        "Stop-loss exit price (optional if profit_price provided). Trigger price "
+        "for STOP/STOP_LIMIT loss_type (default); fill price for LIMIT loss_type. "
+        "Required whenever loss_type or loss_limit_price is set.",
+    ] = None,
+    loss_type: Annotated[
+        str,
+        "Order type for the stop-loss exit leg: STOP (default), STOP_LIMIT, or LIMIT. "
+        "Requires loss_price to be set.",
+    ] = "STOP",
+    loss_limit_price: Annotated[
+        float | None,
+        "Limit fill price for the loss leg; required when loss_type is STOP_LIMIT "
+        "(and rejected otherwise). loss_price remains the stop trigger price in that case.",
     ] = None,
     entry_price: Annotated[
         float | None, "Required for LIMIT entry; Limit price for STOP_LIMIT entry"
@@ -1143,6 +1185,11 @@ async def preview_bracket_order(
     order details (validation results, commission/fees) plus a preview_id.
     Call place_previewed_order(account_hash, preview_id) to execute this
     exact order. Params: same as this order shape's fields below.
+
+    loss_price defaults to building a STOP exit order (trigger price) unless
+    loss_type overrides it to STOP_LIMIT or LIMIT, in which case loss_price is
+    the trigger/fill price respectively; loss_type and loss_limit_price require
+    loss_price to be set. profit_price always builds a LIMIT exit order.
     """
     bracket_order_dict = _prepare_bracket_order(
         symbol,
@@ -1157,6 +1204,8 @@ async def preview_bracket_order(
         duration,
         exit_session,
         exit_duration,
+        loss_type=loss_type,
+        loss_limit_price=loss_limit_price,
     )
     preview = await call(
         ctx.orders.preview_order,
@@ -1167,7 +1216,17 @@ async def preview_bracket_order(
         f"BRACKET: {entry_instruction.upper()} {quantity} {symbol} {entry_type.upper()}"
         + (f" @ ${entry_price:.2f}" if entry_price else "")
         + " + exits"
+        + (
+            f" (loss: {loss_type.upper()})"
+            if loss_price is not None and loss_type.upper() != "STOP"
+            else ""
+        )
     )
+    resolved_leg_types: dict[str, str] = {"entry": entry_type.upper()}
+    if profit_price is not None:
+        resolved_leg_types["profit"] = "LIMIT"
+    if loss_price is not None:
+        resolved_leg_types["loss"] = loss_type.upper()
     preview_id = ctx.previews.put(
         account_hash, bracket_order_dict, "preview_bracket_order", summary
     )
@@ -1175,6 +1234,7 @@ async def preview_bracket_order(
         "preview_id": preview_id,
         "preview": preview,
         "action": _preview_action(account_hash, preview_id),
+        "resolved_leg_types": resolved_leg_types,
     }
 
 
