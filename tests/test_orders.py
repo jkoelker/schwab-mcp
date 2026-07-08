@@ -1751,3 +1751,430 @@ class TestPruneOrderTypeGuards:
         """Non-dict input to _prune_order must be returned unchanged."""
         assert orders._prune_order("raw") == "raw"
         assert orders._prune_order(None) is None
+
+
+# ---------------------------------------------------------------------------
+# Phase 2: preview_* tools
+# ---------------------------------------------------------------------------
+
+
+class DummyPreviewClient:
+    """Mock client that supports both place_order and preview_order."""
+
+    def __init__(self):
+        self.captured: dict[str, Any] | None = None
+
+    async def preview_order(self, *args: Any, **kwargs: Any) -> Any:
+        self.captured = {"args": args, "kwargs": kwargs}
+        return {"orderId": 999, "orderStrategy": {}, "orderValidationResult": {}}
+
+    async def place_order(self, *args: Any, **kwargs: Any) -> Any:
+        self.captured = {"args": args, "kwargs": kwargs}
+        return {}
+
+
+class TestPreviewEquityOrder:
+    def test_returns_preview_id_preview_and_action(self, monkeypatch):
+        client = DummyPreviewClient()
+        ctx = make_ctx(client)
+
+        captured: dict[str, Any] = {}
+
+        async def fake_call(func, *args, **kwargs):
+            captured["func"] = func
+            captured["kwargs"] = kwargs
+            return {"orderId": 42}
+
+        monkeypatch.setattr(orders, "call", fake_call)
+
+        result = run(
+            orders.preview_equity_order(
+                ctx, "acc123", "AAPL", 100, "BUY", "LIMIT", price=150.0
+            )
+        )
+
+        assert isinstance(result, dict)
+        assert "preview_id" in result
+        assert "preview" in result
+        assert "action" in result
+        assert "acc123" in result["action"]
+        assert result["preview_id"] in result["action"]
+
+    def test_calls_preview_order_with_correct_spec(self, monkeypatch):
+        client = DummyPreviewClient()
+        ctx = make_ctx(client)
+
+        captured: dict[str, Any] = {}
+
+        async def fake_call(func, *args, **kwargs):
+            captured["func"] = func
+            captured["kwargs"] = kwargs
+            return {}
+
+        monkeypatch.setattr(orders, "call", fake_call)
+
+        run(
+            orders.preview_equity_order(
+                ctx, "acc123", "AAPL", 100, "BUY", "LIMIT", price=150.0
+            )
+        )
+
+        assert captured["func"] == client.preview_order
+        assert captured["kwargs"]["account_hash"] == "acc123"
+        spec = captured["kwargs"]["order_spec"]
+        assert spec["orderType"] == "LIMIT"
+        assert spec["orderLegCollection"][0]["instruction"] == "BUY"
+        assert spec["orderLegCollection"][0]["quantity"] == 100
+
+    def test_stores_entry_in_previews(self, monkeypatch):
+        client = DummyPreviewClient()
+        ctx = make_ctx(client)
+
+        async def fake_call(func, *args, **kwargs):
+            return {}
+
+        monkeypatch.setattr(orders, "call", fake_call)
+
+        result = run(
+            orders.preview_equity_order(
+                ctx, "acc123", "AAPL", 100, "BUY", "LIMIT", price=150.0
+            )
+        )
+
+        preview_id = result["preview_id"]
+        entry = ctx.previews.pop(preview_id, "acc123")
+        assert entry.account_hash == "acc123"
+        assert entry.tool_name == "preview_equity_order"
+        assert entry.order_spec["orderType"] == "LIMIT"
+
+    def test_rejects_invalid_order_type(self):
+        client = DummyPreviewClient()
+        ctx = make_ctx(client)
+        with pytest.raises(ValueError, match="Invalid order_type"):
+            run(orders.preview_equity_order(ctx, "acc123", "AAPL", 100, "BUY", "BOGUS"))
+
+
+class TestPreviewOptionOrder:
+    def test_returns_preview_shape(self, monkeypatch):
+        client = DummyPreviewClient()
+        ctx = make_ctx(client)
+
+        async def fake_call(func, *args, **kwargs):
+            return {"orderId": 77}
+
+        monkeypatch.setattr(orders, "call", fake_call)
+
+        result = run(
+            orders.preview_option_order(
+                ctx, "acc123", "SPY 230616C400", 1, "BUY_TO_OPEN", "LIMIT", price=2.50
+            )
+        )
+
+        assert "preview_id" in result
+        assert "preview" in result
+        assert "action" in result
+
+    def test_rejects_invalid_instruction(self):
+        client = DummyPreviewClient()
+        ctx = make_ctx(client)
+        with pytest.raises(ValueError, match="Invalid instruction"):
+            run(
+                orders.preview_option_order(
+                    ctx, "acc123", "SPY 230616C400", 1, "BOGUS", "LIMIT", price=2.50
+                )
+            )
+
+    def test_stores_correct_spec_in_previews(self, monkeypatch):
+        client = DummyPreviewClient()
+        ctx = make_ctx(client)
+
+        async def fake_call(func, *args, **kwargs):
+            return {}
+
+        monkeypatch.setattr(orders, "call", fake_call)
+
+        result = run(
+            orders.preview_option_order(
+                ctx, "acc123", "SPY 230616C400", 2, "BUY_TO_OPEN", "LIMIT", price=3.0
+            )
+        )
+
+        entry = ctx.previews.pop(result["preview_id"], "acc123")
+        assert entry.tool_name == "preview_option_order"
+        assert entry.order_spec["orderLegCollection"][0]["quantity"] == 2
+
+
+class TestPreviewEquityTrailingStopOrder:
+    def test_returns_preview_shape(self, monkeypatch):
+        client = DummyPreviewClient()
+        ctx = make_ctx(client)
+
+        async def fake_call(func, *args, **kwargs):
+            return {}
+
+        monkeypatch.setattr(orders, "call", fake_call)
+
+        result = run(
+            orders.preview_equity_trailing_stop_order(
+                ctx, "acc123", "AAPL", 50, "SELL", trail_offset=5.0
+            )
+        )
+
+        assert "preview_id" in result
+        assert "action" in result
+
+    def test_stores_entry_in_previews(self, monkeypatch):
+        client = DummyPreviewClient()
+        ctx = make_ctx(client)
+
+        async def fake_call(func, *args, **kwargs):
+            return {}
+
+        monkeypatch.setattr(orders, "call", fake_call)
+
+        result = run(
+            orders.preview_equity_trailing_stop_order(
+                ctx, "acc123", "AAPL", 50, "SELL", trail_offset=5.0
+            )
+        )
+
+        entry = ctx.previews.pop(result["preview_id"], "acc123")
+        assert entry.tool_name == "preview_equity_trailing_stop_order"
+        assert "AAPL" in entry.summary
+
+
+class TestPreviewOcoOrder:
+    _LIMIT_LEG: orders.OrderDesc = {
+        "symbol": "AAPL",
+        "quantity": 100,
+        "instruction": "SELL",
+        "order_type": "LIMIT",
+        "price": 160.0,
+    }
+    _STOP_LEG: orders.OrderDesc = {
+        "symbol": "AAPL",
+        "quantity": 100,
+        "instruction": "SELL",
+        "order_type": "STOP",
+        "stop_price": 140.0,
+    }
+
+    def test_returns_preview_shape(self, monkeypatch):
+        client = DummyPreviewClient()
+        ctx = make_ctx(client)
+
+        async def fake_call(func, *args, **kwargs):
+            return {}
+
+        monkeypatch.setattr(orders, "call", fake_call)
+
+        result = run(
+            orders.preview_oco_order(ctx, "acc123", self._LIMIT_LEG, self._STOP_LEG)
+        )
+
+        assert "preview_id" in result
+        assert "preview" in result
+
+    def test_stores_entry_with_correct_tool_name(self, monkeypatch):
+        client = DummyPreviewClient()
+        ctx = make_ctx(client)
+
+        async def fake_call(func, *args, **kwargs):
+            return {}
+
+        monkeypatch.setattr(orders, "call", fake_call)
+
+        result = run(
+            orders.preview_oco_order(ctx, "acc123", self._LIMIT_LEG, self._STOP_LEG)
+        )
+
+        entry = ctx.previews.pop(result["preview_id"], "acc123")
+        assert entry.tool_name == "preview_oco_order"
+        assert "OCO" in entry.summary
+
+
+class TestPreviewTriggerOrder:
+    def _make_leg(
+        self, instruction: str = "BUY", order_type: str = "MARKET"
+    ) -> orders.OrderDesc:
+        return {
+            "symbol": "AAPL",
+            "quantity": 100,
+            "instruction": instruction,
+            "order_type": order_type,
+        }
+
+    def test_returns_preview_shape(self, monkeypatch):
+        client = DummyPreviewClient()
+        ctx = make_ctx(client)
+
+        async def fake_call(func, *args, **kwargs):
+            return {}
+
+        monkeypatch.setattr(orders, "call", fake_call)
+
+        exit_leg: orders.OrderDesc = {
+            "symbol": "AAPL",
+            "quantity": 100,
+            "instruction": "SELL",
+            "order_type": "LIMIT",
+            "price": 160.0,
+        }
+        result = run(
+            orders.preview_trigger_order(ctx, "acc123", self._make_leg(), [exit_leg])
+        )
+
+        assert "preview_id" in result
+        assert "action" in result
+
+    def test_stores_entry_in_previews(self, monkeypatch):
+        client = DummyPreviewClient()
+        ctx = make_ctx(client)
+
+        async def fake_call(func, *args, **kwargs):
+            return {}
+
+        monkeypatch.setattr(orders, "call", fake_call)
+
+        exit_leg: orders.OrderDesc = {
+            "symbol": "AAPL",
+            "quantity": 100,
+            "instruction": "SELL",
+            "order_type": "LIMIT",
+            "price": 160.0,
+        }
+        result = run(
+            orders.preview_trigger_order(ctx, "acc123", self._make_leg(), [exit_leg])
+        )
+
+        entry = ctx.previews.pop(result["preview_id"], "acc123")
+        assert entry.tool_name == "preview_trigger_order"
+        assert "TRIGGER" in entry.summary
+
+    def test_rejects_invalid_exit_count(self):
+        client = DummyPreviewClient()
+        ctx = make_ctx(client)
+        with pytest.raises(ValueError, match="exit_orders must contain"):
+            run(orders.preview_trigger_order(ctx, "acc123", self._make_leg(), []))
+
+
+class TestPreviewBracketOrder:
+    def test_returns_preview_shape(self, monkeypatch):
+        client = DummyPreviewClient()
+        ctx = make_ctx(client)
+
+        async def fake_call(func, *args, **kwargs):
+            return {}
+
+        monkeypatch.setattr(orders, "call", fake_call)
+
+        result = run(
+            orders.preview_bracket_order(
+                ctx,
+                "acc123",
+                "AAPL",
+                100,
+                "BUY",
+                "MARKET",
+                profit_price=160.0,
+                loss_price=140.0,
+            )
+        )
+
+        assert "preview_id" in result
+        assert "preview" in result
+
+    def test_stores_entry_in_previews(self, monkeypatch):
+        client = DummyPreviewClient()
+        ctx = make_ctx(client)
+
+        async def fake_call(func, *args, **kwargs):
+            return {}
+
+        monkeypatch.setattr(orders, "call", fake_call)
+
+        result = run(
+            orders.preview_bracket_order(
+                ctx,
+                "acc123",
+                "AAPL",
+                100,
+                "BUY",
+                "MARKET",
+                profit_price=160.0,
+                loss_price=140.0,
+            )
+        )
+
+        entry = ctx.previews.pop(result["preview_id"], "acc123")
+        assert entry.tool_name == "preview_bracket_order"
+        assert "BRACKET" in entry.summary
+        assert "AAPL" in entry.summary
+
+    def test_rejects_missing_exit_prices(self):
+        client = DummyPreviewClient()
+        ctx = make_ctx(client)
+        with pytest.raises(
+            ValueError, match="At least one of profit_price or loss_price"
+        ):
+            run(
+                orders.preview_bracket_order(
+                    ctx, "acc123", "AAPL", 100, "BUY", "MARKET"
+                )
+            )
+
+
+class TestPreviewOptionComboOrder:
+    _LEGS = [
+        {"instruction": "SELL_TO_OPEN", "symbol": "SPY 251121C500", "quantity": 1},
+        {"instruction": "BUY_TO_OPEN", "symbol": "SPY 251121C510", "quantity": 1},
+    ]
+
+    def test_returns_preview_shape(self, monkeypatch):
+        client = DummyPreviewClient()
+        ctx = make_ctx(client)
+
+        async def fake_call(func, *args, **kwargs):
+            return {}
+
+        monkeypatch.setattr(orders, "call", fake_call)
+
+        result = run(
+            orders.preview_option_combo_order(
+                ctx, "acc123", self._LEGS, "NET_CREDIT", price=1.0
+            )
+        )
+
+        assert "preview_id" in result
+        assert "preview" in result
+        assert "action" in result
+
+    def test_stores_entry_in_previews(self, monkeypatch):
+        client = DummyPreviewClient()
+        ctx = make_ctx(client)
+
+        async def fake_call(func, *args, **kwargs):
+            return {}
+
+        monkeypatch.setattr(orders, "call", fake_call)
+
+        result = run(
+            orders.preview_option_combo_order(
+                ctx, "acc123", self._LEGS, "NET_CREDIT", price=1.0
+            )
+        )
+
+        entry = ctx.previews.pop(result["preview_id"], "acc123")
+        assert entry.tool_name == "preview_option_combo_order"
+        assert "COMBO" in entry.summary
+        assert "NET_CREDIT" in entry.summary
+
+    def test_rejects_single_leg(self):
+        client = DummyPreviewClient()
+        ctx = make_ctx(client)
+        with pytest.raises(ValueError, match="at least two option legs"):
+            run(
+                orders.preview_option_combo_order(
+                    ctx, "acc123", [self._LEGS[0]], "NET_CREDIT", price=1.0
+                )
+            )
