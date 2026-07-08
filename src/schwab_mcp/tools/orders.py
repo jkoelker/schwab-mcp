@@ -1237,7 +1237,10 @@ async def place_previewed_order(
     specification (no re-derivation from parameters). Call a preview_*
     tool first to get a preview_id, review the projected order details,
     then call this tool to execute. Previews expire after 10 minutes and
-    are single-use. *Write operation.*
+    are single-use. Returns updated order details (compact/pruned, same
+    shape as get_order) after placement; falls back to a minimal
+    {orderId, accountHash, note} payload if the post-placement status fetch
+    fails or returns no data. *Write operation.*
     """
     entry = ctx.previews.pop(preview_id, account_hash)
 
@@ -1256,12 +1259,30 @@ async def place_previewed_order(
 
     decision = await run_approval(ctx, request)
     if decision is ApprovalDecision.APPROVED:
-        return await call(
+        placed = await call(
             ctx.orders.place_order,
             account_hash=account_hash,
             order_spec=entry.order_spec,
             response_handler=_order_response_handler(ctx, account_hash),
         )
+        order_id = placed.get("orderId") if isinstance(placed, dict) else None
+        if order_id is None:
+            return placed
+        order_id = str(order_id)
+        fallback: JSONType = {
+            "orderId": order_id,
+            "accountHash": account_hash,
+            "note": "Order placed; status fetch failed",
+        }
+        try:
+            result = await call(
+                ctx.orders.get_order, order_id=order_id, account_hash=account_hash
+            )
+        except (SchwabAPIError, ValueError):
+            return fallback
+        if not isinstance(result, dict):
+            return fallback
+        return _prune_order(result)
 
     message = (
         "Order placement denied by reviewer."

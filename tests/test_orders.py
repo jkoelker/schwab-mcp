@@ -521,7 +521,90 @@ class TestPlacePreviewedOrder:
         )
 
     def test_approved_submits_cached_spec(self, monkeypatch, account_hash, order_spec):
-        """Happy path: approved decision calls place_order with the exact cached spec."""
+        """Happy path: approved decision calls place_order with the exact cached
+        spec, then fetches and returns the placed order's details."""
+        from schwab_mcp.approvals import ApprovalDecision
+        from schwab_mcp.tools import orders as orders_mod
+
+        client = DummyPreviewClient()
+        ctx = make_ctx(client)
+        preview_id = self._put_entry(ctx, account_hash, order_spec)
+
+        placed_order = {
+            "orderId": 42,
+            "status": "WORKING",
+            "quantity": 100,
+            "filledQuantity": 0,
+        }
+        calls: list[dict] = []
+
+        async def fake_call(func, *args, **kwargs):
+            calls.append({"func": func, "kwargs": kwargs})
+            if len(calls) == 1:
+                return {"orderId": 42, "accountHash": account_hash}
+            return placed_order
+
+        async def fake_run_approval(ctx, request):
+            return ApprovalDecision.APPROVED
+
+        monkeypatch.setattr(orders_mod, "call", fake_call)
+        monkeypatch.setattr(orders_mod, "run_approval", fake_run_approval)
+
+        result = run(orders.place_previewed_order(ctx, account_hash, preview_id))
+
+        assert result == orders._prune_order(placed_order)
+        assert len(calls) == 2
+        # PreviewStore.put() deep-copies the spec (see #130), so this is an
+        # equality check rather than identity: what matters is that the
+        # exact previewed content is submitted, not re-derived from params.
+        assert calls[0]["kwargs"]["order_spec"] == order_spec
+        assert calls[0]["kwargs"]["account_hash"] == account_hash
+        # orderId from the place response is an int; the get_order call must
+        # receive it stringified since get_order's order_id param is typed str.
+        assert calls[1]["kwargs"]["order_id"] == "42"
+        assert calls[1]["kwargs"]["account_hash"] == account_hash
+
+    def test_returns_fallback_when_get_order_fails(
+        self, monkeypatch, account_hash, order_spec
+    ):
+        """If the post-placement get_order fetch fails, fall back to a minimal
+        note instead of masking the successful placement."""
+        from schwab_mcp.approvals import ApprovalDecision
+        from schwab_mcp.tools import orders as orders_mod
+        from schwab_mcp.tools.utils import SchwabAPIError
+
+        client = DummyPreviewClient()
+        ctx = make_ctx(client)
+        preview_id = self._put_entry(ctx, account_hash, order_spec)
+
+        calls: list[dict] = []
+
+        async def fake_call(func, *args, **kwargs):
+            calls.append({"func": func, "kwargs": kwargs})
+            if len(calls) == 1:
+                return {"orderId": 42, "accountHash": account_hash}
+            raise SchwabAPIError(status_code=404, url="/order", body="not found")
+
+        async def fake_run_approval(ctx, request):
+            return ApprovalDecision.APPROVED
+
+        monkeypatch.setattr(orders_mod, "call", fake_call)
+        monkeypatch.setattr(orders_mod, "run_approval", fake_run_approval)
+
+        result = run(orders.place_previewed_order(ctx, account_hash, preview_id))
+
+        assert result == {
+            "orderId": "42",
+            "accountHash": account_hash,
+            "note": "Order placed; status fetch failed",
+        }
+
+    def test_returns_fallback_when_get_order_raises_value_error(
+        self, monkeypatch, account_hash, order_spec
+    ):
+        """If the post-placement get_order fetch raises ValueError (e.g. the
+        Schwab endpoint returned a non-JSON body), fall back to a minimal
+        note instead of letting the error mask the successful placement."""
         from schwab_mcp.approvals import ApprovalDecision
         from schwab_mcp.tools import orders as orders_mod
 
@@ -533,7 +616,9 @@ class TestPlacePreviewedOrder:
 
         async def fake_call(func, *args, **kwargs):
             calls.append({"func": func, "kwargs": kwargs})
-            return {"orderId": 42, "accountHash": account_hash}
+            if len(calls) == 1:
+                return {"orderId": 42, "accountHash": account_hash}
+            raise ValueError("Expected JSON response from Schwab endpoint")
 
         async def fake_run_approval(ctx, request):
             return ApprovalDecision.APPROVED
@@ -543,13 +628,73 @@ class TestPlacePreviewedOrder:
 
         result = run(orders.place_previewed_order(ctx, account_hash, preview_id))
 
-        assert result["orderId"] == 42
+        assert result == {
+            "orderId": "42",
+            "accountHash": account_hash,
+            "note": "Order placed; status fetch failed",
+        }
+
+    def test_returns_fallback_when_get_order_returns_no_data(
+        self, monkeypatch, account_hash, order_spec
+    ):
+        """If the post-placement get_order fetch returns no data (e.g. empty
+        body), fall back to a minimal note instead of masking the successful
+        placement."""
+        from schwab_mcp.approvals import ApprovalDecision
+        from schwab_mcp.tools import orders as orders_mod
+
+        client = DummyPreviewClient()
+        ctx = make_ctx(client)
+        preview_id = self._put_entry(ctx, account_hash, order_spec)
+
+        calls: list[dict] = []
+
+        async def fake_call(func, *args, **kwargs):
+            calls.append({"func": func, "kwargs": kwargs})
+            if len(calls) == 1:
+                return {"orderId": 42, "accountHash": account_hash}
+            return None
+
+        async def fake_run_approval(ctx, request):
+            return ApprovalDecision.APPROVED
+
+        monkeypatch.setattr(orders_mod, "call", fake_call)
+        monkeypatch.setattr(orders_mod, "run_approval", fake_run_approval)
+
+        result = run(orders.place_previewed_order(ctx, account_hash, preview_id))
+
+        assert result == {
+            "orderId": "42",
+            "accountHash": account_hash,
+            "note": "Order placed; status fetch failed",
+        }
+
+    def test_no_order_id_skips_get_order(self, monkeypatch, account_hash, order_spec):
+        """If the place_order response has no extractable orderId (only a
+        Location header), return that payload without attempting get_order."""
+        from schwab_mcp.approvals import ApprovalDecision
+        from schwab_mcp.tools import orders as orders_mod
+
+        client = DummyPreviewClient()
+        ctx = make_ctx(client)
+        preview_id = self._put_entry(ctx, account_hash, order_spec)
+
+        calls: list[dict] = []
+
+        async def fake_call(func, *args, **kwargs):
+            calls.append({"func": func, "kwargs": kwargs})
+            return {"location": "https://api.schwabapi.com/orders/123"}
+
+        async def fake_run_approval(ctx, request):
+            return ApprovalDecision.APPROVED
+
+        monkeypatch.setattr(orders_mod, "call", fake_call)
+        monkeypatch.setattr(orders_mod, "run_approval", fake_run_approval)
+
+        result = run(orders.place_previewed_order(ctx, account_hash, preview_id))
+
+        assert result == {"location": "https://api.schwabapi.com/orders/123"}
         assert len(calls) == 1
-        # PreviewStore.put() deep-copies the spec (see #130), so this is an
-        # equality check rather than identity: what matters is that the
-        # exact previewed content is submitted, not re-derived from params.
-        assert calls[0]["kwargs"]["order_spec"] == order_spec
-        assert calls[0]["kwargs"]["account_hash"] == account_hash
 
     def test_denied_raises_permission_error(
         self, monkeypatch, account_hash, order_spec
@@ -1330,6 +1475,9 @@ class DummyPreviewClient:
 
     async def place_order(self, *args: Any, **kwargs: Any) -> Any:
         self.captured = {"args": args, "kwargs": kwargs}
+        return {}
+
+    async def get_order(self, *args: Any, **kwargs: Any) -> Any:
         return {}
 
 
