@@ -76,7 +76,7 @@ def ohlcv_data():
     return frame, metadata
 
 
-def test_sma_returns_expected_values(monkeypatch, dummy_ctx, price_data):
+def test_moving_average_returns_sma_and_ema(monkeypatch, dummy_ctx, price_data):
     frame, metadata = price_data
 
     async def fake_fetch(ctx, symbol, **kwargs):
@@ -88,33 +88,79 @@ def test_sma_returns_expected_values(monkeypatch, dummy_ctx, price_data):
     def fake_sma(series, *, length):
         return series.rolling(length, min_periods=1).mean()
 
+    def fake_ema(series, *, length):
+        return series.ewm(span=length, adjust=False).mean()
+
     monkeypatch.setattr(base, "fetch_price_frame", fake_fetch)
     monkeypatch.setattr(
         moving_average,
         "pandas_ta",
-        SimpleNamespace(sma=fake_sma),
+        SimpleNamespace(sma=fake_sma, ema=fake_ema),
     )
 
-    result = run_tool(moving_average.sma(dummy_ctx, "HOOD", length=3, points=2))
+    result = run_tool(
+        moving_average.moving_average(dummy_ctx, "HOOD", length=3, points=2)
+    )
 
     assert result["symbol"] == "HOOD"
     assert result["interval"] == "1d"
     assert result["candles"] == len(frame)
+    assert result["length"] == 3
 
     values = result["values"]
     assert len(values) == 2
-    expected = frame["close"].rolling(3, min_periods=1).mean().tail(2).to_numpy()
-    for row, expected_value in zip(values, expected):
+    expected_sma = frame["close"].rolling(3, min_periods=1).mean().tail(2).to_numpy()
+    expected_ema = frame["close"].ewm(span=3, adjust=False).mean().tail(2).to_numpy()
+    for row, sma_value, ema_value in zip(values, expected_sma, expected_ema):
         assert row["timestamp"].endswith("+00:00")
-        assert row["sma_3"] == pytest.approx(float(expected_value))
+        assert row["sma_3"] == pytest.approx(float(sma_value))
+        assert row["ema_3"] == pytest.approx(float(ema_value))
 
 
-def test_ema_defaults_to_default_points(monkeypatch, dummy_ctx, price_data):
+def test_moving_average_drops_rows_missing_either_series(
+    monkeypatch, dummy_ctx, price_data
+):
+    frame, metadata = price_data
+
+    async def fake_fetch(ctx, symbol, **kwargs):
+        return frame, metadata
+
+    def fake_sma(series, *, length):
+        # Real warmup behavior: no value until `length` periods have passed.
+        return series.rolling(length, min_periods=length).mean()
+
+    def fake_ema(series, *, length):
+        # EMA warms up immediately, unlike SMA above, so early rows would
+        # otherwise contain ema_{length} with no sma_{length}.
+        return series.ewm(span=length, adjust=False).mean()
+
+    monkeypatch.setattr(base, "fetch_price_frame", fake_fetch)
+    monkeypatch.setattr(
+        moving_average,
+        "pandas_ta",
+        SimpleNamespace(sma=fake_sma, ema=fake_ema),
+    )
+
+    result = run_tool(
+        moving_average.moving_average(dummy_ctx, "HOOD", length=3, points=10)
+    )
+
+    values = result["values"]
+    assert len(values) == len(frame) - 2  # first two rows lack sma_3
+    for row in values:
+        assert "sma_3" in row
+        assert "ema_3" in row
+
+
+def test_moving_average_defaults_to_default_points(monkeypatch, dummy_ctx, price_data):
     frame, metadata = price_data
 
     async def fake_fetch(ctx, symbol, **kwargs):
         assert kwargs["bars"] >= 0
         return frame, metadata
+
+    def fake_sma(series, *, length):
+        return series.rolling(length, min_periods=1).mean()
 
     def fake_ema(series, *, length):
         return series.ewm(span=length, adjust=False).mean()
@@ -123,15 +169,15 @@ def test_ema_defaults_to_default_points(monkeypatch, dummy_ctx, price_data):
     monkeypatch.setattr(
         moving_average,
         "pandas_ta",
-        SimpleNamespace(ema=fake_ema),
+        SimpleNamespace(sma=fake_sma, ema=fake_ema),
     )
 
-    result = run_tool(moving_average.ema(dummy_ctx, "HOOD", length=5))
+    result = run_tool(moving_average.moving_average(dummy_ctx, "HOOD", length=5))
 
     values = result["values"]
     assert len(values) == base.DEFAULT_POINTS
-    last_value = frame["close"].ewm(span=5, adjust=False).mean().iloc[-1]
-    assert values[-1]["ema_5"] == pytest.approx(float(last_value))
+    last_ema = frame["close"].ewm(span=5, adjust=False).mean().iloc[-1]
+    assert values[-1]["ema_5"] == pytest.approx(float(last_ema))
 
 
 def test_rsi_returns_expected_values(monkeypatch, dummy_ctx, price_data):
@@ -718,7 +764,9 @@ def test_expected_move_honors_custom_multiplier(monkeypatch, dummy_ctx):
     assert result["boundaries"]["upper_1x"] == pytest.approx(100.0 + 4.8)
 
 
-def test_sma_defaults_to_default_points_not_length(monkeypatch, dummy_ctx, price_data):
+def test_moving_average_defaults_to_default_points_not_length(
+    monkeypatch, dummy_ctx, price_data
+):
     frame, metadata = price_data
 
     async def fake_fetch(ctx, symbol, **kwargs):
@@ -727,14 +775,17 @@ def test_sma_defaults_to_default_points_not_length(monkeypatch, dummy_ctx, price
     def fake_sma(series, *, length):
         return series.rolling(length, min_periods=1).mean()
 
+    def fake_ema(series, *, length):
+        return series.ewm(span=length, adjust=False).mean()
+
     monkeypatch.setattr(base, "fetch_price_frame", fake_fetch)
     monkeypatch.setattr(
         moving_average,
         "pandas_ta",
-        SimpleNamespace(sma=fake_sma),
+        SimpleNamespace(sma=fake_sma, ema=fake_ema),
     )
 
-    result = run_tool(moving_average.sma(dummy_ctx, "HOOD", length=5))
+    result = run_tool(moving_average.moving_average(dummy_ctx, "HOOD", length=5))
 
     values = result["values"]
     assert len(values) == base.DEFAULT_POINTS
