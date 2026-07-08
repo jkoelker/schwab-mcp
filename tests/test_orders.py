@@ -857,6 +857,76 @@ class TestPrepareBracketOrderValidation:
         for exit_order in oco_child["childOrderStrategies"]:
             assert exit_order["duration"] == "GOOD_TILL_CANCEL"
 
+    def test_loss_type_limit(self):
+        spec = orders._prepare_bracket_order(
+            "SPY", 100, "BUY", "MARKET", loss_price=140.0, loss_type="LIMIT"
+        )
+        child = spec["childOrderStrategies"][0]
+        assert child["orderType"] == "LIMIT"
+        assert float(child["price"]) == 140.0
+        assert "stopPrice" not in child
+
+    def test_loss_type_stop_limit(self):
+        spec = orders._prepare_bracket_order(
+            "SPY",
+            100,
+            "BUY",
+            "MARKET",
+            loss_price=140.0,
+            loss_type="STOP_LIMIT",
+            loss_limit_price=139.5,
+        )
+        child = spec["childOrderStrategies"][0]
+        assert child["orderType"] == "STOP_LIMIT"
+        assert float(child["stopPrice"]) == 140.0
+        assert float(child["price"]) == 139.5
+
+    def test_stop_limit_without_loss_limit_price_raises(self):
+        with pytest.raises(ValueError, match="loss_limit_price"):
+            orders._prepare_bracket_order(
+                "SPY",
+                100,
+                "BUY",
+                "MARKET",
+                loss_price=140.0,
+                loss_type="STOP_LIMIT",
+            )
+
+    def test_stop_with_loss_limit_price_raises(self):
+        with pytest.raises(ValueError, match="loss_limit_price"):
+            orders._prepare_bracket_order(
+                "SPY",
+                100,
+                "BUY",
+                "MARKET",
+                loss_price=140.0,
+                loss_type="STOP",
+                loss_limit_price=139.5,
+            )
+
+    def test_invalid_loss_type_raises(self):
+        with pytest.raises(ValueError, match="Invalid loss_type"):
+            orders._prepare_bracket_order(
+                "SPY", 100, "BUY", "MARKET", loss_price=140.0, loss_type="GTC"
+            )
+
+    def test_loss_type_without_loss_price_raises(self):
+        with pytest.raises(ValueError, match="loss_type/loss_limit_price"):
+            orders._prepare_bracket_order(
+                "SPY", 100, "BUY", "MARKET", profit_price=160.0, loss_type="LIMIT"
+            )
+
+    def test_loss_limit_price_without_loss_price_raises(self):
+        with pytest.raises(ValueError, match="loss_type/loss_limit_price"):
+            orders._prepare_bracket_order(
+                "SPY",
+                100,
+                "BUY",
+                "MARKET",
+                profit_price=160.0,
+                loss_limit_price=139.5,
+            )
+
 
 class TestPrepareOptionComboOrderValidation:
     def test_requires_at_least_two_legs(self):
@@ -1682,6 +1752,84 @@ class TestPreviewBracketOrder:
                     ctx, "acc123", "AAPL", 100, "BUY", "MARKET"
                 )
             )
+
+    def test_resolved_leg_types_full_bracket_default_loss(self, monkeypatch):
+        client = DummyPreviewClient()
+        ctx = make_ctx(client)
+
+        async def fake_call(func, *args, **kwargs):
+            return {}
+
+        monkeypatch.setattr(orders, "call", fake_call)
+
+        result = run(
+            orders.preview_bracket_order(
+                ctx,
+                "acc123",
+                "AAPL",
+                100,
+                "BUY",
+                "MARKET",
+                profit_price=160.0,
+                loss_price=140.0,
+            )
+        )
+
+        assert result["resolved_leg_types"] == {
+            "entry": "MARKET",
+            "profit": "LIMIT",
+            "loss": "STOP",
+        }
+
+    def test_resolved_leg_types_loss_limit_no_profit(self, monkeypatch):
+        client = DummyPreviewClient()
+        ctx = make_ctx(client)
+
+        async def fake_call(func, *args, **kwargs):
+            return {}
+
+        monkeypatch.setattr(orders, "call", fake_call)
+
+        result = run(
+            orders.preview_bracket_order(
+                ctx,
+                "acc123",
+                "AAPL",
+                100,
+                "BUY",
+                "MARKET",
+                loss_price=140.0,
+                loss_type="LIMIT",
+            )
+        )
+
+        assert result["resolved_leg_types"] == {"entry": "MARKET", "loss": "LIMIT"}
+
+    def test_resolved_leg_types_stop_limit_loss(self, monkeypatch):
+        client = DummyPreviewClient()
+        ctx = make_ctx(client)
+
+        async def fake_call(func, *args, **kwargs):
+            return {}
+
+        monkeypatch.setattr(orders, "call", fake_call)
+
+        result = run(
+            orders.preview_bracket_order(
+                ctx,
+                "acc123",
+                "AAPL",
+                100,
+                "BUY",
+                "MARKET",
+                loss_price=140.0,
+                loss_type="STOP_LIMIT",
+                loss_limit_price=139.0,
+            )
+        )
+
+        assert result["resolved_leg_types"]["loss"] == "STOP_LIMIT"
+        assert "preview_id" in result
 
 
 class TestPreviewOptionComboOrder:

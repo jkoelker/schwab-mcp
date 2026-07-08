@@ -121,7 +121,7 @@ so the LLM can't hallucinate a different order than what was reviewed.
 |------|-------------|
 | `preview_equity_order` | Preview a stock/ETF buy or sell. |
 | `preview_option_order` | Preview an option contract buy or sell. |
-| `preview_bracket_order` | Preview an entry + take-profit + stop-loss order. |
+| `preview_bracket_order` | Preview an entry + take-profit + stop-loss order. Stop-loss exit type defaults to `STOP`; pass `loss_type` (`STOP`, `STOP_LIMIT`, or `LIMIT`) for a different exit, plus `loss_limit_price` when `loss_type` is `STOP_LIMIT`; the response's `resolved_leg_types` shows what was actually built. |
 | `place_previewed_order` | Place the exact order returned by a `preview_*` call, by `preview_id`. Requires approval. |
 | `cancel_order` | Cancel an open order. |
 
