@@ -99,70 +99,46 @@ async def get_account_numbers(
 
 async def get_accounts(
     ctx: SchwabContext,
+    include_positions: Annotated[
+        bool,
+        "Request holdings/positions for each account. In compact mode (default) positions are pruned to symbol, quantity, marketValue, averagePrice, unrealizedPL; verbose=True returns the raw, unpruned position fields instead.",
+    ] = False,
     verbose: Annotated[
         bool,
-        "Return the full raw payload (all balance types, full position fields) instead of the compact default.",
+        "Return the full raw payload (all balance types, and full position fields if include_positions=True) instead of the compact default.",
     ] = False,
 ) -> JSONType:
     """
-    Returns balances/info for all linked accounts (funds, cash, margin). Does not return hashes; use get_account_numbers first.
-    By default returns compact fields only (account type/number, equity/buyingPower/cashBalance/cashAvailableForTrading/liquidationValue from currentBalances; initialBalances and projectedBalances are dropped); pass verbose=True for the full raw payload.
+    Returns balances/info for all linked accounts (funds, cash, margin); pass include_positions=True to also include holdings. Does not return hashes; use get_account_numbers first.
+    By default returns compact fields only (account type/number, equity/buyingPower/cashBalance/cashAvailableForTrading/liquidationValue from currentBalances; initialBalances and projectedBalances are dropped; positions if included are reduced to symbol, net quantity (positive=long/negative=short), marketValue, averagePrice, unrealizedPL); pass verbose=True for the full raw payload (positions unpruned if include_positions=True).
     """
-    result = await call(ctx.accounts.get_accounts)
-    return result if verbose else _prune_account_response(result)
-
-
-async def get_accounts_with_positions(
-    ctx: SchwabContext,
-    verbose: Annotated[
-        bool,
-        "Return the full raw payload (all balance types, full position fields) instead of the compact default.",
-    ] = False,
-) -> JSONType:
-    """
-    Returns balances, info, and positions (holdings, cost, gain/loss) for all linked accounts. Does not return hashes; use get_account_numbers first.
-    By default returns compact fields only (account type/number, equity/buyingPower/cashBalance/cashAvailableForTrading/liquidationValue from currentBalances; initialBalances and projectedBalances are dropped; positions are reduced to symbol, net quantity (positive=long/negative=short), marketValue, averagePrice, unrealizedPL); pass verbose=True for the full raw payload.
-    """
-    result = await call(
-        ctx.accounts.get_accounts,
-        fields=[ctx.accounts.Account.Fields.POSITIONS],
-    )
+    kwargs: dict[str, Any] = {}
+    if include_positions:
+        kwargs["fields"] = [ctx.accounts.Account.Fields.POSITIONS]
+    result = await call(ctx.accounts.get_accounts, **kwargs)
     return result if verbose else _prune_account_response(result)
 
 
 async def get_account(
     ctx: SchwabContext,
     account_hash: Annotated[str, "Account hash for the Schwab account"],
+    include_positions: Annotated[
+        bool,
+        "Request holdings/positions. In compact mode (default) positions are pruned to symbol, quantity, marketValue, averagePrice, unrealizedPL; verbose=True returns the raw, unpruned position fields instead.",
+    ] = False,
     verbose: Annotated[
         bool,
-        "Return the full raw payload (all balance types, full position fields) instead of the compact default.",
+        "Return the full raw payload (all balance types, and full position fields if include_positions=True) instead of the compact default.",
     ] = False,
 ) -> JSONType:
     """
-    Returns balance/info for a specific account via account_hash (from get_account_numbers). Includes funds, cash, margin info.
-    By default returns compact fields only (account type/number, equity/buyingPower/cashBalance/cashAvailableForTrading/liquidationValue from currentBalances; initialBalances and projectedBalances are dropped); pass verbose=True for the full raw payload.
+    Returns balance/info for a specific account via account_hash (from get_account_numbers); pass include_positions=True to also include holdings. Includes funds, cash, margin info.
+    By default returns compact fields only (account type/number, equity/buyingPower/cashBalance/cashAvailableForTrading/liquidationValue from currentBalances; initialBalances and projectedBalances are dropped; positions if included are reduced to symbol, net quantity (positive=long/negative=short), marketValue, averagePrice, unrealizedPL); pass verbose=True for the full raw payload (positions unpruned if include_positions=True).
     """
-    result = await call(ctx.accounts.get_account, account_hash)
-    return result if verbose else _prune_account_response(result)
-
-
-async def get_account_with_positions(
-    ctx: SchwabContext,
-    account_hash: Annotated[str, "Account hash for the Schwab account"],
-    verbose: Annotated[
-        bool,
-        "Return the full raw payload (all balance types, full position fields) instead of the compact default.",
-    ] = False,
-) -> JSONType:
-    """
-    Returns balance, info, and positions for a specific account via account_hash. Includes holdings, quantity, cost basis, unrealized gain/loss.
-    By default returns compact fields only (account type/number, equity/buyingPower/cashBalance/cashAvailableForTrading/liquidationValue from currentBalances; initialBalances and projectedBalances are dropped; positions are reduced to symbol, net quantity (positive=long/negative=short), marketValue, averagePrice, unrealizedPL); pass verbose=True for the full raw payload.
-    """
-    result = await call(
-        ctx.accounts.get_account,
-        account_hash,
-        fields=[ctx.accounts.Account.Fields.POSITIONS],
-    )
+    kwargs: dict[str, Any] = {}
+    if include_positions:
+        kwargs["fields"] = [ctx.accounts.Account.Fields.POSITIONS]
+    result = await call(ctx.accounts.get_account, account_hash, **kwargs)
     return result if verbose else _prune_account_response(result)
 
 
@@ -178,9 +154,7 @@ async def get_user_preferences(
 _READ_ONLY_TOOLS = (
     get_account_numbers,
     get_accounts,
-    get_accounts_with_positions,
     get_account,
-    get_account_with_positions,
     get_user_preferences,
 )
 

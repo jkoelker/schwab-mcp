@@ -147,9 +147,21 @@ class TestGetAccounts:
 
         assert result is _RAW_LIST_PAYLOAD
 
+    def test_default_does_not_request_positions_field(
+        self, monkeypatch, fake_call_factory
+    ):
+        captured, fake_call = fake_call_factory(return_value=_RAW_LIST_PAYLOAD)
+        monkeypatch.setattr(account, "call", fake_call)
 
-class TestGetAccountsWithPositions:
-    def test_calls_client_with_positions_field(self, monkeypatch, fake_call_factory):
+        client = DummyAccountClient()
+        ctx = make_ctx(client)
+        run(account.get_accounts(ctx))
+
+        assert "fields" not in captured["kwargs"]
+
+    def test_include_positions_requests_positions_field(
+        self, monkeypatch, fake_call_factory
+    ):
         captured, fake_call = fake_call_factory(
             return_value=[{"securitiesAccount": {"positions": []}}]
         )
@@ -158,19 +170,21 @@ class TestGetAccountsWithPositions:
 
         client = DummyAccountClient()
         ctx = make_ctx(client)
-        result = run(account.get_accounts_with_positions(ctx, verbose=True))
+        result = run(account.get_accounts(ctx, include_positions=True, verbose=True))
 
         assert result == [{"securitiesAccount": {"positions": []}}]
         assert captured["func"].__name__ == "get_accounts"
         assert captured["kwargs"]["fields"] == [client.Account.Fields.POSITIONS]
 
-    def test_compact_default_prunes_positions(self, monkeypatch, fake_call_factory):
+    def test_include_positions_compact_default_prunes_positions(
+        self, monkeypatch, fake_call_factory
+    ):
         _, fake_call = fake_call_factory(return_value=_RAW_LIST_WITH_POSITIONS)
         monkeypatch.setattr(account, "call", fake_call)
 
         client = DummyAccountClient()
         ctx = make_ctx(client)
-        result = run(account.get_accounts_with_positions(ctx))
+        result = run(account.get_accounts(ctx, include_positions=True))
 
         assert isinstance(result, list)
         sec = result[0]["securitiesAccount"]
@@ -187,13 +201,15 @@ class TestGetAccountsWithPositions:
         assert "settledLongQuantity" not in pos
         assert "maintenanceRequirement" not in pos
 
-    def test_verbose_returns_raw_payload(self, monkeypatch, fake_call_factory):
+    def test_include_positions_verbose_returns_raw_payload(
+        self, monkeypatch, fake_call_factory
+    ):
         _, fake_call = fake_call_factory(return_value=_RAW_LIST_WITH_POSITIONS)
         monkeypatch.setattr(account, "call", fake_call)
 
         client = DummyAccountClient()
         ctx = make_ctx(client)
-        result = run(account.get_accounts_with_positions(ctx, verbose=True))
+        result = run(account.get_accounts(ctx, include_positions=True, verbose=True))
 
         assert result is _RAW_LIST_WITH_POSITIONS
 
@@ -241,9 +257,19 @@ class TestGetAccount:
 
         assert result is _RAW_DICT_PAYLOAD
 
+    def test_default_does_not_request_positions_field(
+        self, monkeypatch, fake_call_factory
+    ):
+        captured, fake_call = fake_call_factory(return_value=_RAW_DICT_PAYLOAD)
+        monkeypatch.setattr(account, "call", fake_call)
 
-class TestGetAccountWithPositions:
-    def test_calls_client_with_hash_and_positions_field(
+        client = DummyAccountClient()
+        ctx = make_ctx(client)
+        run(account.get_account(ctx, "hash456"))
+
+        assert "fields" not in captured["kwargs"]
+
+    def test_include_positions_requests_positions_field(
         self, monkeypatch, fake_call_factory
     ):
         captured, fake_call = fake_call_factory(
@@ -254,20 +280,24 @@ class TestGetAccountWithPositions:
 
         client = DummyAccountClient()
         ctx = make_ctx(client)
-        result = run(account.get_account_with_positions(ctx, "hash789", verbose=True))
+        result = run(
+            account.get_account(ctx, "hash789", include_positions=True, verbose=True)
+        )
 
         assert result == {"securitiesAccount": {"positions": [{"symbol": "SPY"}]}}
         assert captured["func"].__name__ == "get_account"
         assert captured["args"] == ("hash789",)
         assert captured["kwargs"]["fields"] == [client.Account.Fields.POSITIONS]
 
-    def test_compact_default_prunes_positions(self, monkeypatch, fake_call_factory):
+    def test_include_positions_compact_default_prunes_positions(
+        self, monkeypatch, fake_call_factory
+    ):
         _, fake_call = fake_call_factory(return_value=_RAW_DICT_WITH_POSITIONS)
         monkeypatch.setattr(account, "call", fake_call)
 
         client = DummyAccountClient()
         ctx = make_ctx(client)
-        result = run(account.get_account_with_positions(ctx, "hash789"))
+        result = run(account.get_account(ctx, "hash789", include_positions=True))
 
         assert isinstance(result, dict)
         sec = result["securitiesAccount"]
@@ -283,13 +313,17 @@ class TestGetAccountWithPositions:
         assert pos["unrealizedPL"] == 100.0
         assert "settledLongQuantity" not in pos
 
-    def test_verbose_returns_raw_payload(self, monkeypatch, fake_call_factory):
+    def test_include_positions_verbose_returns_raw_payload(
+        self, monkeypatch, fake_call_factory
+    ):
         _, fake_call = fake_call_factory(return_value=_RAW_DICT_WITH_POSITIONS)
         monkeypatch.setattr(account, "call", fake_call)
 
         client = DummyAccountClient()
         ctx = make_ctx(client)
-        result = run(account.get_account_with_positions(ctx, "hash789", verbose=True))
+        result = run(
+            account.get_account(ctx, "hash789", include_positions=True, verbose=True)
+        )
 
         assert result is _RAW_DICT_WITH_POSITIONS
 
