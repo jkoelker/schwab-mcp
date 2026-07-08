@@ -467,6 +467,204 @@ def _order_response_handler(ctx: SchwabContext, account_hash: str) -> ResponseHa
     return handler
 
 
+# ---------------------------------------------------------------------------
+# _prepare_* helpers — pure spec builders, no ctx/API calls.
+# Each extracts the build logic from the corresponding place_* tool so that
+# preview_* tools can reuse the exact same spec without duplicating code.
+# ---------------------------------------------------------------------------
+
+
+def _prepare_equity_order(
+    symbol: str,
+    quantity: int,
+    instruction: str,
+    order_type: str,
+    price: float | None = None,
+    stop_price: float | None = None,
+    session: str | None = "NORMAL",
+    duration: str | None = "DAY",
+) -> dict[str, Any]:
+    builder = _build_equity_order_spec(
+        symbol, quantity, instruction, order_type, price, stop_price
+    )
+    builder = _apply_order_settings(builder, session, duration)
+    return cast(dict[str, Any], builder.build())
+
+
+def _prepare_option_order(
+    symbol: str,
+    quantity: int,
+    instruction: str,
+    order_type: str,
+    price: float | None = None,
+    session: str | None = "NORMAL",
+    duration: str | None = "DAY",
+) -> dict[str, Any]:
+    builder = _build_option_order_spec(symbol, quantity, instruction, order_type, price)
+    builder = _apply_order_settings(builder, session, duration)
+    return cast(dict[str, Any], builder.build())
+
+
+def _prepare_trailing_stop_order(
+    symbol: str,
+    quantity: int,
+    instruction: str,
+    trail_offset: float,
+    trail_type: str | None = "VALUE",
+    session: str | None = "NORMAL",
+    duration: str | None = "DAY",
+) -> dict[str, Any]:
+    builder = _build_trailing_stop_order_spec(
+        symbol, quantity, instruction, trail_offset, trail_type or "VALUE"
+    )
+    builder = _apply_order_settings(builder, session, duration)
+    return cast(dict[str, Any], builder.build())
+
+
+def _prepare_oco_order(
+    first_order: "OrderDesc",
+    second_order: "OrderDesc",
+    session: str | None = "NORMAL",
+    duration: str | None = "DAY",
+) -> dict[str, Any]:
+    try:
+        first_builder = _build_order_from_desc(first_order, session, duration)
+    except ValueError as exc:
+        raise ValueError(f"first_order: {exc}") from exc
+    try:
+        second_builder = _build_order_from_desc(second_order, session, duration)
+    except ValueError as exc:
+        raise ValueError(f"second_order: {exc}") from exc
+    oco_order_builder = oco_builder(first_builder, second_builder)
+    return cast(dict[str, Any], oco_order_builder.build())
+
+
+def _prepare_trigger_order(
+    entry_order: "OrderDesc",
+    exit_orders: "list[OrderDesc]",
+    session: str | None = "NORMAL",
+    duration: str | None = "DAY",
+) -> dict[str, Any]:
+    if len(exit_orders) not in (1, 2):
+        raise ValueError("exit_orders must contain 1 or 2 orders")
+    try:
+        entry_builder = _build_order_from_desc(entry_order, session, duration)
+    except ValueError as exc:
+        raise ValueError(f"entry_order: {exc}") from exc
+    exit_builders = []
+    for i, exit_desc in enumerate(exit_orders):
+        try:
+            exit_builders.append(_build_order_from_desc(exit_desc, session, duration))
+        except ValueError as exc:
+            raise ValueError(f"exit_orders[{i}]: {exc}") from exc
+    if len(exit_builders) == 1:
+        trig_builder = trigger_builder(entry_builder, exit_builders[0])
+    else:
+        oco_exit = oco_builder(exit_builders[0], exit_builders[1])
+        trig_builder = trigger_builder(entry_builder, oco_exit)
+    return cast(dict[str, Any], trig_builder.build())
+
+
+def _prepare_bracket_order(
+    symbol: str,
+    quantity: int,
+    entry_instruction: str,
+    entry_type: str,
+    profit_price: float | None = None,
+    loss_price: float | None = None,
+    entry_price: float | None = None,
+    entry_stop_price: float | None = None,
+    session: str | None = "NORMAL",
+    duration: str | None = "DAY",
+    exit_session: str | None = None,
+    exit_duration: str | None = None,
+) -> dict[str, Any]:
+    if profit_price is None and loss_price is None:
+        raise ValueError("At least one of profit_price or loss_price must be provided")
+    entry_instruction = entry_instruction.upper()
+    if entry_instruction not in ["BUY", "SELL"]:
+        raise ValueError(
+            f"Invalid entry_instruction: {entry_instruction}. Use BUY or SELL."
+        )
+    exit_instruction = "SELL" if entry_instruction == "BUY" else "BUY"
+    eff_exit_session = exit_session if exit_session is not None else session
+    eff_exit_duration = exit_duration if exit_duration is not None else duration
+    entry_order_builder = _build_equity_order_spec(
+        symbol,
+        quantity,
+        entry_instruction,
+        entry_type,
+        price=entry_price,
+        stop_price=entry_stop_price,
+    )
+    entry_order_builder = _apply_order_settings(entry_order_builder, session, duration)
+    bracket_builder = _build_bracket_exit_order(
+        entry_order_builder,
+        symbol,
+        quantity,
+        exit_instruction,
+        profit_price,
+        loss_price,
+        eff_exit_session,
+        eff_exit_duration,
+    )
+    return cast(dict[str, Any], bracket_builder.build())
+
+
+def _prepare_option_combo_order(
+    legs: list[dict[str, Any]],
+    order_type: str,
+    price: float | None = None,
+    session: str | None = "NORMAL",
+    duration: str | None = "DAY",
+    complex_order_strategy_type: str | None = "CUSTOM",
+) -> dict[str, Any]:
+    if not legs or len(legs) < 2:
+        raise ValueError("Provide at least two option legs for a combo order")
+    builder = OrderBuilder(enforce_enums=False).set_order_strategy_type("SINGLE")
+    builder = _apply_order_settings(builder, session, duration)
+    if complex_order_strategy_type:
+        builder = builder.set_complex_order_strategy_type(
+            complex_order_strategy_type.upper()
+        )
+    builder = builder.set_order_type(order_type.upper())
+    if price is not None:
+        builder = builder.set_price(price)
+    for leg in legs:
+        builder = builder.add_option_leg(
+            leg["instruction"], leg["symbol"], leg["quantity"]
+        )
+    return cast(dict[str, Any], builder.build())
+
+
+# ---------------------------------------------------------------------------
+# _order_summary — builds a short human-readable summary for Discord reviewers.
+# ---------------------------------------------------------------------------
+
+
+def _order_summary_equity(
+    instruction: str,
+    quantity: int,
+    symbol: str,
+    order_type: str,
+    price: float | None = None,
+    stop_price: float | None = None,
+) -> str:
+    parts = [instruction.upper(), str(quantity), symbol, order_type.upper()]
+    if price is not None:
+        parts.append(f"@ ${price:.2f}")
+    if stop_price is not None:
+        parts.append(f"stop ${stop_price:.2f}")
+    return " ".join(parts)
+
+
+def _preview_action(account_hash: str, preview_id: str) -> str:
+    return (
+        f"Call place_previewed_order(account_hash='{account_hash}', "
+        f"preview_id='{preview_id}') to execute this exact order."
+    )
+
+
 async def get_order(
     ctx: SchwabContext,
     account_hash: Annotated[str, "Account hash for the Schwab account"],
@@ -579,302 +777,6 @@ async def cancel_order(
     return await call(client.cancel_order, order_id=order_id, account_hash=account_hash)
 
 
-async def place_equity_order(
-    ctx: SchwabContext,
-    account_hash: Annotated[str, "Account hash for the Schwab account"],
-    symbol: Annotated[str, "Stock symbol to trade"],
-    quantity: Annotated[int, "Number of shares to trade"],
-    instruction: Annotated[str, "BUY or SELL"],
-    order_type: Annotated[str, "Order type: MARKET, LIMIT, STOP, or STOP_LIMIT"],
-    price: Annotated[
-        float | None, "Required for LIMIT; Limit price for STOP_LIMIT"
-    ] = None,
-    stop_price: Annotated[float | None, "Required for STOP and STOP_LIMIT"] = None,
-    session: Annotated[
-        str | None, "Trading session: NORMAL (default), AM, PM, or SEAMLESS"
-    ] = "NORMAL",
-    duration: Annotated[
-        str | None,
-        "Order duration: DAY (default), GOOD_TILL_CANCEL (alias: GTC), IMMEDIATE_OR_CANCEL (alias: IOC), FILL_OR_KILL (alias: FOK; Limit/StopLimit only). Invalid values raise ValueError locally.",
-    ] = "DAY",
-) -> JSONType:
-    """
-    Places a single equity order (MARKET, LIMIT, STOP, STOP_LIMIT).
-    Params: account_hash, symbol, quantity, instruction (BUY/SELL), order_type.
-    Optional/Conditional: price (for LIMIT/STOP_LIMIT), stop_price (for STOP/STOP_LIMIT), session (default NORMAL), duration (default DAY).
-    Note: FILL_OR_KILL duration is only valid for LIMIT and STOP_LIMIT orders.
-    *Write operation.*
-    """
-    # Build the core order specification builder
-    client = ctx.orders
-
-    order_spec_builder = _build_equity_order_spec(
-        symbol, quantity, instruction, order_type, price, stop_price
-    )
-
-    # Apply session and duration settings using the internal helper
-    order_spec_builder = _apply_order_settings(order_spec_builder, session, duration)
-
-    # Build the final order dictionary
-    order_spec_dict = cast(dict[str, Any], order_spec_builder.build())
-
-    # Place the order
-    return await call(
-        client.place_order,
-        account_hash=account_hash,
-        order_spec=order_spec_dict,
-        response_handler=_order_response_handler(ctx, account_hash),
-    )
-
-
-async def place_option_order(
-    ctx: SchwabContext,
-    account_hash: Annotated[str, "Account hash for the Schwab account"],
-    symbol: Annotated[str, "Option symbol (e.g., 'SPY_230616C400')"],
-    quantity: Annotated[int, "Number of contracts to trade"],
-    instruction: Annotated[
-        str, "BUY_TO_OPEN, SELL_TO_OPEN, BUY_TO_CLOSE, or SELL_TO_CLOSE"
-    ],
-    order_type: Annotated[str, "Order type: MARKET or LIMIT"],
-    price: Annotated[
-        float | None, "Required for LIMIT orders (price per contract)"
-    ] = None,
-    session: Annotated[
-        str | None, "Trading session: NORMAL (default), AM, PM, or SEAMLESS"
-    ] = "NORMAL",
-    duration: Annotated[
-        str | None,
-        "Order duration: DAY (default), GOOD_TILL_CANCEL (alias: GTC), IMMEDIATE_OR_CANCEL (alias: IOC), FILL_OR_KILL (alias: FOK; Limit only). Invalid values raise ValueError locally.",
-    ] = "DAY",
-) -> JSONType:
-    """
-    Places a single option order (MARKET, LIMIT).
-    Params: account_hash, symbol, quantity, instruction (BUY_TO_OPEN/etc.), order_type.
-    Optional/Conditional: price (for LIMIT), session (default NORMAL), duration (default DAY).
-    Note: FILL_OR_KILL duration is only valid for LIMIT orders.
-    *Write operation.*
-    """
-    # Build the core order specification builder
-    client = ctx.orders
-
-    order_spec_builder = _build_option_order_spec(
-        symbol, quantity, instruction, order_type, price
-    )
-
-    # Apply session and duration settings using the internal helper
-    order_spec_builder = _apply_order_settings(order_spec_builder, session, duration)
-
-    # Build the final order dictionary
-    order_spec_dict = cast(dict[str, Any], order_spec_builder.build())
-
-    # Place the order
-    return await call(
-        client.place_order,
-        account_hash=account_hash,
-        order_spec=order_spec_dict,
-        response_handler=_order_response_handler(ctx, account_hash),
-    )
-
-
-async def place_equity_trailing_stop_order(
-    ctx: SchwabContext,
-    account_hash: Annotated[str, "Account hash for the Schwab account"],
-    symbol: Annotated[str, "Stock symbol to trade"],
-    quantity: Annotated[int, "Number of shares to trade"],
-    instruction: Annotated[str, "BUY or SELL"],
-    trail_offset: Annotated[
-        float,
-        "Trailing amount: dollar value if trail_type=VALUE, percentage if trail_type=PERCENT",
-    ],
-    trail_type: Annotated[
-        str | None,
-        "How to measure the trail: VALUE (dollars, default) or PERCENT",
-    ] = "VALUE",
-    session: Annotated[
-        str | None, "Trading session: NORMAL (default), AM, PM, or SEAMLESS"
-    ] = "NORMAL",
-    duration: Annotated[
-        str | None,
-        "Order duration: DAY (default), GOOD_TILL_CANCEL (alias: GTC), or IMMEDIATE_OR_CANCEL (alias: IOC). Invalid values raise ValueError locally.",
-    ] = "DAY",
-) -> JSONType:
-    """
-    Places a trailing stop order. Stop price adjusts as price moves favorably, tracking LAST price.
-    Params: account_hash, symbol, quantity, instruction (BUY/SELL), trail_offset.
-    Defaults: trail_type=VALUE (dollars), session=NORMAL, duration=DAY.
-    Example: SELL 100 shares with $5 trailing stop triggers market sell if price drops $5 from high.
-    *Write operation.*
-    """
-    client = ctx.orders
-
-    order_spec_builder = _build_trailing_stop_order_spec(
-        symbol,
-        quantity,
-        instruction,
-        trail_offset,
-        trail_type or "VALUE",
-    )
-
-    order_spec_builder = _apply_order_settings(order_spec_builder, session, duration)
-    order_spec_dict = cast(dict[str, Any], order_spec_builder.build())
-
-    return await call(
-        client.place_order,
-        account_hash=account_hash,
-        order_spec=order_spec_dict,
-        response_handler=_order_response_handler(ctx, account_hash),
-    )
-
-
-async def place_oco_order(
-    ctx: SchwabContext,
-    account_hash: Annotated[str, "Account hash for the Schwab account"],
-    first_order: Annotated[
-        OrderDesc,
-        "First order leg description. Required fields: symbol, quantity, instruction, order_type. "
-        "Conditional: price (LIMIT/STOP_LIMIT), stop_price (STOP/STOP_LIMIT), "
-        "trail_offset (TRAILING_STOP). Optional: asset_type (EQUITY/OPTION), session, duration.",
-    ],
-    second_order: Annotated[
-        OrderDesc,
-        "Second order leg description. Same fields as first_order. "
-        "Execution of one cancels the other.",
-    ],
-    session: Annotated[
-        str | None,
-        "Default trading session for both legs: NORMAL (default), AM, PM, or SEAMLESS. Per-leg session in OrderDesc overrides this.",
-    ] = "NORMAL",
-    duration: Annotated[
-        str | None,
-        "Default order duration for both legs: DAY (default), GOOD_TILL_CANCEL (alias: GTC), IMMEDIATE_OR_CANCEL (alias: IOC). Per-leg duration in OrderDesc overrides this.",
-    ] = "DAY",
-) -> JSONType:
-    """
-    Creates an OCO (One Cancels Other) order: execution of one cancels the other.
-    Use for take-profit/stop-loss pairs on an existing position.
-
-    Each order is described as an OrderDesc dict with fields:
-      - symbol (str, required)
-      - quantity (int, required)
-      - instruction (str, required): BUY/SELL for equity; BUY_TO_OPEN/SELL_TO_OPEN/BUY_TO_CLOSE/SELL_TO_CLOSE for options
-      - order_type (str, required): MARKET/LIMIT/STOP/STOP_LIMIT/TRAILING_STOP
-      - price (float): required for LIMIT and STOP_LIMIT
-      - stop_price (float): required for STOP and STOP_LIMIT (equity only)
-      - trail_offset (float): required for TRAILING_STOP
-      - trail_type (str): VALUE (default) or PERCENT for TRAILING_STOP
-      - asset_type (str): EQUITY (default) or OPTION
-      - session (str): per-leg override for session
-      - duration (str): per-leg override for duration
-
-    Params: account_hash, first_order (OrderDesc), second_order (OrderDesc).
-    Optional: session (default NORMAL), duration (default DAY) — per-leg overrides these.
-    *Write operation.*
-    """
-    client = ctx.orders
-
-    try:
-        first_builder = _build_order_from_desc(first_order, session, duration)
-    except ValueError as exc:
-        raise ValueError(f"first_order: {exc}") from exc
-
-    try:
-        second_builder = _build_order_from_desc(second_order, session, duration)
-    except ValueError as exc:
-        raise ValueError(f"second_order: {exc}") from exc
-
-    oco_order_builder = oco_builder(first_builder, second_builder)
-    order_spec_dict = cast(dict[str, Any], oco_order_builder.build())
-
-    return await call(
-        client.place_order,
-        account_hash=account_hash,
-        order_spec=order_spec_dict,
-        response_handler=_order_response_handler(ctx, account_hash),
-    )
-
-
-async def place_trigger_order(
-    ctx: SchwabContext,
-    account_hash: Annotated[str, "Account hash for the Schwab account"],
-    entry_order: Annotated[
-        OrderDesc,
-        "Entry (primary) order description. Required fields: symbol, quantity, instruction, order_type. "
-        "Conditional: price (LIMIT/STOP_LIMIT), stop_price (STOP/STOP_LIMIT), "
-        "trail_offset (TRAILING_STOP). Optional: asset_type (EQUITY/OPTION), session, duration.",
-    ],
-    exit_orders: Annotated[
-        list[OrderDesc],
-        "Exit order(s) triggered after entry fills. "
-        "1 exit: simple trigger(entry, exit). "
-        "2 exits: trigger(entry, oco(exit1, exit2)) — full bracket-like structure. "
-        "Any other count raises ValueError.",
-    ],
-    session: Annotated[
-        str | None,
-        "Default trading session for all legs: NORMAL (default), AM, PM, or SEAMLESS. Per-leg session in OrderDesc overrides this.",
-    ] = "NORMAL",
-    duration: Annotated[
-        str | None,
-        "Default order duration for all legs: DAY (default), GOOD_TILL_CANCEL (alias: GTC), IMMEDIATE_OR_CANCEL (alias: IOC). Per-leg duration in OrderDesc overrides this.",
-    ] = "DAY",
-) -> JSONType:
-    """
-    Creates a conditional (trigger) order: exit order(s) are placed only after the entry executes.
-
-    Each order is described as an OrderDesc dict with fields:
-      - symbol (str, required)
-      - quantity (int, required)
-      - instruction (str, required): BUY/SELL for equity; BUY_TO_OPEN/SELL_TO_OPEN/BUY_TO_CLOSE/SELL_TO_CLOSE for options
-      - order_type (str, required): MARKET/LIMIT/STOP/STOP_LIMIT/TRAILING_STOP
-      - price (float): required for LIMIT and STOP_LIMIT
-      - stop_price (float): required for STOP and STOP_LIMIT (equity only)
-      - trail_offset (float): required for TRAILING_STOP
-      - trail_type (str): VALUE (default) or PERCENT for TRAILING_STOP
-      - asset_type (str): EQUITY (default) or OPTION
-      - session (str): per-leg override for session
-      - duration (str): per-leg override for duration
-
-    exit_orders must contain 1 or 2 items:
-      - 1 exit: TRIGGER > SINGLE(exit)
-      - 2 exits: TRIGGER > OCO(exit1, exit2)
-
-    Params: account_hash, entry_order (OrderDesc), exit_orders (list of 1-2 OrderDesc).
-    Optional: session (default NORMAL), duration (default DAY) — per-leg overrides these.
-    *Write operation.*
-    """
-    if len(exit_orders) not in (1, 2):
-        raise ValueError("exit_orders must contain 1 or 2 orders")
-
-    client = ctx.orders
-
-    try:
-        entry_builder = _build_order_from_desc(entry_order, session, duration)
-    except ValueError as exc:
-        raise ValueError(f"entry_order: {exc}") from exc
-
-    exit_builders = []
-    for i, exit_desc in enumerate(exit_orders):
-        try:
-            exit_builders.append(_build_order_from_desc(exit_desc, session, duration))
-        except ValueError as exc:
-            raise ValueError(f"exit_orders[{i}]: {exc}") from exc
-
-    if len(exit_builders) == 1:
-        trigger_order_builder = trigger_builder(entry_builder, exit_builders[0])
-    else:
-        oco_exit = oco_builder(exit_builders[0], exit_builders[1])
-        trigger_order_builder = trigger_builder(entry_builder, oco_exit)
-
-    order_spec_dict = cast(dict[str, Any], trigger_order_builder.build())
-
-    return await call(
-        client.place_order,
-        account_hash=account_hash,
-        order_spec=order_spec_dict,
-        response_handler=_order_response_handler(ctx, account_hash),
-    )
-
-
 async def create_option_symbol(
     underlying_symbol: Annotated[
         str, "Symbol of the underlying security (e.g., 'SPY', 'AAPL')"
@@ -943,6 +845,599 @@ def _build_bracket_exit_order(
     return trigger_builder(entry_order_builder, profit_order_builder)
 
 
+# ---------------------------------------------------------------------------
+# preview_* tools — call Schwab's previewOrder, cache spec, return preview+id.
+# All are read-only (no live market consequence, no Discord approval needed).
+# ---------------------------------------------------------------------------
+
+
+async def preview_equity_order(
+    ctx: SchwabContext,
+    account_hash: Annotated[str, "Account hash for the Schwab account"],
+    symbol: Annotated[str, "Stock symbol to trade"],
+    quantity: Annotated[int, "Number of shares to trade"],
+    instruction: Annotated[str, "BUY or SELL"],
+    order_type: Annotated[str, "Order type: MARKET, LIMIT, STOP, or STOP_LIMIT"],
+    price: Annotated[
+        float | None, "Required for LIMIT; Limit price for STOP_LIMIT"
+    ] = None,
+    stop_price: Annotated[float | None, "Required for STOP and STOP_LIMIT"] = None,
+    session: Annotated[
+        str | None, "Trading session: NORMAL (default), AM, PM, or SEAMLESS"
+    ] = "NORMAL",
+    duration: Annotated[
+        str | None,
+        "Order duration: DAY (default), GOOD_TILL_CANCEL (alias: GTC), IMMEDIATE_OR_CANCEL (alias: IOC), FILL_OR_KILL (alias: FOK; Limit/StopLimit only). Invalid values raise ValueError locally.",
+    ] = "DAY",
+) -> JSONType:
+    """
+    Preview an equity order without placing it. Returns Schwab's projected
+    order details (validation results, commission/fees) plus a preview_id.
+    Call place_previewed_order(account_hash, preview_id) to execute this
+    exact order. Params: same as this order shape's fields below.
+    """
+    order_spec_dict = _prepare_equity_order(
+        symbol, quantity, instruction, order_type, price, stop_price, session, duration
+    )
+    preview = await call(
+        ctx.orders.preview_order, account_hash=account_hash, order_spec=order_spec_dict
+    )
+    summary = _order_summary_equity(
+        instruction, quantity, symbol, order_type, price, stop_price
+    )
+    preview_id = ctx.previews.put(
+        account_hash, order_spec_dict, "preview_equity_order", summary
+    )
+    return {
+        "preview_id": preview_id,
+        "preview": preview,
+        "action": _preview_action(account_hash, preview_id),
+    }
+
+
+async def preview_option_order(
+    ctx: SchwabContext,
+    account_hash: Annotated[str, "Account hash for the Schwab account"],
+    symbol: Annotated[
+        str,
+        "Option symbol in Schwab's space-delimited format (e.g., 'SPY 230616C400'). Use create_option_symbol() to build one.",
+    ],
+    quantity: Annotated[int, "Number of contracts to trade"],
+    instruction: Annotated[
+        str, "BUY_TO_OPEN, SELL_TO_OPEN, BUY_TO_CLOSE, or SELL_TO_CLOSE"
+    ],
+    order_type: Annotated[str, "Order type: MARKET or LIMIT"],
+    price: Annotated[
+        float | None, "Required for LIMIT orders (price per contract)"
+    ] = None,
+    session: Annotated[
+        str | None, "Trading session: NORMAL (default), AM, PM, or SEAMLESS"
+    ] = "NORMAL",
+    duration: Annotated[
+        str | None,
+        "Order duration: DAY (default), GOOD_TILL_CANCEL (alias: GTC), IMMEDIATE_OR_CANCEL (alias: IOC), FILL_OR_KILL (alias: FOK; Limit only). Invalid values raise ValueError locally.",
+    ] = "DAY",
+) -> JSONType:
+    """
+    Preview an option order without placing it. Returns Schwab's projected
+    order details (validation results, commission/fees) plus a preview_id.
+    Call place_previewed_order(account_hash, preview_id) to execute this
+    exact order. Params: same as this order shape's fields below.
+    """
+    order_spec_dict = _prepare_option_order(
+        symbol, quantity, instruction, order_type, price, session, duration
+    )
+    preview = await call(
+        ctx.orders.preview_order, account_hash=account_hash, order_spec=order_spec_dict
+    )
+    summary = _order_summary_equity(instruction, quantity, symbol, order_type, price)
+    preview_id = ctx.previews.put(
+        account_hash, order_spec_dict, "preview_option_order", summary
+    )
+    return {
+        "preview_id": preview_id,
+        "preview": preview,
+        "action": _preview_action(account_hash, preview_id),
+    }
+
+
+async def preview_equity_trailing_stop_order(
+    ctx: SchwabContext,
+    account_hash: Annotated[str, "Account hash for the Schwab account"],
+    symbol: Annotated[str, "Stock symbol to trade"],
+    quantity: Annotated[int, "Number of shares to trade"],
+    instruction: Annotated[str, "BUY or SELL"],
+    trail_offset: Annotated[
+        float,
+        "Trailing amount: dollar value if trail_type=VALUE, percentage if trail_type=PERCENT",
+    ],
+    trail_type: Annotated[
+        str | None,
+        "How to measure the trail: VALUE (dollars, default) or PERCENT",
+    ] = "VALUE",
+    session: Annotated[
+        str | None, "Trading session: NORMAL (default), AM, PM, or SEAMLESS"
+    ] = "NORMAL",
+    duration: Annotated[
+        str | None,
+        "Order duration: DAY (default), GOOD_TILL_CANCEL (alias: GTC), or IMMEDIATE_OR_CANCEL (alias: IOC). Invalid values raise ValueError locally.",
+    ] = "DAY",
+) -> JSONType:
+    """
+    Preview a trailing stop order without placing it. Returns Schwab's projected
+    order details (validation results, commission/fees) plus a preview_id.
+    Call place_previewed_order(account_hash, preview_id) to execute this
+    exact order. Params: same as this order shape's fields below.
+    """
+    order_spec_dict = _prepare_trailing_stop_order(
+        symbol, quantity, instruction, trail_offset, trail_type, session, duration
+    )
+    preview = await call(
+        ctx.orders.preview_order, account_hash=account_hash, order_spec=order_spec_dict
+    )
+    eff_trail_type = (trail_type or "VALUE").upper()
+    summary = f"{instruction.upper()} {quantity} {symbol} TRAILING_STOP offset={trail_offset} {eff_trail_type}"
+    preview_id = ctx.previews.put(
+        account_hash, order_spec_dict, "preview_equity_trailing_stop_order", summary
+    )
+    return {
+        "preview_id": preview_id,
+        "preview": preview,
+        "action": _preview_action(account_hash, preview_id),
+    }
+
+
+async def preview_oco_order(
+    ctx: SchwabContext,
+    account_hash: Annotated[str, "Account hash for the Schwab account"],
+    first_order: Annotated[
+        OrderDesc,
+        "First order leg description. Required fields: symbol, quantity, instruction, order_type. "
+        "Conditional: price (LIMIT/STOP_LIMIT), stop_price (STOP/STOP_LIMIT), "
+        "trail_offset (TRAILING_STOP). Optional: asset_type (EQUITY/OPTION), session, duration.",
+    ],
+    second_order: Annotated[
+        OrderDesc,
+        "Second order leg description. Same fields as first_order. "
+        "Execution of one cancels the other.",
+    ],
+    session: Annotated[
+        str | None,
+        "Default trading session for both legs: NORMAL (default), AM, PM, or SEAMLESS. Per-leg session in OrderDesc overrides this.",
+    ] = "NORMAL",
+    duration: Annotated[
+        str | None,
+        "Default order duration for both legs: DAY (default), GOOD_TILL_CANCEL (alias: GTC), IMMEDIATE_OR_CANCEL (alias: IOC). Per-leg duration in OrderDesc overrides this.",
+    ] = "DAY",
+) -> JSONType:
+    """
+    Preview an OCO order without placing it. Returns Schwab's projected
+    order details (validation results, commission/fees) plus a preview_id.
+    Call place_previewed_order(account_hash, preview_id) to execute this
+    exact order. Params: same as this order shape's fields below.
+    """
+    order_spec_dict = _prepare_oco_order(first_order, second_order, session, duration)
+    preview = await call(
+        ctx.orders.preview_order, account_hash=account_hash, order_spec=order_spec_dict
+    )
+    summary = (
+        f"OCO: {first_order['instruction']} {first_order['quantity']} "
+        f"{first_order['symbol']} + 1 other"
+    )
+    preview_id = ctx.previews.put(
+        account_hash, order_spec_dict, "preview_oco_order", summary
+    )
+    return {
+        "preview_id": preview_id,
+        "preview": preview,
+        "action": _preview_action(account_hash, preview_id),
+    }
+
+
+async def preview_trigger_order(
+    ctx: SchwabContext,
+    account_hash: Annotated[str, "Account hash for the Schwab account"],
+    entry_order: Annotated[
+        OrderDesc,
+        "Entry (primary) order description. Required fields: symbol, quantity, instruction, order_type. "
+        "Conditional: price (LIMIT/STOP_LIMIT), stop_price (STOP/STOP_LIMIT), "
+        "trail_offset (TRAILING_STOP). Optional: asset_type (EQUITY/OPTION), session, duration.",
+    ],
+    exit_orders: Annotated[
+        list[OrderDesc],
+        "Exit order(s) triggered after entry fills. "
+        "1 exit: simple trigger(entry, exit). "
+        "2 exits: trigger(entry, oco(exit1, exit2)) — full bracket-like structure. "
+        "Any other count raises ValueError.",
+    ],
+    session: Annotated[
+        str | None,
+        "Default trading session for all legs: NORMAL (default), AM, PM, or SEAMLESS. Per-leg session in OrderDesc overrides this.",
+    ] = "NORMAL",
+    duration: Annotated[
+        str | None,
+        "Default order duration for all legs: DAY (default), GOOD_TILL_CANCEL (alias: GTC), IMMEDIATE_OR_CANCEL (alias: IOC). Per-leg duration in OrderDesc overrides this.",
+    ] = "DAY",
+) -> JSONType:
+    """
+    Preview a trigger order without placing it. Returns Schwab's projected
+    order details (validation results, commission/fees) plus a preview_id.
+    Call place_previewed_order(account_hash, preview_id) to execute this
+    exact order. Params: same as this order shape's fields below.
+    """
+    order_spec_dict = _prepare_trigger_order(
+        entry_order, exit_orders, session, duration
+    )
+    preview = await call(
+        ctx.orders.preview_order, account_hash=account_hash, order_spec=order_spec_dict
+    )
+    summary = (
+        f"TRIGGER: {entry_order['instruction']} {entry_order['quantity']} "
+        f"{entry_order['symbol']} + {len(exit_orders)} exit(s)"
+    )
+    preview_id = ctx.previews.put(
+        account_hash, order_spec_dict, "preview_trigger_order", summary
+    )
+    return {
+        "preview_id": preview_id,
+        "preview": preview,
+        "action": _preview_action(account_hash, preview_id),
+    }
+
+
+async def preview_bracket_order(
+    ctx: SchwabContext,
+    account_hash: Annotated[str, "Account hash for the Schwab account"],
+    symbol: Annotated[str, "Stock symbol to trade"],
+    quantity: Annotated[int, "Number of shares to trade"],
+    entry_instruction: Annotated[str, "BUY or SELL for the entry order"],
+    entry_type: Annotated[str, "Entry order type: MARKET, LIMIT, STOP, or STOP_LIMIT"],
+    profit_price: Annotated[
+        float | None, "Take-profit limit price (optional if loss_price provided)"
+    ] = None,
+    loss_price: Annotated[
+        float | None, "Stop-loss trigger price (optional if profit_price provided)"
+    ] = None,
+    entry_price: Annotated[
+        float | None, "Required for LIMIT entry; Limit price for STOP_LIMIT entry"
+    ] = None,
+    entry_stop_price: Annotated[
+        float | None, "Required for STOP and STOP_LIMIT entry orders"
+    ] = None,
+    session: Annotated[
+        str | None,
+        "Trading session for all legs: NORMAL (default), AM, PM, or SEAMLESS",
+    ] = "NORMAL",
+    duration: Annotated[
+        str | None,
+        "Order duration for all legs: DAY (default), GOOD_TILL_CANCEL (alias: GTC), or IMMEDIATE_OR_CANCEL (alias: IOC). Invalid values raise ValueError locally.",
+    ] = "DAY",
+    exit_session: Annotated[
+        str | None,
+        "Trading session override for exit legs only (take-profit/stop-loss). Defaults to session when not provided. Useful for GTC exits with a DAY entry.",
+    ] = None,
+    exit_duration: Annotated[
+        str | None,
+        "Duration override for exit legs only (take-profit/stop-loss). Defaults to duration when not provided. Common pattern: entry DAY + exits GOOD_TILL_CANCEL.",
+    ] = None,
+) -> JSONType:
+    """
+    Preview a bracket order without placing it. Returns Schwab's projected
+    order details (validation results, commission/fees) plus a preview_id.
+    Call place_previewed_order(account_hash, preview_id) to execute this
+    exact order. Params: same as this order shape's fields below.
+    """
+    bracket_order_dict = _prepare_bracket_order(
+        symbol,
+        quantity,
+        entry_instruction,
+        entry_type,
+        profit_price,
+        loss_price,
+        entry_price,
+        entry_stop_price,
+        session,
+        duration,
+        exit_session,
+        exit_duration,
+    )
+    preview = await call(
+        ctx.orders.preview_order,
+        account_hash=account_hash,
+        order_spec=bracket_order_dict,
+    )
+    summary = (
+        f"BRACKET: {entry_instruction.upper()} {quantity} {symbol} {entry_type.upper()}"
+        + (f" @ ${entry_price:.2f}" if entry_price else "")
+        + " + exits"
+    )
+    preview_id = ctx.previews.put(
+        account_hash, bracket_order_dict, "preview_bracket_order", summary
+    )
+    return {
+        "preview_id": preview_id,
+        "preview": preview,
+        "action": _preview_action(account_hash, preview_id),
+    }
+
+
+async def preview_option_combo_order(
+    ctx: SchwabContext,
+    account_hash: Annotated[str, "Account hash for the Schwab account"],
+    legs: Annotated[
+        list[dict[str, Any]],
+        "List of option legs. Each leg requires: 'symbol' (str), 'quantity' (int), 'instruction' (BUY_TO_OPEN/SELL_TO_OPEN/BUY_TO_CLOSE/SELL_TO_CLOSE).",
+    ],
+    order_type: Annotated[
+        str, "Combo order type: NET_CREDIT, NET_DEBIT, NET_ZERO, or MARKET"
+    ],
+    price: Annotated[
+        float | None,
+        "Net price for the combo (required for NET_CREDIT/NET_DEBIT; omit for MARKET/NET_ZERO).",
+    ] = None,
+    session: Annotated[
+        str | None, "Trading session: NORMAL (default), AM, PM, or SEAMLESS"
+    ] = "NORMAL",
+    duration: Annotated[
+        str | None,
+        "Order duration: DAY (default), GOOD_TILL_CANCEL (alias: GTC), or IMMEDIATE_OR_CANCEL (alias: IOC). Invalid values raise ValueError locally.",
+    ] = "DAY",
+    complex_order_strategy_type: Annotated[
+        str | None,
+        "Optional complex type: IRON_CONDOR, VERTICAL, CALENDAR, CUSTOM, etc. Defaults to CUSTOM.",
+    ] = "CUSTOM",
+) -> JSONType:
+    """
+    Preview a multi-leg option combo order without placing it. Returns Schwab's
+    projected order details (validation results, commission/fees) plus a preview_id.
+    Call place_previewed_order(account_hash, preview_id) to execute this
+    exact order. Params: same as this order shape's fields below.
+    """
+    order_spec_dict = _prepare_option_combo_order(
+        legs, order_type, price, session, duration, complex_order_strategy_type
+    )
+    preview = await call(
+        ctx.orders.preview_order, account_hash=account_hash, order_spec=order_spec_dict
+    )
+    summary = f"COMBO: {len(legs)} option legs, {order_type.upper()}"
+    preview_id = ctx.previews.put(
+        account_hash, order_spec_dict, "preview_option_combo_order", summary
+    )
+    return {
+        "preview_id": preview_id,
+        "preview": preview,
+        "action": _preview_action(account_hash, preview_id),
+    }
+
+
+async def place_equity_order(
+    ctx: SchwabContext,
+    account_hash: Annotated[str, "Account hash for the Schwab account"],
+    symbol: Annotated[str, "Stock symbol to trade"],
+    quantity: Annotated[int, "Number of shares to trade"],
+    instruction: Annotated[str, "BUY or SELL"],
+    order_type: Annotated[str, "Order type: MARKET, LIMIT, STOP, or STOP_LIMIT"],
+    price: Annotated[
+        float | None, "Required for LIMIT; Limit price for STOP_LIMIT"
+    ] = None,
+    stop_price: Annotated[float | None, "Required for STOP and STOP_LIMIT"] = None,
+    session: Annotated[
+        str | None, "Trading session: NORMAL (default), AM, PM, or SEAMLESS"
+    ] = "NORMAL",
+    duration: Annotated[
+        str | None,
+        "Order duration: DAY (default), GOOD_TILL_CANCEL (alias: GTC), IMMEDIATE_OR_CANCEL (alias: IOC), FILL_OR_KILL (alias: FOK; Limit/StopLimit only). Invalid values raise ValueError locally.",
+    ] = "DAY",
+) -> JSONType:
+    """
+    Places a single equity order (MARKET, LIMIT, STOP, STOP_LIMIT).
+    Params: account_hash, symbol, quantity, instruction (BUY/SELL), order_type.
+    Optional/Conditional: price (for LIMIT/STOP_LIMIT), stop_price (for STOP/STOP_LIMIT), session (default NORMAL), duration (default DAY).
+    Note: FILL_OR_KILL duration is only valid for LIMIT and STOP_LIMIT orders.
+    *Write operation.*
+    """
+    order_spec_dict = _prepare_equity_order(
+        symbol, quantity, instruction, order_type, price, stop_price, session, duration
+    )
+    return await call(
+        ctx.orders.place_order,
+        account_hash=account_hash,
+        order_spec=order_spec_dict,
+        response_handler=_order_response_handler(ctx, account_hash),
+    )
+
+
+async def place_option_order(
+    ctx: SchwabContext,
+    account_hash: Annotated[str, "Account hash for the Schwab account"],
+    symbol: Annotated[str, "Option symbol (e.g., 'SPY_230616C400')"],
+    quantity: Annotated[int, "Number of contracts to trade"],
+    instruction: Annotated[
+        str, "BUY_TO_OPEN, SELL_TO_OPEN, BUY_TO_CLOSE, or SELL_TO_CLOSE"
+    ],
+    order_type: Annotated[str, "Order type: MARKET or LIMIT"],
+    price: Annotated[
+        float | None, "Required for LIMIT orders (price per contract)"
+    ] = None,
+    session: Annotated[
+        str | None, "Trading session: NORMAL (default), AM, PM, or SEAMLESS"
+    ] = "NORMAL",
+    duration: Annotated[
+        str | None,
+        "Order duration: DAY (default), GOOD_TILL_CANCEL (alias: GTC), IMMEDIATE_OR_CANCEL (alias: IOC), FILL_OR_KILL (alias: FOK; Limit only). Invalid values raise ValueError locally.",
+    ] = "DAY",
+) -> JSONType:
+    """
+    Places a single option order (MARKET, LIMIT).
+    Params: account_hash, symbol, quantity, instruction (BUY_TO_OPEN/etc.), order_type.
+    Optional/Conditional: price (for LIMIT), session (default NORMAL), duration (default DAY).
+    Note: FILL_OR_KILL duration is only valid for LIMIT orders.
+    *Write operation.*
+    """
+    order_spec_dict = _prepare_option_order(
+        symbol, quantity, instruction, order_type, price, session, duration
+    )
+    return await call(
+        ctx.orders.place_order,
+        account_hash=account_hash,
+        order_spec=order_spec_dict,
+        response_handler=_order_response_handler(ctx, account_hash),
+    )
+
+
+async def place_equity_trailing_stop_order(
+    ctx: SchwabContext,
+    account_hash: Annotated[str, "Account hash for the Schwab account"],
+    symbol: Annotated[str, "Stock symbol to trade"],
+    quantity: Annotated[int, "Number of shares to trade"],
+    instruction: Annotated[str, "BUY or SELL"],
+    trail_offset: Annotated[
+        float,
+        "Trailing amount: dollar value if trail_type=VALUE, percentage if trail_type=PERCENT",
+    ],
+    trail_type: Annotated[
+        str | None,
+        "How to measure the trail: VALUE (dollars, default) or PERCENT",
+    ] = "VALUE",
+    session: Annotated[
+        str | None, "Trading session: NORMAL (default), AM, PM, or SEAMLESS"
+    ] = "NORMAL",
+    duration: Annotated[
+        str | None,
+        "Order duration: DAY (default), GOOD_TILL_CANCEL (alias: GTC), or IMMEDIATE_OR_CANCEL (alias: IOC). Invalid values raise ValueError locally.",
+    ] = "DAY",
+) -> JSONType:
+    """
+    Places a trailing stop order. Stop price adjusts as price moves favorably, tracking LAST price.
+    Params: account_hash, symbol, quantity, instruction (BUY/SELL), trail_offset.
+    Defaults: trail_type=VALUE (dollars), session=NORMAL, duration=DAY.
+    Example: SELL 100 shares with $5 trailing stop triggers market sell if price drops $5 from high.
+    *Write operation.*
+    """
+    order_spec_dict = _prepare_trailing_stop_order(
+        symbol, quantity, instruction, trail_offset, trail_type, session, duration
+    )
+    return await call(
+        ctx.orders.place_order,
+        account_hash=account_hash,
+        order_spec=order_spec_dict,
+        response_handler=_order_response_handler(ctx, account_hash),
+    )
+
+
+async def place_oco_order(
+    ctx: SchwabContext,
+    account_hash: Annotated[str, "Account hash for the Schwab account"],
+    first_order: Annotated[
+        OrderDesc,
+        "First order leg description. Required fields: symbol, quantity, instruction, order_type. "
+        "Conditional: price (LIMIT/STOP_LIMIT), stop_price (STOP/STOP_LIMIT), "
+        "trail_offset (TRAILING_STOP). Optional: asset_type (EQUITY/OPTION), session, duration.",
+    ],
+    second_order: Annotated[
+        OrderDesc,
+        "Second order leg description. Same fields as first_order. "
+        "Execution of one cancels the other.",
+    ],
+    session: Annotated[
+        str | None,
+        "Default trading session for both legs: NORMAL (default), AM, PM, or SEAMLESS. Per-leg session in OrderDesc overrides this.",
+    ] = "NORMAL",
+    duration: Annotated[
+        str | None,
+        "Default order duration for both legs: DAY (default), GOOD_TILL_CANCEL (alias: GTC), IMMEDIATE_OR_CANCEL (alias: IOC). Per-leg duration in OrderDesc overrides this.",
+    ] = "DAY",
+) -> JSONType:
+    """
+    Creates an OCO (One Cancels Other) order: execution of one cancels the other.
+    Use for take-profit/stop-loss pairs on an existing position.
+
+    Each order is described as an OrderDesc dict with fields:
+      - symbol (str, required)
+      - quantity (int, required)
+      - instruction (str, required): BUY/SELL for equity; BUY_TO_OPEN/SELL_TO_OPEN/BUY_TO_CLOSE/SELL_TO_CLOSE for options
+      - order_type (str, required): MARKET/LIMIT/STOP/STOP_LIMIT/TRAILING_STOP
+      - price (float): required for LIMIT and STOP_LIMIT
+      - stop_price (float): required for STOP and STOP_LIMIT (equity only)
+      - trail_offset (float): required for TRAILING_STOP
+      - trail_type (str): VALUE (default) or PERCENT for TRAILING_STOP
+      - asset_type (str): EQUITY (default) or OPTION
+      - session (str): per-leg override for session
+      - duration (str): per-leg override for duration
+
+    Params: account_hash, first_order (OrderDesc), second_order (OrderDesc).
+    Optional: session (default NORMAL), duration (default DAY) — per-leg overrides these.
+    *Write operation.*
+    """
+    order_spec_dict = _prepare_oco_order(first_order, second_order, session, duration)
+    return await call(
+        ctx.orders.place_order,
+        account_hash=account_hash,
+        order_spec=order_spec_dict,
+        response_handler=_order_response_handler(ctx, account_hash),
+    )
+
+
+async def place_trigger_order(
+    ctx: SchwabContext,
+    account_hash: Annotated[str, "Account hash for the Schwab account"],
+    entry_order: Annotated[
+        OrderDesc,
+        "Entry (primary) order description. Required fields: symbol, quantity, instruction, order_type. "
+        "Conditional: price (LIMIT/STOP_LIMIT), stop_price (STOP/STOP_LIMIT), "
+        "trail_offset (TRAILING_STOP). Optional: asset_type (EQUITY/OPTION), session, duration.",
+    ],
+    exit_orders: Annotated[
+        list[OrderDesc],
+        "Exit order(s) triggered after entry fills. "
+        "1 exit: simple trigger(entry, exit). "
+        "2 exits: trigger(entry, oco(exit1, exit2)) — full bracket-like structure. "
+        "Any other count raises ValueError.",
+    ],
+    session: Annotated[
+        str | None,
+        "Default trading session for all legs: NORMAL (default), AM, PM, or SEAMLESS. Per-leg session in OrderDesc overrides this.",
+    ] = "NORMAL",
+    duration: Annotated[
+        str | None,
+        "Default order duration for all legs: DAY (default), GOOD_TILL_CANCEL (alias: GTC), IMMEDIATE_OR_CANCEL (alias: IOC). Per-leg duration in OrderDesc overrides this.",
+    ] = "DAY",
+) -> JSONType:
+    """
+    Creates a conditional (trigger) order: exit order(s) are placed only after the entry executes.
+
+    Each order is described as an OrderDesc dict with fields:
+      - symbol (str, required)
+      - quantity (int, required)
+      - instruction (str, required): BUY/SELL for equity; BUY_TO_OPEN/SELL_TO_OPEN/BUY_TO_CLOSE/SELL_TO_CLOSE for options
+      - order_type (str, required): MARKET/LIMIT/STOP/STOP_LIMIT/TRAILING_STOP
+      - price (float): required for LIMIT and STOP_LIMIT
+      - stop_price (float): required for STOP and STOP_LIMIT (equity only)
+      - trail_offset (float): required for TRAILING_STOP
+      - trail_type (str): VALUE (default) or PERCENT for TRAILING_STOP
+      - asset_type (str): EQUITY (default) or OPTION
+      - session (str): per-leg override for session
+      - duration (str): per-leg override for duration
+
+    exit_orders must contain 1 or 2 items:
+      - 1 exit: TRIGGER > SINGLE(exit)
+      - 2 exits: TRIGGER > OCO(exit1, exit2)
+
+    Params: account_hash, entry_order (OrderDesc), exit_orders (list of 1-2 OrderDesc).
+    Optional: session (default NORMAL), duration (default DAY) — per-leg overrides these.
+    *Write operation.*
+    """
+    order_spec_dict = _prepare_trigger_order(
+        entry_order, exit_orders, session, duration
+    )
+    return await call(
+        ctx.orders.place_order,
+        account_hash=account_hash,
+        order_spec=order_spec_dict,
+        response_handler=_order_response_handler(ctx, account_hash),
+    )
+
+
 async def place_bracket_order(
     ctx: SchwabContext,
     account_hash: Annotated[str, "Account hash for the Schwab account"],
@@ -996,56 +1491,22 @@ async def place_bracket_order(
     Note: FILL_OR_KILL is not typically used with bracket orders.
     *Write operation.*
     """
-    # Validate that at least one exit price is provided
-    if profit_price is None and loss_price is None:
-        raise ValueError("At least one of profit_price or loss_price must be provided")
-
-    # Validate entry instruction
-    client = ctx.orders
-
-    entry_instruction = entry_instruction.upper()
-    if entry_instruction not in ["BUY", "SELL"]:
-        raise ValueError(
-            f"Invalid entry_instruction: {entry_instruction}. Use BUY or SELL."
-        )
-
-    # Determine exit instructions (opposite of entry)
-    exit_instruction = "SELL" if entry_instruction == "BUY" else "BUY"
-
-    # Effective exit session/duration fall back to entry-level values when not specified
-    eff_exit_session = exit_session if exit_session is not None else session
-    eff_exit_duration = exit_duration if exit_duration is not None else duration
-
-    # Create entry order spec builder using the internal helper
-    entry_order_builder = _build_equity_order_spec(
+    bracket_order_dict = _prepare_bracket_order(
         symbol,
         quantity,
         entry_instruction,
         entry_type,
-        price=entry_price,
-        stop_price=entry_stop_price,
-    )
-    # Apply settings to entry order builder
-    entry_order_builder = _apply_order_settings(entry_order_builder, session, duration)
-
-    # Build exit leg(s) and assemble the trigger/OCO bracket order
-    bracket_order_builder = _build_bracket_exit_order(
-        entry_order_builder,
-        symbol,
-        quantity,
-        exit_instruction,
         profit_price,
         loss_price,
-        eff_exit_session,
-        eff_exit_duration,
+        entry_price,
+        entry_stop_price,
+        session,
+        duration,
+        exit_session,
+        exit_duration,
     )
-
-    # Build the final complex bracket order dictionary
-    bracket_order_dict = cast(dict[str, Any], bracket_order_builder.build())
-
-    # Place the complex bracket order
     return await call(
-        client.place_order,
+        ctx.orders.place_order,
         account_hash=account_hash,
         order_spec=bracket_order_dict,
         response_handler=_order_response_handler(ctx, account_hash),
@@ -1091,37 +1552,13 @@ async def place_option_combo_order(
     - The API infers debit/credit from leg directions; pass a positive price.
     *Write operation.*
     """
-    if not legs or len(legs) < 2:
-        raise ValueError("Provide at least two option legs for a combo order")
-
-    # Build a single order with multiple option legs
-    builder = OrderBuilder(enforce_enums=False).set_order_strategy_type("SINGLE")
-
-    # Apply session/duration consistently with other tools
-    builder = _apply_order_settings(builder, session, duration)
-
-    # complex order type helps the API validate multi-leg intent
-    if complex_order_strategy_type:
-        builder = builder.set_complex_order_strategy_type(
-            complex_order_strategy_type.upper()
-        )
-
-    # Set order type and net price
-    builder = builder.set_order_type(order_type.upper())
-    if price is not None:
-        builder = builder.set_price(price)  # net debit/credit as positive number
-
-    for leg in legs:
-        builder = builder.add_option_leg(
-            leg["instruction"],
-            leg["symbol"],
-            leg["quantity"],
-        )
-
+    order_spec_dict = _prepare_option_combo_order(
+        legs, order_type, price, session, duration, complex_order_strategy_type
+    )
     return await call(
         ctx.orders.place_order,
         account_hash=account_hash,
-        order_spec=builder.build(),
+        order_spec=order_spec_dict,
         response_handler=_order_response_handler(ctx, account_hash),
     )
 
@@ -1130,6 +1567,13 @@ _READ_ONLY_TOOLS = (
     get_order,
     get_orders,
     create_option_symbol,
+    preview_equity_order,
+    preview_option_order,
+    preview_equity_trailing_stop_order,
+    preview_oco_order,
+    preview_trigger_order,
+    preview_bracket_order,
+    preview_option_combo_order,
 )
 
 _WRITE_TOOLS = (
