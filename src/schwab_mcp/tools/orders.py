@@ -3,7 +3,8 @@
 from collections.abc import Callable
 from typing import Annotated, Any, cast
 
-import copy
+from typing_extensions import TypedDict
+
 from mcp.server.fastmcp import FastMCP
 from schwab.utils import (
     AccountHashMismatchException,
@@ -285,6 +286,123 @@ def _build_option_order_spec(
         if price is None:
             raise ValueError("LIMIT orders require a price parameter")
         return limit_builder(symbol, quantity, price)
+
+
+class _OrderDescRequired(TypedDict):
+    """Required fields for an order leg description."""
+
+    symbol: str
+    quantity: int
+    instruction: str
+    order_type: str
+
+
+class OrderDesc(_OrderDescRequired, total=False):
+    """Description of a single order leg for composite order tools.
+
+    Required fields: symbol, quantity, instruction, order_type.
+    Conditional fields depend on order_type:
+      - price: required for LIMIT and STOP_LIMIT (equity/option)
+      - stop_price: required for STOP and STOP_LIMIT (equity only)
+      - trail_offset: required for TRAILING_STOP
+      - trail_type: VALUE (default) or PERCENT for TRAILING_STOP
+    Optional overrides: asset_type (EQUITY default), session, duration.
+    """
+
+    price: float
+    stop_price: float
+    trail_offset: float
+    trail_type: str
+    asset_type: str
+    session: str
+    duration: str
+
+
+def _build_order_from_desc(
+    desc: OrderDesc,
+    default_session: str | None,
+    default_duration: str | None,
+) -> Any:
+    """Build an OrderBuilder from an OrderDesc dict.
+
+    Routes to the appropriate internal builder based on asset_type and
+    order_type. Per-leg session/duration in the OrderDesc override the
+    provided defaults when present.
+
+    Raises ValueError with a descriptive message if required fields are
+    missing or values are invalid. Since OrderDesc dicts typically originate
+    from untrusted MCP tool-call JSON (not Python literals), required keys
+    are checked explicitly at runtime rather than relying on static typing.
+    """
+    missing = [
+        field
+        for field in ("symbol", "quantity", "instruction", "order_type")
+        if field not in desc
+    ]
+    if missing:
+        raise ValueError(f"missing required field(s): {', '.join(missing)}")
+
+    symbol = desc["symbol"]
+    if not isinstance(symbol, str):
+        raise ValueError(f"symbol must be a string, got {symbol!r}")
+
+    quantity = desc["quantity"]
+    if not isinstance(quantity, int) or isinstance(quantity, bool):
+        raise ValueError(f"quantity must be an integer, got {quantity!r}")
+
+    instruction = desc["instruction"]
+    if not isinstance(instruction, str):
+        raise ValueError(f"instruction must be a string, got {instruction!r}")
+
+    raw_order_type = desc["order_type"]
+    if not isinstance(raw_order_type, str):
+        raise ValueError(f"order_type must be a string, got {raw_order_type!r}")
+    order_type = raw_order_type.upper()
+
+    raw_asset_type = desc.get("asset_type", "EQUITY")
+    if not isinstance(raw_asset_type, str):
+        raise ValueError(f"asset_type must be a string, got {raw_asset_type!r}")
+    asset_type = raw_asset_type.upper()
+    if asset_type not in ("EQUITY", "OPTION"):
+        raise ValueError(f"Invalid asset_type: {asset_type}. Must be EQUITY or OPTION.")
+
+    # Determine effective session/duration (per-leg overrides defaults)
+    session = desc.get("session", default_session)
+    duration = desc.get("duration", default_duration)
+
+    if order_type == "TRAILING_STOP":
+        if asset_type == "OPTION":
+            raise ValueError(
+                "TRAILING_STOP orders are not supported for OPTION asset_type"
+            )
+        trail_offset = desc.get("trail_offset")
+        if trail_offset is None:
+            raise ValueError("TRAILING_STOP orders require 'trail_offset'")
+        trail_type = desc.get("trail_type", "VALUE")
+        builder = _build_trailing_stop_order_spec(
+            symbol, quantity, instruction, trail_offset, trail_type
+        )
+    elif asset_type == "OPTION":
+        builder = _build_option_order_spec(
+            symbol,
+            quantity,
+            instruction,
+            order_type,
+            price=desc.get("price"),
+        )
+    else:
+        # Default: EQUITY
+        builder = _build_equity_order_spec(
+            symbol,
+            quantity,
+            instruction,
+            order_type,
+            price=desc.get("price"),
+            stop_price=desc.get("stop_price"),
+        )
+
+    builder = _apply_order_settings(builder, session, duration)
+    return builder
 
 
 def _order_response_handler(ctx: SchwabContext, account_hash: str) -> ResponseHandler:
@@ -573,201 +691,151 @@ async def place_equity_trailing_stop_order(
     )
 
 
-async def build_equity_order_spec(
-    symbol: Annotated[str, "Stock symbol"],
-    quantity: Annotated[int, "Number of shares"],
-    instruction: Annotated[str, "BUY or SELL"],
-    order_type: Annotated[str, "Order type: MARKET, LIMIT, STOP, or STOP_LIMIT"],
-    price: Annotated[
-        float | None, "Required for LIMIT; Limit price for STOP_LIMIT"
-    ] = None,
-    stop_price: Annotated[float | None, "Required for STOP and STOP_LIMIT"] = None,
-    session: Annotated[
-        str | None, "Trading session: NORMAL (default), AM, PM, or SEAMLESS"
-    ] = "NORMAL",
-    duration: Annotated[
-        str | None,
-        "Order duration: DAY (default), GOOD_TILL_CANCEL (alias: GTC), IMMEDIATE_OR_CANCEL (alias: IOC), FILL_OR_KILL (alias: FOK; Limit/StopLimit only). Invalid values raise ValueError locally.",
-    ] = "DAY",
-) -> dict[str, Any]:
-    """
-    Builds an equity order specification dictionary suitable for complex orders (OCO, Trigger).
-    Params: symbol, quantity, instruction (BUY/SELL), order_type (MARKET/LIMIT/STOP/STOP_LIMIT).
-    Optional/Conditional: price (for LIMIT/STOP_LIMIT), stop_price (for STOP/STOP_LIMIT), session (default NORMAL), duration (default DAY).
-    Returns the order specification dictionary, does NOT place the order.
-    """
-    # Build the core order specification builder
-    order_spec_builder = _build_equity_order_spec(
-        symbol, quantity, instruction, order_type, price, stop_price
-    )
-
-    # Apply session and duration settings using the internal helper
-    order_spec_builder = _apply_order_settings(order_spec_builder, session, duration)
-
-    # Build and return the specification dictionary
-    return cast(dict[str, Any], order_spec_builder.build())
-
-
-async def build_equity_trailing_stop_order_spec(
-    symbol: Annotated[str, "Stock symbol"],
-    quantity: Annotated[int, "Number of shares"],
-    instruction: Annotated[str, "BUY or SELL"],
-    trail_offset: Annotated[
-        float,
-        "Trailing amount: dollar value if trail_type=VALUE, percentage if trail_type=PERCENT",
-    ],
-    trail_type: Annotated[
-        str | None,
-        "How to measure the trail: VALUE (dollars, default) or PERCENT",
-    ] = "VALUE",
-    session: Annotated[
-        str | None, "Trading session: NORMAL (default), AM, PM, or SEAMLESS"
-    ] = "NORMAL",
-    duration: Annotated[
-        str | None,
-        "Order duration: DAY (default), GOOD_TILL_CANCEL (alias: GTC), or IMMEDIATE_OR_CANCEL (alias: IOC). Invalid values raise ValueError locally.",
-    ] = "DAY",
-) -> dict[str, Any]:
-    """
-    Builds a trailing stop order spec for complex orders (OCO, Trigger). Tracks LAST price.
-    Params: symbol, quantity, instruction (BUY/SELL), trail_offset. Defaults: trail_type=VALUE.
-    Returns the order specification dictionary, does NOT place the order.
-    """
-    order_spec_builder = _build_trailing_stop_order_spec(
-        symbol,
-        quantity,
-        instruction,
-        trail_offset,
-        trail_type or "VALUE",
-    )
-
-    order_spec_builder = _apply_order_settings(order_spec_builder, session, duration)
-    return cast(dict[str, Any], order_spec_builder.build())
-
-
-async def build_option_order_spec(
-    symbol: Annotated[str, "Option symbol (e.g., 'SPY_230616C400')"],
-    quantity: Annotated[int, "Number of contracts"],
-    instruction: Annotated[
-        str, "BUY_TO_OPEN, SELL_TO_OPEN, BUY_TO_CLOSE, or SELL_TO_CLOSE"
-    ],
-    order_type: Annotated[str, "Order type: MARKET or LIMIT"],
-    price: Annotated[
-        float | None, "Required for LIMIT orders (price per contract)"
-    ] = None,
-    session: Annotated[
-        str | None, "Trading session: NORMAL (default), AM, PM, or SEAMLESS"
-    ] = "NORMAL",
-    duration: Annotated[
-        str | None,
-        "Order duration: DAY (default), GOOD_TILL_CANCEL (alias: GTC), IMMEDIATE_OR_CANCEL (alias: IOC), FILL_OR_KILL (alias: FOK; Limit only). Invalid values raise ValueError locally.",
-    ] = "DAY",
-) -> dict[str, Any]:
-    """
-    Builds an option order specification dictionary suitable for complex orders (OCO, Trigger).
-    Params: symbol, quantity, instruction (BUY_TO_OPEN/etc.), order_type (MARKET/LIMIT).
-    Optional/Conditional: price (for LIMIT), session (default NORMAL), duration (default DAY).
-    Returns the order specification dictionary, does NOT place the order.
-    """
-    # Build the core order specification builder
-    order_spec_builder = _build_option_order_spec(
-        symbol, quantity, instruction, order_type, price
-    )
-
-    # Apply session and duration settings using the internal helper
-    order_spec_builder = _apply_order_settings(order_spec_builder, session, duration)
-
-    # Build and return the specification dictionary
-    return cast(dict[str, Any], order_spec_builder.build())
-
-
-async def place_one_cancels_other_order(
+async def place_oco_order(
     ctx: SchwabContext,
     account_hash: Annotated[str, "Account hash for the Schwab account"],
-    first_order_spec: Annotated[
-        dict, "First order specification (dict from build_equity/option_order_spec)"
+    first_order: Annotated[
+        OrderDesc,
+        "First order leg description. Required fields: symbol, quantity, instruction, order_type. "
+        "Conditional: price (LIMIT/STOP_LIMIT), stop_price (STOP/STOP_LIMIT), "
+        "trail_offset (TRAILING_STOP). Optional: asset_type (EQUITY/OPTION), session, duration.",
     ],
-    second_order_spec: Annotated[
-        dict, "Second order specification (dict from build_equity/option_order_spec)"
+    second_order: Annotated[
+        OrderDesc,
+        "Second order leg description. Same fields as first_order. "
+        "Execution of one cancels the other.",
     ],
+    session: Annotated[
+        str | None,
+        "Default trading session for both legs: NORMAL (default), AM, PM, or SEAMLESS. Per-leg session in OrderDesc overrides this.",
+    ] = "NORMAL",
+    duration: Annotated[
+        str | None,
+        "Default order duration for both legs: DAY (default), GOOD_TILL_CANCEL (alias: GTC), IMMEDIATE_OR_CANCEL (alias: IOC). Per-leg duration in OrderDesc overrides this.",
+    ] = "DAY",
 ) -> JSONType:
     """
-    Creates OCO order: execution of one cancels the other. Use for take-profit/stop-loss pairs.
-    Params: account_hash, first_order_spec (dict), second_order_spec (dict).
-    *Use build_equity_order_spec() or build_option_order_spec() to create the required spec dictionaries.* *Write operation.*
-    """
-    # Manually construct the OCO order dictionary structure
-    # This structure is correct according to schwab-py's oco_builder
-    oco_order_spec = {
-        "orderStrategyType": "OCO",
-        "childOrderStrategies": [first_order_spec, second_order_spec],
-    }
+    Creates an OCO (One Cancels Other) order: execution of one cancels the other.
+    Use for take-profit/stop-loss pairs on an existing position.
 
-    # Place the order
+    Each order is described as an OrderDesc dict with fields:
+      - symbol (str, required)
+      - quantity (int, required)
+      - instruction (str, required): BUY/SELL for equity; BUY_TO_OPEN/SELL_TO_OPEN/BUY_TO_CLOSE/SELL_TO_CLOSE for options
+      - order_type (str, required): MARKET/LIMIT/STOP/STOP_LIMIT/TRAILING_STOP
+      - price (float): required for LIMIT and STOP_LIMIT
+      - stop_price (float): required for STOP and STOP_LIMIT (equity only)
+      - trail_offset (float): required for TRAILING_STOP
+      - trail_type (str): VALUE (default) or PERCENT for TRAILING_STOP
+      - asset_type (str): EQUITY (default) or OPTION
+      - session (str): per-leg override for session
+      - duration (str): per-leg override for duration
+
+    Params: account_hash, first_order (OrderDesc), second_order (OrderDesc).
+    Optional: session (default NORMAL), duration (default DAY) — per-leg overrides these.
+    *Write operation.*
+    """
     client = ctx.orders
+
+    try:
+        first_builder = _build_order_from_desc(first_order, session, duration)
+    except ValueError as exc:
+        raise ValueError(f"first_order: {exc}") from exc
+
+    try:
+        second_builder = _build_order_from_desc(second_order, session, duration)
+    except ValueError as exc:
+        raise ValueError(f"second_order: {exc}") from exc
+
+    oco_order_builder = oco_builder(first_builder, second_builder)
+    order_spec_dict = cast(dict[str, Any], oco_order_builder.build())
 
     return await call(
         client.place_order,
         account_hash=account_hash,
-        order_spec=oco_order_spec,
+        order_spec=order_spec_dict,
         response_handler=_order_response_handler(ctx, account_hash),
     )
 
 
-async def place_first_triggers_second_order(
+async def place_trigger_order(
     ctx: SchwabContext,
     account_hash: Annotated[str, "Account hash for the Schwab account"],
-    first_order_spec: Annotated[
-        dict,
-        "First (primary) order specification (dict from build_equity/option_order_spec)",
+    entry_order: Annotated[
+        OrderDesc,
+        "Entry (primary) order description. Required fields: symbol, quantity, instruction, order_type. "
+        "Conditional: price (LIMIT/STOP_LIMIT), stop_price (STOP/STOP_LIMIT), "
+        "trail_offset (TRAILING_STOP). Optional: asset_type (EQUITY/OPTION), session, duration.",
     ],
-    second_order_spec: Annotated[
-        dict,
-        "Second (triggered) order specification (dict from build_equity/option_order_spec)",
+    exit_orders: Annotated[
+        list[OrderDesc],
+        "Exit order(s) triggered after entry fills. "
+        "1 exit: simple trigger(entry, exit). "
+        "2 exits: trigger(entry, oco(exit1, exit2)) — full bracket-like structure. "
+        "Any other count raises ValueError.",
     ],
+    session: Annotated[
+        str | None,
+        "Default trading session for all legs: NORMAL (default), AM, PM, or SEAMLESS. Per-leg session in OrderDesc overrides this.",
+    ] = "NORMAL",
+    duration: Annotated[
+        str | None,
+        "Default order duration for all legs: DAY (default), GOOD_TILL_CANCEL (alias: GTC), IMMEDIATE_OR_CANCEL (alias: IOC). Per-leg duration in OrderDesc overrides this.",
+    ] = "DAY",
 ) -> JSONType:
     """
-    Creates conditional order: second order placed only after first executes. Use for activating exits after entry.
-    Params: account_hash, first_order_spec (dict), second_order_spec (dict).
-    *Use build_equity_order_spec() or build_option_order_spec() to create the required spec dictionaries.* *Write operation.*
+    Creates a conditional (trigger) order: exit order(s) are placed only after the entry executes.
+
+    Each order is described as an OrderDesc dict with fields:
+      - symbol (str, required)
+      - quantity (int, required)
+      - instruction (str, required): BUY/SELL for equity; BUY_TO_OPEN/SELL_TO_OPEN/BUY_TO_CLOSE/SELL_TO_CLOSE for options
+      - order_type (str, required): MARKET/LIMIT/STOP/STOP_LIMIT/TRAILING_STOP
+      - price (float): required for LIMIT and STOP_LIMIT
+      - stop_price (float): required for STOP and STOP_LIMIT (equity only)
+      - trail_offset (float): required for TRAILING_STOP
+      - trail_type (str): VALUE (default) or PERCENT for TRAILING_STOP
+      - asset_type (str): EQUITY (default) or OPTION
+      - session (str): per-leg override for session
+      - duration (str): per-leg override for duration
+
+    exit_orders must contain 1 or 2 items:
+      - 1 exit: TRIGGER > SINGLE(exit)
+      - 2 exits: TRIGGER > OCO(exit1, exit2)
+
+    Params: account_hash, entry_order (OrderDesc), exit_orders (list of 1-2 OrderDesc).
+    Optional: session (default NORMAL), duration (default DAY) — per-leg overrides these.
+    *Write operation.*
     """
-    # Use the schwab-py library's construct_repeat_order to convert dicts to OrderBuilder objects,
-    # then use the trigger_builder helper (same approach as place_bracket_order)
-    from schwab.contrib.orders import construct_repeat_order
+    if len(exit_orders) not in (1, 2):
+        raise ValueError("exit_orders must contain 1 or 2 orders")
 
     client = ctx.orders
 
-    # Deep copy to avoid modifying the original specs
-    first_spec_copy = copy.deepcopy(first_order_spec)
-    second_spec_copy = copy.deepcopy(second_order_spec)
+    try:
+        entry_builder = _build_order_from_desc(entry_order, session, duration)
+    except ValueError as exc:
+        raise ValueError(f"entry_order: {exc}") from exc
 
-    # Add orderLegType to each leg (required by construct_repeat_order)
-    # Detect type based on instrument assetType
-    for leg in first_spec_copy.get("orderLegCollection", []):
-        if "orderLegType" not in leg:
-            asset_type = leg.get("instrument", {}).get("assetType", "EQUITY")
-            leg["orderLegType"] = asset_type
+    exit_builders = []
+    for i, exit_desc in enumerate(exit_orders):
+        try:
+            exit_builders.append(_build_order_from_desc(exit_desc, session, duration))
+        except ValueError as exc:
+            raise ValueError(f"exit_orders[{i}]: {exc}") from exc
 
-    for leg in second_spec_copy.get("orderLegCollection", []):
-        if "orderLegType" not in leg:
-            asset_type = leg.get("instrument", {}).get("assetType", "EQUITY")
-            leg["orderLegType"] = asset_type
+    if len(exit_builders) == 1:
+        trigger_order_builder = trigger_builder(entry_builder, exit_builders[0])
+    else:
+        oco_exit = oco_builder(exit_builders[0], exit_builders[1])
+        trigger_order_builder = trigger_builder(entry_builder, oco_exit)
 
-    # Convert dict specs to OrderBuilder objects using schwab-py's construct_repeat_order
-    first_order_builder = construct_repeat_order(first_spec_copy)
-    second_order_builder = construct_repeat_order(second_spec_copy)
+    order_spec_dict = cast(dict[str, Any], trigger_order_builder.build())
 
-    # Use the schwab-py trigger_builder to create the TRIGGER order (same as bracket order does)
-    trigger_order_builder = trigger_builder(first_order_builder, second_order_builder)
-
-    # Build the final order dictionary
-    trigger_order_dict = cast(dict[str, Any], trigger_order_builder.build())
-
-    # Place the order
     return await call(
         client.place_order,
         account_hash=account_hash,
-        order_spec=trigger_order_dict,
+        order_spec=order_spec_dict,
         response_handler=_order_response_handler(ctx, account_hash),
     )
 
@@ -816,12 +884,21 @@ async def place_bracket_order(
         float | None, "Required for STOP and STOP_LIMIT entry orders"
     ] = None,
     session: Annotated[
-        str | None, "Trading session: NORMAL (default), AM, PM, or SEAMLESS"
+        str | None,
+        "Trading session for all legs: NORMAL (default), AM, PM, or SEAMLESS",
     ] = "NORMAL",
     duration: Annotated[
         str | None,
-        "Order duration: DAY (default), GOOD_TILL_CANCEL (alias: GTC), or IMMEDIATE_OR_CANCEL (alias: IOC). Invalid values raise ValueError locally.",
+        "Order duration for all legs: DAY (default), GOOD_TILL_CANCEL (alias: GTC), or IMMEDIATE_OR_CANCEL (alias: IOC). Invalid values raise ValueError locally.",
     ] = "DAY",
+    exit_session: Annotated[
+        str | None,
+        "Trading session override for exit legs only (take-profit/stop-loss). Defaults to session when not provided. Useful for GTC exits with a DAY entry.",
+    ] = None,
+    exit_duration: Annotated[
+        str | None,
+        "Duration override for exit legs only (take-profit/stop-loss). Defaults to duration when not provided. Common pattern: entry DAY + exits GOOD_TILL_CANCEL.",
+    ] = None,
 ) -> JSONType:
     """
     Creates a bracket order: entry + exit leg(s) that trigger after entry executes.
@@ -835,8 +912,9 @@ async def place_bracket_order(
     Params: account_hash, symbol, quantity, entry_instruction (BUY/SELL), entry_type (MARKET/LIMIT/STOP/STOP_LIMIT), profit_price, loss_price.
     At least one of profit_price or loss_price must be provided.
     Optional/Conditional: entry_price (for LIMIT/STOP_LIMIT), entry_stop_price (for STOP/STOP_LIMIT), session (default NORMAL), duration (default DAY).
+    Optional: exit_session and exit_duration override session/duration for the exit legs only (e.g., entry DAY + exits GOOD_TILL_CANCEL).
     Ensure profit/loss prices are correctly positioned relative to entry (e.g., profit > entry for BUY).
-    Note: Duration applies to all legs of the order. FILL_OR_KILL is not typically used with bracket orders.
+    Note: FILL_OR_KILL is not typically used with bracket orders.
     *Write operation.*
     """
     # Validate that at least one exit price is provided
@@ -854,6 +932,10 @@ async def place_bracket_order(
 
     # Determine exit instructions (opposite of entry)
     exit_instruction = "SELL" if entry_instruction == "BUY" else "BUY"
+
+    # Effective exit session/duration fall back to entry-level values when not specified
+    eff_exit_session = exit_session if exit_session is not None else session
+    eff_exit_duration = exit_duration if exit_duration is not None else duration
 
     # Create entry order spec builder using the internal helper
     entry_order_builder = _build_equity_order_spec(
@@ -875,7 +957,7 @@ async def place_bracket_order(
         else:  # SELL
             profit_order_builder = equity_sell_limit(symbol, quantity, profit_price)
         profit_order_builder = _apply_order_settings(
-            profit_order_builder, session, duration
+            profit_order_builder, eff_exit_session, eff_exit_duration
         )
 
     if loss_price is not None:
@@ -885,7 +967,7 @@ async def place_bracket_order(
         else:  # SELL
             loss_order_builder = equity_sell_stop(symbol, quantity, loss_price)
         loss_order_builder = _apply_order_settings(
-            loss_order_builder, session, duration
+            loss_order_builder, eff_exit_session, eff_exit_duration
         )
 
     if profit_price is not None and loss_price is not None:
@@ -992,9 +1074,6 @@ async def place_option_combo_order(
 _READ_ONLY_TOOLS = (
     get_order,
     get_orders,
-    build_equity_order_spec,
-    build_equity_trailing_stop_order_spec,
-    build_option_order_spec,
     create_option_symbol,
 )
 
@@ -1003,8 +1082,8 @@ _WRITE_TOOLS = (
     place_equity_order,
     place_option_order,
     place_equity_trailing_stop_order,
-    place_one_cancels_other_order,
-    place_first_triggers_second_order,
+    place_oco_order,
+    place_trigger_order,
     place_bracket_order,
     place_option_combo_order,
 )
