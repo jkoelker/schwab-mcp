@@ -114,7 +114,7 @@ async def get_movers(
 - Functions/methods: `snake_case`
 - Constants: `UPPER_SNAKE_CASE`
 - Private helpers: prefix with `_` (e.g., `_build_equity_order_spec`)
-- Tool functions: match Schwab API naming (e.g., `get_market_hours`, `place_equity_order`)
+- Tool functions: match Schwab API naming (e.g., `get_market_hours`, `preview_equity_order`)
 
 ### Error Handling
 - Use `SchwabAPIError` for API failures (defined in `tools/utils.py`)

@@ -111,11 +111,18 @@ The server provides a rich set of tools for LLMs.
 | `get_orders` | Status of open and filled orders. |
 
 ### 💸 Trading (Requires Approval)
+Placing an order is two steps: preview it, then place it by ID. Every
+`preview_*` tool builds the order and calls Schwab's preview API to return
+the projected order details plus a `preview_id`; `place_previewed_order`
+then submits that exact previewed order — no re-derivation from parameters,
+so the LLM can't hallucinate a different order than what was reviewed.
+
 | Tool | Description |
 |------|-------------|
-| `place_equity_order` | Buy/Sell stocks and ETFs. |
-| `place_option_order` | Buy/Sell option contracts. |
-| `place_bracket_order` | Entry + Take Profit + Stop Loss. |
+| `preview_equity_order` | Preview a stock/ETF buy or sell. |
+| `preview_option_order` | Preview an option contract buy or sell. |
+| `preview_bracket_order` | Preview an entry + take-profit + stop-loss order. |
+| `place_previewed_order` | Place the exact order returned by a `preview_*` call, by `preview_id`. Requires approval. |
 | `cancel_order` | Cancel an open order. |
 
 *(See full tool list in `src/schwab_mcp/tools/`)*

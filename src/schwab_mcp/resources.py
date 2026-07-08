@@ -40,6 +40,12 @@ ORDER_STATUSES: dict[str, Any] = {
 }
 
 ORDER_TYPES: dict[str, Any] = {
+    "workflow": (
+        "All order placement is two-step: call the matching preview_* tool "
+        "(e.g. preview_equity_order) to get a preview_id and Schwab's "
+        "projected order details, then call place_previewed_order("
+        "account_hash, preview_id) to execute that exact order."
+    ),
     "equity_orders": {
         "MARKET": {
             "description": "Execute immediately at current market price",
@@ -73,7 +79,7 @@ ORDER_TYPES: dict[str, Any] = {
             "description": "Stop price trails market price by offset",
             "required": ["symbol", "quantity", "instruction", "trail_offset"],
             "optional": ["trail_type", "session", "duration"],
-            "tool": "place_equity_trailing_stop_order",
+            "tool": "preview_equity_trailing_stop_order",
         },
     },
     "option_orders": {
@@ -104,22 +110,22 @@ ORDER_TYPES: dict[str, Any] = {
         "OCO": {
             "description": "One Cancels Other - execution of one cancels the other",
             "use_case": "Take-profit and stop-loss pairs",
-            "tool": "place_oco_order",
+            "tool": "preview_oco_order",
         },
         "TRIGGER": {
             "description": "First Triggers Second - second order placed after first executes",
             "use_case": "Activate exit orders after entry fills",
-            "tool": "place_trigger_order",
+            "tool": "preview_trigger_order",
         },
         "BRACKET": {
             "description": "Entry + OCO take-profit/stop-loss",
             "use_case": "Complete trade with automatic risk management",
-            "tool": "place_bracket_order",
+            "tool": "preview_bracket_order",
         },
         "COMBO": {
             "description": "Multi-leg option order with net price",
             "use_case": "Spreads, iron condors, straddles",
-            "tool": "place_option_combo_order",
+            "tool": "preview_option_combo_order",
         },
     },
     "instructions": {

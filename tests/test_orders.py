@@ -54,25 +54,16 @@ class TestNormalizeDuration:
             == "GOOD_TILL_CANCEL"
         )
 
-    def test_empty_string_raises_before_api_call(
-        self, monkeypatch, place_order_client_factory
-    ):
-        place_order_client = place_order_client_factory(account_hash="acc", order_id=1)
-        ctx = make_ctx(place_order_client)
+    def test_empty_string_raises_before_api_call(self):
         with pytest.raises(ValueError, match="Invalid duration"):
-            run(
-                orders.place_equity_order(
-                    ctx,
-                    "acc",
-                    "AAPL",
-                    50,
-                    "buy",
-                    "limit",
-                    price=175.00,
-                    duration="",
-                )
+            orders._prepare_equity_order(
+                "AAPL",
+                50,
+                "buy",
+                "limit",
+                price=175.00,
+                duration="",
             )
-        assert place_order_client.captured is None
 
 
 class TestGetOrders:
@@ -401,544 +392,392 @@ class TestCancelOrder:
         assert captured["kwargs"]["order_id"] == "order456"
 
 
-class TestPlaceEquityOrder:
+class TestPlacePreviewedOrder:
+    """Tests for the place_previewed_order tool (Phase 3)."""
+
     @pytest.fixture
     def account_hash(self):
-        return "test_account_hash"
+        return "acct_abc123"
 
     @pytest.fixture
-    def order_id(self):
-        return 987654321
+    def order_spec(self):
+        return {
+            "orderType": "LIMIT",
+            "orderStrategyType": "SINGLE",
+            "price": "150.00",
+            "orderLegCollection": [
+                {
+                    "instruction": "BUY",
+                    "quantity": 100,
+                    "instrument": {"symbol": "AAPL", "assetType": "EQUITY"},
+                }
+            ],
+        }
 
-    @pytest.fixture
-    def order_response(self, order_response_factory, account_hash, order_id):
-        return order_response_factory(account_hash=account_hash, order_id=order_id)
+    def _put_entry(self, ctx, account_hash, order_spec):
+        """Helper to pre-populate the preview store and return the preview_id."""
+        return ctx.previews.put(
+            account_hash,
+            order_spec,
+            "preview_equity_order",
+            "BUY 100 AAPL LIMIT @ $150.00",
+        )
 
-    @pytest.fixture
-    def place_order_client(self, place_order_client_factory, account_hash, order_id):
-        return place_order_client_factory(account_hash=account_hash, order_id=order_id)
+    def test_approved_submits_cached_spec(self, monkeypatch, account_hash, order_spec):
+        """Happy path: approved decision calls place_order with the exact cached spec."""
+        from schwab_mcp.approvals import ApprovalDecision
+        from schwab_mcp.tools import orders as orders_mod
 
-    @pytest.mark.parametrize(
-        ("instruction", "order_type", "price", "stop_price", "expected_order_type"),
-        [
-            ("buy", "market", None, None, "MARKET"),
-            ("sell", "market", None, None, "MARKET"),
-            ("BUY", "MARKET", None, None, "MARKET"),
-            ("SELL", "MARKET", None, None, "MARKET"),
-            ("buy", "limit", 150.00, None, "LIMIT"),
-            ("sell", "limit", 150.00, None, "LIMIT"),
-            ("buy", "stop", None, 145.00, "STOP"),
-            ("sell", "stop", None, 145.00, "STOP"),
-            ("buy", "stop_limit", 150.00, 145.00, "STOP_LIMIT"),
-            ("sell", "stop_limit", 150.00, 145.00, "STOP_LIMIT"),
-        ],
-    )
-    def test_places_order_with_correct_spec(
-        self,
-        place_order_client,
-        account_hash,
-        order_id,
-        instruction,
-        order_type,
-        price,
-        stop_price,
-        expected_order_type,
+        client = DummyPreviewClient()
+        ctx = make_ctx(client)
+        preview_id = self._put_entry(ctx, account_hash, order_spec)
+
+        calls: list[dict] = []
+
+        async def fake_call(func, *args, **kwargs):
+            calls.append({"func": func, "kwargs": kwargs})
+            return {"orderId": 42, "accountHash": account_hash}
+
+        async def fake_run_approval(ctx, request):
+            return ApprovalDecision.APPROVED
+
+        monkeypatch.setattr(orders_mod, "call", fake_call)
+        monkeypatch.setattr(orders_mod, "run_approval", fake_run_approval)
+
+        result = run(orders.place_previewed_order(ctx, account_hash, preview_id))
+
+        assert result["orderId"] == 42
+        assert len(calls) == 1
+        # PreviewStore.put() deep-copies the spec (see #130), so this is an
+        # equality check rather than identity: what matters is that the
+        # exact previewed content is submitted, not re-derived from params.
+        assert calls[0]["kwargs"]["order_spec"] == order_spec
+        assert calls[0]["kwargs"]["account_hash"] == account_hash
+
+    def test_denied_raises_permission_error(
+        self, monkeypatch, account_hash, order_spec
     ):
-        ctx = make_ctx(place_order_client)
-        result = run(
-            orders.place_equity_order(
-                ctx,
-                account_hash,
-                "SPY",
-                100,
-                instruction,
-                order_type,
-                price=price,
-                stop_price=stop_price,
-            )
-        )
+        """DENIED decision raises PermissionError."""
+        from schwab_mcp.approvals import ApprovalDecision
+        from schwab_mcp.tools import orders as orders_mod
 
-        assert result["orderId"] == order_id
-        assert result["accountHash"] == account_hash
-        assert "location" in result
+        client = DummyPreviewClient()
+        ctx = make_ctx(client)
+        preview_id = self._put_entry(ctx, account_hash, order_spec)
 
-        captured = place_order_client.captured
-        assert captured is not None
-        assert captured["kwargs"]["account_hash"] == account_hash
+        async def fake_run_approval(ctx, request):
+            return ApprovalDecision.DENIED
 
-        order_spec = captured["kwargs"]["order_spec"]
-        assert order_spec["orderType"] == expected_order_type
-        assert order_spec["orderStrategyType"] == "SINGLE"
-        assert order_spec["orderLegCollection"][0]["instruction"] == instruction.upper()
-        assert order_spec["orderLegCollection"][0]["quantity"] == 100
-        assert order_spec["orderLegCollection"][0]["instrument"]["symbol"] == "SPY"
+        monkeypatch.setattr(orders_mod, "run_approval", fake_run_approval)
 
-    def test_applies_session_and_duration(self, place_order_client, account_hash):
-        ctx = make_ctx(place_order_client)
-        run(
-            orders.place_equity_order(
-                ctx,
-                account_hash,
-                "AAPL",
-                50,
-                "buy",
-                "limit",
-                price=175.00,
-                session="AM",
-                duration="GOOD_TILL_CANCEL",
-            )
-        )
+        with pytest.raises(PermissionError, match="denied"):
+            run(orders.place_previewed_order(ctx, account_hash, preview_id))
 
-        order_spec = place_order_client.captured["kwargs"]["order_spec"]
-        assert order_spec["session"] == "AM"
-        assert order_spec["duration"] == "GOOD_TILL_CANCEL"
+    def test_expired_raises_timeout_error(self, monkeypatch, account_hash, order_spec):
+        """EXPIRED decision raises TimeoutError."""
+        from schwab_mcp.approvals import ApprovalDecision
+        from schwab_mcp.tools import orders as orders_mod
 
-    @pytest.mark.parametrize("alias", ["GTC", "gtc", " GTC "])
-    def test_gtc_alias_matches_good_till_cancel(
-        self, place_order_client, account_hash, alias
+        client = DummyPreviewClient()
+        ctx = make_ctx(client)
+        preview_id = self._put_entry(ctx, account_hash, order_spec)
+
+        async def fake_run_approval(ctx, request):
+            return ApprovalDecision.EXPIRED
+
+        monkeypatch.setattr(orders_mod, "run_approval", fake_run_approval)
+
+        with pytest.raises(TimeoutError, match="expired"):
+            run(orders.place_previewed_order(ctx, account_hash, preview_id))
+
+    def test_pop_before_approval_denied_consumes_entry(
+        self, monkeypatch, account_hash, order_spec
     ):
-        ctx = make_ctx(place_order_client)
-        run(
-            orders.place_equity_order(
-                ctx,
-                account_hash,
-                "AAPL",
-                50,
-                "buy",
-                "limit",
-                price=175.00,
-                duration=alias,
-            )
-        )
+        """After a DENIED decision the entry is consumed; a second call raises ValueError."""
+        from schwab_mcp.approvals import ApprovalDecision
+        from schwab_mcp.tools import orders as orders_mod
 
-        order_spec = place_order_client.captured["kwargs"]["order_spec"]
-        assert order_spec["duration"] == "GOOD_TILL_CANCEL"
+        client = DummyPreviewClient()
+        ctx = make_ctx(client)
+        preview_id = self._put_entry(ctx, account_hash, order_spec)
 
-    def test_invalid_duration_raises_before_api_call(
-        self, place_order_client, account_hash
+        async def fake_run_approval(ctx, request):
+            return ApprovalDecision.DENIED
+
+        monkeypatch.setattr(orders_mod, "run_approval", fake_run_approval)
+
+        with pytest.raises(PermissionError):
+            run(orders.place_previewed_order(ctx, account_hash, preview_id))
+
+        # Entry already consumed — must raise ValueError, not re-trigger approval
+        with pytest.raises(ValueError, match="not found or expired"):
+            run(orders.place_previewed_order(ctx, account_hash, preview_id))
+
+    def test_account_hash_mismatch_checked_before_approval(
+        self, monkeypatch, account_hash, order_spec
     ):
-        ctx = make_ctx(place_order_client)
-        with pytest.raises(ValueError, match="Invalid duration"):
-            run(
-                orders.place_equity_order(
-                    ctx,
-                    account_hash,
-                    "AAPL",
-                    50,
-                    "buy",
-                    "limit",
-                    price=175.00,
-                    duration="BOGUS",
-                )
-            )
+        """Mismatched account_hash raises ValueError before run_approval is called."""
+        from schwab_mcp.tools import orders as orders_mod
 
-        assert place_order_client.captured is None
+        client = DummyPreviewClient()
+        ctx = make_ctx(client)
+        preview_id = self._put_entry(ctx, account_hash, order_spec)
 
+        async def fake_run_approval(ctx, request):
+            raise AssertionError("run_approval must not be called for mismatched hash")
 
-class TestPlaceOptionOrder:
-    @pytest.fixture
-    def account_hash(self):
-        return "option_account_hash"
+        monkeypatch.setattr(orders_mod, "run_approval", fake_run_approval)
 
-    @pytest.fixture
-    def order_id(self):
-        return 111222333
+        with pytest.raises(ValueError, match="Account hash mismatch"):
+            run(orders.place_previewed_order(ctx, "WRONG_HASH", preview_id))
 
-    @pytest.fixture
-    def order_response(self, order_response_factory, account_hash, order_id):
-        return order_response_factory(account_hash=account_hash, order_id=order_id)
+    def test_unknown_preview_id_raises_value_error(self, account_hash):
+        """Unknown preview_id raises ValueError immediately."""
+        client = DummyPreviewClient()
+        ctx = make_ctx(client)
 
-    @pytest.fixture
-    def place_order_client(self, place_order_client_factory, account_hash, order_id):
-        return place_order_client_factory(account_hash=account_hash, order_id=order_id)
+        with pytest.raises(ValueError, match="not found or expired"):
+            run(orders.place_previewed_order(ctx, account_hash, "deadbeef"))
 
-    @pytest.mark.parametrize(
-        ("instruction", "order_type", "price", "expected_order_type"),
-        [
-            ("BUY_TO_OPEN", "MARKET", None, "MARKET"),
-            ("SELL_TO_OPEN", "MARKET", None, "MARKET"),
-            ("BUY_TO_CLOSE", "MARKET", None, "MARKET"),
-            ("SELL_TO_CLOSE", "MARKET", None, "MARKET"),
-            ("buy_to_open", "market", None, "MARKET"),
-            ("BUY_TO_OPEN", "LIMIT", 2.50, "LIMIT"),
-            ("SELL_TO_OPEN", "LIMIT", 3.00, "LIMIT"),
-            ("BUY_TO_CLOSE", "LIMIT", 1.75, "LIMIT"),
-            ("SELL_TO_CLOSE", "LIMIT", 2.25, "LIMIT"),
-            ("sell_to_close", "limit", 2.25, "LIMIT"),
-        ],
-    )
-    def test_places_order_with_correct_spec(
-        self,
-        place_order_client,
-        account_hash,
-        order_id,
-        instruction,
-        order_type,
-        price,
-        expected_order_type,
+    def test_approval_request_includes_summary(
+        self, monkeypatch, account_hash, order_spec
     ):
-        ctx = make_ctx(place_order_client)
-        option_symbol = "SPY 251219C500"
+        """The ApprovalRequest sent to run_approval contains the human-readable summary."""
+        from schwab_mcp.approvals import ApprovalDecision
+        from schwab_mcp.tools import orders as orders_mod
 
-        result = run(
-            orders.place_option_order(
-                ctx,
-                account_hash,
-                option_symbol,
-                5,
-                instruction,
-                order_type,
-                price=price,
+        client = DummyPreviewClient()
+        ctx = make_ctx(client)
+        preview_id = self._put_entry(ctx, account_hash, order_spec)
+
+        captured_request: list = []
+
+        async def fake_run_approval(ctx, request):
+            captured_request.append(request)
+            return ApprovalDecision.DENIED
+
+        monkeypatch.setattr(orders_mod, "run_approval", fake_run_approval)
+
+        with pytest.raises(PermissionError):
+            run(orders.place_previewed_order(ctx, account_hash, preview_id))
+
+        req = captured_request[0]
+        assert req.tool_name == "place_previewed_order"
+        assert req.arguments["original_tool"] == "preview_equity_order"
+        assert "BUY 100 AAPL" in req.arguments["order_summary"]
+        assert req.arguments["preview_id"] == preview_id
+        assert req.arguments["account_hash"] == account_hash
+
+
+# ---------------------------------------------------------------------------
+# Additional _prepare_* validation coverage (regression net post-Phase 3)
+# The old place_* tests covered these paths; now tested via _prepare_* directly.
+# ---------------------------------------------------------------------------
+
+
+class TestPrepareEquityOrderValidation:
+    def test_invalid_order_type_raises(self):
+        with pytest.raises(ValueError, match="Invalid order_type"):
+            orders._prepare_equity_order("AAPL", 100, "BUY", "BOGUS")
+
+    def test_invalid_instruction_raises(self):
+        with pytest.raises(ValueError, match="Invalid instruction"):
+            orders._prepare_equity_order("AAPL", 100, "HOLD", "MARKET")
+
+    def test_applies_session_and_duration(self):
+        spec = orders._prepare_equity_order(
+            "AAPL", 50, "BUY", "LIMIT", price=175.0, session="AM", duration="GTC"
+        )
+        assert spec["session"] == "AM"
+        assert spec["duration"] == "GOOD_TILL_CANCEL"
+
+    def test_limit_order_correct_spec(self):
+        spec = orders._prepare_equity_order("SPY", 100, "buy", "limit", price=150.0)
+        assert spec["orderType"] == "LIMIT"
+        assert spec["orderLegCollection"][0]["instruction"] == "BUY"
+        assert spec["orderLegCollection"][0]["quantity"] == 100
+
+
+class TestPrepareOptionOrderValidation:
+    def test_invalid_order_type_raises(self):
+        with pytest.raises(ValueError, match="Invalid order_type"):
+            orders._prepare_option_order("SPY_C400", 1, "BUY_TO_OPEN", "STOP")
+
+    def test_invalid_instruction_raises(self):
+        with pytest.raises(ValueError, match="Invalid instruction"):
+            orders._prepare_option_order("SPY_C400", 1, "BUY", "MARKET")
+
+
+class TestPrepareTrailingStopOrderValidation:
+    def test_invalid_trail_type_raises(self):
+        with pytest.raises(ValueError, match="Invalid trail_type"):
+            orders._prepare_trailing_stop_order("AAPL", 50, "SELL", 5.0, "BOGUS")
+
+    def test_defaults_trail_type_to_value(self):
+        spec = orders._prepare_trailing_stop_order("TSLA", 50, "SELL", 5.0)
+        assert spec["stopPriceLinkType"] == "VALUE"
+
+    def test_parametrized_trail_types(self):
+        for trail_type in ("VALUE", "PERCENT"):
+            spec = orders._prepare_trailing_stop_order(
+                "AAPL", 10, "SELL", 3.0, trail_type
             )
-        )
-
-        assert result["orderId"] == order_id
-        assert result["accountHash"] == account_hash
-
-        captured = place_order_client.captured
-        order_spec = captured["kwargs"]["order_spec"]
-        assert order_spec["orderType"] == expected_order_type
-        assert order_spec["orderStrategyType"] == "SINGLE"
-        assert order_spec["orderLegCollection"][0]["instruction"] == instruction.upper()
-        assert order_spec["orderLegCollection"][0]["quantity"] == 5
-        assert (
-            order_spec["orderLegCollection"][0]["instrument"]["symbol"] == option_symbol
-        )
-        assert (
-            order_spec["orderLegCollection"][0]["instrument"]["assetType"] == "OPTION"
-        )
+            assert spec["stopPriceLinkType"] == trail_type
 
 
-class TestPlaceEquityTrailingStopOrder:
-    @pytest.fixture
-    def account_hash(self):
-        return "trailing_account_hash"
+class TestPrepareOcoOrderValidation:
+    _GOOD_FIRST: orders.OrderDesc = {
+        "symbol": "SPY",
+        "quantity": 100,
+        "instruction": "SELL",
+        "order_type": "LIMIT",
+        "price": 160.0,
+    }
+    _GOOD_SECOND: orders.OrderDesc = {
+        "symbol": "SPY",
+        "quantity": 100,
+        "instruction": "SELL",
+        "order_type": "STOP",
+        "stop_price": 140.0,
+    }
 
-    @pytest.fixture
-    def order_id(self):
-        return 444555666
+    def test_invalid_first_order_raises_with_prefix(self):
+        bad_first: orders.OrderDesc = {
+            "symbol": "SPY",
+            "quantity": 100,
+            "instruction": "SELL",
+            "order_type": "LIMIT",
+        }
+        with pytest.raises(ValueError, match="first_order:"):
+            orders._prepare_oco_order(bad_first, self._GOOD_SECOND)
 
-    @pytest.fixture
-    def order_response(self, order_response_factory, account_hash, order_id):
-        return order_response_factory(account_hash=account_hash, order_id=order_id)
+    def test_invalid_second_order_raises_with_prefix(self):
+        bad_second: orders.OrderDesc = {
+            "symbol": "SPY",
+            "quantity": 100,
+            "instruction": "SELL",
+            "order_type": "STOP",
+        }
+        with pytest.raises(ValueError, match="second_order:"):
+            orders._prepare_oco_order(self._GOOD_FIRST, bad_second)
 
-    @pytest.fixture
-    def place_order_client(self, place_order_client_factory, account_hash, order_id):
-        return place_order_client_factory(account_hash=account_hash, order_id=order_id)
-
-    @pytest.mark.parametrize(
-        ("instruction", "trail_type", "trail_offset"),
-        [
-            ("BUY", "VALUE", 5.00),
-            ("SELL", "VALUE", 5.00),
-            ("buy", "value", 10.00),
-            ("sell", "value", 2.50),
-            ("BUY", "PERCENT", 5.0),
-            ("SELL", "PERCENT", 3.0),
-            ("buy", "percent", 2.5),
-            ("sell", "percent", 1.0),
-        ],
-    )
-    def test_places_order_with_correct_spec(
-        self,
-        place_order_client,
-        account_hash,
-        order_id,
-        instruction,
-        trail_type,
-        trail_offset,
-    ):
-        ctx = make_ctx(place_order_client)
-
-        result = run(
-            orders.place_equity_trailing_stop_order(
-                ctx,
-                account_hash,
-                "TSLA",
-                50,
-                instruction,
-                trail_offset,
-                trail_type=trail_type,
-            )
-        )
-
-        assert result["orderId"] == order_id
-        assert result["accountHash"] == account_hash
-
-        captured = place_order_client.captured
-        order_spec = captured["kwargs"]["order_spec"]
-        assert order_spec["orderType"] == "TRAILING_STOP"
-        assert order_spec["stopPriceOffset"] == trail_offset
-        assert order_spec["stopPriceLinkType"] == trail_type.upper()
-        assert order_spec["stopPriceLinkBasis"] == "LAST"
-        assert order_spec["orderLegCollection"][0]["instruction"] == instruction.upper()
-        assert order_spec["orderLegCollection"][0]["quantity"] == 50
-
-    def test_defaults_trail_type_to_value(self, place_order_client, account_hash):
-        ctx = make_ctx(place_order_client)
-
-        run(
-            orders.place_equity_trailing_stop_order(
-                ctx,
-                account_hash,
-                "TSLA",
-                50,
-                "SELL",
-                5.00,
-            )
-        )
-
-        order_spec = place_order_client.captured["kwargs"]["order_spec"]
-        assert order_spec["stopPriceLinkType"] == "VALUE"
+    def test_correct_spec_structure(self):
+        spec = orders._prepare_oco_order(self._GOOD_FIRST, self._GOOD_SECOND)
+        assert spec["orderStrategyType"] == "OCO"
+        assert len(spec["childOrderStrategies"]) == 2
 
 
-class TestPlaceBracketOrder:
-    @pytest.fixture
-    def account_hash(self):
-        return "bracket_account_hash"
+class TestPrepareTriggerOrderValidation:
+    _ENTRY: orders.OrderDesc = {
+        "symbol": "SPY",
+        "quantity": 100,
+        "instruction": "BUY",
+        "order_type": "MARKET",
+    }
 
-    @pytest.fixture
-    def order_id(self):
-        return 777888999
+    def test_wrong_exit_count_raises(self):
+        with pytest.raises(ValueError, match="exit_orders must contain 1 or 2 orders"):
+            orders._prepare_trigger_order(self._ENTRY, [])
 
-    @pytest.fixture
-    def order_response(self, order_response_factory, account_hash, order_id):
-        return order_response_factory(account_hash=account_hash, order_id=order_id)
+    def test_invalid_entry_raises_with_prefix(self):
+        bad_entry: orders.OrderDesc = {
+            "symbol": "SPY",
+            "quantity": 10,
+            "instruction": "BUY",
+            "order_type": "LIMIT",
+        }
+        exit_order: orders.OrderDesc = {
+            "symbol": "SPY",
+            "quantity": 10,
+            "instruction": "SELL",
+            "order_type": "MARKET",
+        }
+        with pytest.raises(ValueError, match="entry_order:"):
+            orders._prepare_trigger_order(bad_entry, [exit_order])
 
-    @pytest.fixture
-    def place_order_client(self, place_order_client_factory, account_hash, order_id):
-        return place_order_client_factory(account_hash=account_hash, order_id=order_id)
+    def test_invalid_exit_raises_with_index_prefix(self):
+        bad_exit: orders.OrderDesc = {
+            "symbol": "SPY",
+            "quantity": 10,
+            "instruction": "SELL",
+            "order_type": "LIMIT",
+            # price missing
+        }
+        with pytest.raises(ValueError, match=r"exit_orders\[0\]:"):
+            orders._prepare_trigger_order(self._ENTRY, [bad_exit])
 
-    @pytest.mark.parametrize(
-        ("entry_instruction", "entry_type", "entry_price", "entry_stop_price"),
-        [
-            ("BUY", "MARKET", None, None),
-            ("SELL", "MARKET", None, None),
-            ("BUY", "LIMIT", 150.00, None),
-            ("SELL", "LIMIT", 150.00, None),
-            ("BUY", "STOP", None, 145.00),
-            ("SELL", "STOP", None, 155.00),
-            ("BUY", "STOP_LIMIT", 150.00, 145.00),
-            ("SELL", "STOP_LIMIT", 150.00, 155.00),
-        ],
-    )
-    def test_places_bracket_order_with_entry_types(
-        self,
-        place_order_client,
-        account_hash,
-        order_id,
-        entry_instruction,
-        entry_type,
-        entry_price,
-        entry_stop_price,
-    ):
-        ctx = make_ctx(place_order_client)
 
-        result = run(
-            orders.place_bracket_order(
-                ctx,
-                account_hash,
-                "SPY",
-                100,
-                entry_instruction,
-                entry_type,
-                profit_price=160.00,
-                loss_price=140.00,
-                entry_price=entry_price,
-                entry_stop_price=entry_stop_price,
-            )
-        )
-
-        assert result["orderId"] == order_id
-        assert result["accountHash"] == account_hash
-
-        captured = place_order_client.captured
-        order_spec = captured["kwargs"]["order_spec"]
-
-        assert order_spec["orderStrategyType"] == "TRIGGER"
-        assert "childOrderStrategies" in order_spec
-
-        oco_child = order_spec["childOrderStrategies"][0]
-        assert oco_child["orderStrategyType"] == "OCO"
-        assert len(oco_child["childOrderStrategies"]) == 2
-
-    def test_bracket_order_exit_instructions_opposite_of_entry(
-        self, place_order_client, account_hash
-    ):
-        ctx = make_ctx(place_order_client)
-
-        run(
-            orders.place_bracket_order(
-                ctx,
-                account_hash,
-                "SPY",
-                100,
-                "BUY",
-                "MARKET",
-                profit_price=160.00,
-                loss_price=140.00,
-            )
-        )
-
-        order_spec = place_order_client.captured["kwargs"]["order_spec"]
-        oco_child = order_spec["childOrderStrategies"][0]
-
-        for exit_order in oco_child["childOrderStrategies"]:
-            exit_instruction = exit_order["orderLegCollection"][0]["instruction"]
-            assert exit_instruction == "SELL"
-
-    def test_bracket_order_invalid_entry_instruction_raises(
-        self, place_order_client, account_hash
-    ):
-        ctx = make_ctx(place_order_client)
-
-        with pytest.raises(ValueError, match="Invalid entry_instruction: HOLD"):
-            run(
-                orders.place_bracket_order(
-                    ctx,
-                    account_hash,
-                    "SPY",
-                    100,
-                    "HOLD",
-                    "MARKET",
-                    profit_price=160.00,
-                    loss_price=140.00,
-                )
-            )
-
-    def test_bracket_order_stop_only_no_oco(self, place_order_client, account_hash):
-        """loss_price only: TRIGGER > SINGLE(stop), no OCO wrapper."""
-        ctx = make_ctx(place_order_client)
-
-        run(
-            orders.place_bracket_order(
-                ctx,
-                account_hash,
-                "SPY",
-                100,
-                "BUY",
-                "MARKET",
-                loss_price=140.00,
-            )
-        )
-
-        order_spec = place_order_client.captured["kwargs"]["order_spec"]
-        assert order_spec["orderStrategyType"] == "TRIGGER"
-        assert "childOrderStrategies" in order_spec
-
-        child = order_spec["childOrderStrategies"][0]
-        # Must NOT be an OCO wrapper
-        assert child.get("orderStrategyType") != "OCO"
-        # Must be a single stop order
-        assert child["orderType"] == "STOP"
-        assert float(child["stopPrice"]) == 140.00
-        leg = child["orderLegCollection"][0]
-        assert leg["instruction"] == "SELL"
-
-    def test_bracket_order_profit_only_no_oco(self, place_order_client, account_hash):
-        """profit_price only: TRIGGER > SINGLE(limit), no OCO wrapper."""
-        ctx = make_ctx(place_order_client)
-
-        run(
-            orders.place_bracket_order(
-                ctx,
-                account_hash,
-                "SPY",
-                100,
-                "BUY",
-                "MARKET",
-                profit_price=160.00,
-            )
-        )
-
-        order_spec = place_order_client.captured["kwargs"]["order_spec"]
-        assert order_spec["orderStrategyType"] == "TRIGGER"
-        assert "childOrderStrategies" in order_spec
-
-        child = order_spec["childOrderStrategies"][0]
-        # Must NOT be an OCO wrapper
-        assert child.get("orderStrategyType") != "OCO"
-        # Must be a single limit order
-        assert child["orderType"] == "LIMIT"
-        assert float(child["price"]) == 160.00
-        leg = child["orderLegCollection"][0]
-        assert leg["instruction"] == "SELL"
-
-    def test_bracket_order_neither_price_raises_before_submit(
-        self, place_order_client, account_hash
-    ):
-        """Neither price provided: raises ValueError, client never called."""
-        ctx = make_ctx(place_order_client)
-
+class TestPrepareBracketOrderValidation:
+    def test_neither_price_raises(self):
         with pytest.raises(
-            ValueError,
-            match="At least one of profit_price or loss_price must be provided",
+            ValueError, match="At least one of profit_price or loss_price"
         ):
-            run(
-                orders.place_bracket_order(
-                    ctx,
-                    account_hash,
-                    "SPY",
-                    100,
-                    "BUY",
-                    "MARKET",
-                )
+            orders._prepare_bracket_order("SPY", 100, "BUY", "MARKET")
+
+    def test_invalid_entry_instruction_raises(self):
+        with pytest.raises(ValueError, match="Invalid entry_instruction: HOLD"):
+            orders._prepare_bracket_order(
+                "SPY", 100, "HOLD", "MARKET", profit_price=160.0
             )
 
-        assert place_order_client.captured is None
-
-    def test_bracket_order_exit_session_and_duration_override(
-        self, place_order_client, account_hash
-    ):
-        """exit_session/exit_duration apply to exit legs but not the entry."""
-        ctx = make_ctx(place_order_client)
-
-        run(
-            orders.place_bracket_order(
-                ctx,
-                account_hash,
-                "SPY",
-                100,
-                "BUY",
-                "MARKET",
-                profit_price=160.00,
-                loss_price=140.00,
-                session="NORMAL",
-                duration="DAY",
-                exit_session="NORMAL",
-                exit_duration="GOOD_TILL_CANCEL",
-            )
+    def test_stop_only_structure(self):
+        spec = orders._prepare_bracket_order(
+            "SPY", 100, "BUY", "MARKET", loss_price=140.0
         )
+        assert spec["orderStrategyType"] == "TRIGGER"
+        child = spec["childOrderStrategies"][0]
+        assert child["orderType"] == "STOP"
 
-        order_spec = place_order_client.captured["kwargs"]["order_spec"]
-        assert order_spec["orderStrategyType"] == "TRIGGER"
+    def test_profit_only_structure(self):
+        spec = orders._prepare_bracket_order(
+            "SPY", 100, "BUY", "MARKET", profit_price=160.0
+        )
+        child = spec["childOrderStrategies"][0]
+        assert child["orderType"] == "LIMIT"
 
-        # Entry leg (top-level order) should be DAY
-        assert order_spec["duration"] == "DAY"
-
-        # Exit legs are nested inside an OCO child strategy
-        oco_child = order_spec["childOrderStrategies"][0]
+    def test_full_bracket_has_oco_child(self):
+        spec = orders._prepare_bracket_order(
+            "SPY", 100, "BUY", "MARKET", profit_price=160.0, loss_price=140.0
+        )
+        oco_child = spec["childOrderStrategies"][0]
         assert oco_child["orderStrategyType"] == "OCO"
+
+    def test_exit_session_duration_override(self):
+        spec = orders._prepare_bracket_order(
+            "SPY",
+            100,
+            "BUY",
+            "MARKET",
+            profit_price=160.0,
+            loss_price=140.0,
+            session="NORMAL",
+            duration="DAY",
+            exit_session="NORMAL",
+            exit_duration="GOOD_TILL_CANCEL",
+        )
+        assert spec["duration"] == "DAY"
+        oco_child = spec["childOrderStrategies"][0]
         for exit_order in oco_child["childOrderStrategies"]:
             assert exit_order["duration"] == "GOOD_TILL_CANCEL"
 
-    def test_build_bracket_exit_order_neither_price_raises(self):
-        """Defense-in-depth: _build_bracket_exit_order rejects neither-price
-        calls even though place_bracket_order already guards against this."""
-        with pytest.raises(
-            ValueError,
-            match="At least one of profit_price or loss_price must be provided",
-        ):
-            orders._build_bracket_exit_order(
-                entry_order_builder=object(),
-                symbol="SPY",
-                quantity=100,
-                exit_instruction="SELL",
-                profit_price=None,
-                loss_price=None,
-                exit_session="NORMAL",
-                exit_duration="DAY",
+
+class TestPrepareOptionComboOrderValidation:
+    def test_requires_at_least_two_legs(self):
+        with pytest.raises(ValueError, match="at least two option legs"):
+            orders._prepare_option_combo_order(
+                [{"instruction": "BUY_TO_OPEN", "symbol": "SPY_C500", "quantity": 1}],
+                "NET_DEBIT",
             )
+
+    def test_correct_spec_structure(self):
+        legs = [
+            {"instruction": "BUY_TO_OPEN", "symbol": "SPY 251219C500", "quantity": 1},
+            {"instruction": "SELL_TO_OPEN", "symbol": "SPY 251219C510", "quantity": 1},
+        ]
+        spec = orders._prepare_option_combo_order(legs, "NET_DEBIT", price=2.50)
+        assert spec["orderStrategyType"] == "SINGLE"
+        assert spec["orderType"] == "NET_DEBIT"
+        assert len(spec["orderLegCollection"]) == 2
 
 
 class TestBuildOrderFromDesc:
@@ -1191,382 +1030,6 @@ class TestBuildOrderFromDesc:
         }
         with pytest.raises(ValueError, match="instruction must be a string"):
             orders._build_order_from_desc(bad_desc, "NORMAL", "DAY")  # type: ignore[arg-type]
-
-
-class TestPlaceOcoOrder:
-    @pytest.fixture
-    def account_hash(self):
-        return "oco_account_hash"
-
-    @pytest.fixture
-    def order_id(self):
-        return 123123123
-
-    @pytest.fixture
-    def place_order_client(self, place_order_client_factory, account_hash, order_id):
-        return place_order_client_factory(account_hash=account_hash, order_id=order_id)
-
-    def test_places_oco_order_with_two_children(
-        self, place_order_client, account_hash, order_id
-    ):
-        ctx = make_ctx(place_order_client)
-
-        first_order: orders.OrderDesc = {
-            "symbol": "SPY",
-            "quantity": 100,
-            "instruction": "SELL",
-            "order_type": "LIMIT",
-            "price": 160.00,
-        }
-        second_order: orders.OrderDesc = {
-            "symbol": "SPY",
-            "quantity": 100,
-            "instruction": "SELL",
-            "order_type": "STOP",
-            "stop_price": 140.00,
-        }
-
-        result = run(
-            orders.place_oco_order(ctx, account_hash, first_order, second_order)
-        )
-
-        assert result["orderId"] == order_id
-        assert result["accountHash"] == account_hash
-
-        captured = place_order_client.captured
-        order_spec = captured["kwargs"]["order_spec"]
-
-        assert order_spec["orderStrategyType"] == "OCO"
-        assert len(order_spec["childOrderStrategies"]) == 2
-        assert order_spec["childOrderStrategies"][0]["orderType"] == "LIMIT"
-        assert order_spec["childOrderStrategies"][1]["orderType"] == "STOP"
-
-    def test_invalid_first_order_raises_with_prefix(
-        self, place_order_client, account_hash
-    ):
-        ctx = make_ctx(place_order_client)
-
-        bad_first: orders.OrderDesc = {
-            "symbol": "SPY",
-            "quantity": 100,
-            "instruction": "SELL",
-            "order_type": "LIMIT",
-            # price missing
-        }
-        good_second: orders.OrderDesc = {
-            "symbol": "SPY",
-            "quantity": 100,
-            "instruction": "SELL",
-            "order_type": "STOP",
-            "stop_price": 140.00,
-        }
-
-        with pytest.raises(ValueError, match="first_order:"):
-            run(orders.place_oco_order(ctx, account_hash, bad_first, good_second))
-
-    def test_invalid_second_order_raises_with_prefix(
-        self, place_order_client, account_hash
-    ):
-        ctx = make_ctx(place_order_client)
-
-        good_first: orders.OrderDesc = {
-            "symbol": "SPY",
-            "quantity": 100,
-            "instruction": "SELL",
-            "order_type": "LIMIT",
-            "price": 160.00,
-        }
-        bad_second: orders.OrderDesc = {
-            "symbol": "SPY",
-            "quantity": 100,
-            "instruction": "SELL",
-            "order_type": "STOP",
-            # stop_price missing
-        }
-
-        with pytest.raises(ValueError, match="second_order:"):
-            run(orders.place_oco_order(ctx, account_hash, good_first, bad_second))
-
-    def test_oco_order_uses_default_session_and_duration(
-        self, place_order_client, account_hash
-    ):
-        ctx = make_ctx(place_order_client)
-
-        first_order: orders.OrderDesc = {
-            "symbol": "SPY",
-            "quantity": 10,
-            "instruction": "SELL",
-            "order_type": "LIMIT",
-            "price": 160.00,
-        }
-        second_order: orders.OrderDesc = {
-            "symbol": "SPY",
-            "quantity": 10,
-            "instruction": "SELL",
-            "order_type": "STOP",
-            "stop_price": 140.00,
-        }
-
-        run(
-            orders.place_oco_order(
-                ctx,
-                account_hash,
-                first_order,
-                second_order,
-                session="AM",
-                duration="GTC",
-            )
-        )
-
-        order_spec = place_order_client.captured["kwargs"]["order_spec"]
-        # Both children should have AM session and GOOD_TILL_CANCEL duration
-        for child in order_spec["childOrderStrategies"]:
-            assert child["session"] == "AM"
-            assert child["duration"] == "GOOD_TILL_CANCEL"
-
-
-class TestPlaceTriggerOrder:
-    @pytest.fixture
-    def account_hash(self):
-        return "trigger_account_hash"
-
-    @pytest.fixture
-    def order_id(self):
-        return 456456456
-
-    @pytest.fixture
-    def place_order_client(self, place_order_client_factory, account_hash, order_id):
-        return place_order_client_factory(account_hash=account_hash, order_id=order_id)
-
-    def test_places_trigger_with_single_exit(
-        self, place_order_client, account_hash, order_id
-    ):
-        ctx = make_ctx(place_order_client)
-
-        entry: orders.OrderDesc = {
-            "symbol": "SPY",
-            "quantity": 100,
-            "instruction": "BUY",
-            "order_type": "LIMIT",
-            "price": 145.00,
-        }
-        exits = [
-            orders.OrderDesc(
-                symbol="SPY",
-                quantity=100,
-                instruction="SELL",
-                order_type="LIMIT",
-                price=160.00,
-            )
-        ]
-
-        result = run(orders.place_trigger_order(ctx, account_hash, entry, exits))
-
-        assert result["orderId"] == order_id
-        assert result["accountHash"] == account_hash
-
-        captured = place_order_client.captured
-        order_spec = captured["kwargs"]["order_spec"]
-
-        assert order_spec["orderStrategyType"] == "TRIGGER"
-        assert "childOrderStrategies" in order_spec
-        assert len(order_spec["childOrderStrategies"]) == 1
-        assert order_spec["orderLegCollection"][0]["instruction"] == "BUY"
-        child = order_spec["childOrderStrategies"][0]
-        assert child["orderLegCollection"][0]["instruction"] == "SELL"
-
-    def test_places_trigger_with_two_exits_oco_nested(
-        self, place_order_client, account_hash, order_id
-    ):
-        ctx = make_ctx(place_order_client)
-
-        entry: orders.OrderDesc = {
-            "symbol": "SPY",
-            "quantity": 100,
-            "instruction": "BUY",
-            "order_type": "MARKET",
-        }
-        exits = [
-            orders.OrderDesc(
-                symbol="SPY",
-                quantity=100,
-                instruction="SELL",
-                order_type="LIMIT",
-                price=165.00,
-            ),
-            orders.OrderDesc(
-                symbol="SPY",
-                quantity=100,
-                instruction="SELL",
-                order_type="STOP",
-                stop_price=140.00,
-            ),
-        ]
-
-        result = run(orders.place_trigger_order(ctx, account_hash, entry, exits))
-
-        assert result["orderId"] == order_id
-
-        order_spec = place_order_client.captured["kwargs"]["order_spec"]
-        assert order_spec["orderStrategyType"] == "TRIGGER"
-
-        # Child should be an OCO wrapping two orders
-        oco_child = order_spec["childOrderStrategies"][0]
-        assert oco_child["orderStrategyType"] == "OCO"
-        assert len(oco_child["childOrderStrategies"]) == 2
-
-    def test_wrong_exit_count_raises(self, place_order_client, account_hash):
-        ctx = make_ctx(place_order_client)
-
-        entry: orders.OrderDesc = {
-            "symbol": "SPY",
-            "quantity": 10,
-            "instruction": "BUY",
-            "order_type": "MARKET",
-        }
-        # 3 exits should raise ValueError
-        exits = [
-            orders.OrderDesc(
-                symbol="SPY", quantity=10, instruction="SELL", order_type="MARKET"
-            ),
-            orders.OrderDesc(
-                symbol="SPY", quantity=10, instruction="SELL", order_type="MARKET"
-            ),
-            orders.OrderDesc(
-                symbol="SPY", quantity=10, instruction="SELL", order_type="MARKET"
-            ),
-        ]
-
-        with pytest.raises(ValueError, match="exit_orders must contain 1 or 2 orders"):
-            run(orders.place_trigger_order(ctx, account_hash, entry, exits))
-
-    def test_invalid_entry_raises_with_prefix(self, place_order_client, account_hash):
-        ctx = make_ctx(place_order_client)
-
-        bad_entry: orders.OrderDesc = {
-            "symbol": "SPY",
-            "quantity": 10,
-            "instruction": "BUY",
-            "order_type": "LIMIT",
-            # price missing
-        }
-        exits = [
-            orders.OrderDesc(
-                symbol="SPY",
-                quantity=10,
-                instruction="SELL",
-                order_type="MARKET",
-            )
-        ]
-
-        with pytest.raises(ValueError, match="entry_order:"):
-            run(orders.place_trigger_order(ctx, account_hash, bad_entry, exits))
-
-    def test_invalid_exit_raises_with_index_prefix(
-        self, place_order_client, account_hash
-    ):
-        ctx = make_ctx(place_order_client)
-
-        entry: orders.OrderDesc = {
-            "symbol": "SPY",
-            "quantity": 10,
-            "instruction": "BUY",
-            "order_type": "MARKET",
-        }
-        exits = [
-            orders.OrderDesc(
-                symbol="SPY",
-                quantity=10,
-                instruction="SELL",
-                order_type="LIMIT",
-                # price missing
-            )
-        ]
-
-        with pytest.raises(ValueError, match=r"exit_orders\[0\]:"):
-            run(orders.place_trigger_order(ctx, account_hash, entry, exits))
-
-
-class TestPlaceOptionComboOrder:
-    @pytest.fixture
-    def account_hash(self):
-        return "combo_account_hash"
-
-    @pytest.fixture
-    def order_id(self):
-        return 789789789
-
-    @pytest.fixture
-    def order_response(self, order_response_factory, account_hash, order_id):
-        return order_response_factory(account_hash=account_hash, order_id=order_id)
-
-    @pytest.fixture
-    def place_order_client(self, place_order_client_factory, account_hash, order_id):
-        return place_order_client_factory(account_hash=account_hash, order_id=order_id)
-
-    def test_places_vertical_spread(self, place_order_client, account_hash, order_id):
-        ctx = make_ctx(place_order_client)
-
-        legs = [
-            {"instruction": "BUY_TO_OPEN", "symbol": "SPY 251219C500", "quantity": 1},
-            {"instruction": "SELL_TO_OPEN", "symbol": "SPY 251219C510", "quantity": 1},
-        ]
-
-        result = run(
-            orders.place_option_combo_order(
-                ctx,
-                account_hash,
-                legs,
-                "NET_DEBIT",
-                price=2.50,
-                complex_order_strategy_type="VERTICAL",
-            )
-        )
-
-        assert result["orderId"] == order_id
-        assert result["accountHash"] == account_hash
-
-        captured = place_order_client.captured
-        order_spec = captured["kwargs"]["order_spec"]
-
-        assert order_spec["orderStrategyType"] == "SINGLE"
-        assert order_spec["orderType"] == "NET_DEBIT"
-        assert order_spec["complexOrderStrategyType"] == "VERTICAL"
-        assert len(order_spec["orderLegCollection"]) == 2
-
-    def test_combo_order_requires_at_least_two_legs(
-        self, place_order_client, account_hash
-    ):
-        ctx = make_ctx(place_order_client)
-
-        single_leg = [
-            {"instruction": "BUY_TO_OPEN", "symbol": "SPY 251219C500", "quantity": 1},
-        ]
-
-        with pytest.raises(ValueError, match="at least two option legs"):
-            run(
-                orders.place_option_combo_order(
-                    ctx,
-                    account_hash,
-                    single_leg,
-                    "NET_DEBIT",
-                    price=2.50,
-                )
-            )
-
-    def test_combo_order_empty_legs_raises(self, place_order_client, account_hash):
-        ctx = make_ctx(place_order_client)
-
-        with pytest.raises(ValueError, match="at least two option legs"):
-            run(
-                orders.place_option_combo_order(
-                    ctx,
-                    account_hash,
-                    [],
-                    "NET_DEBIT",
-                    price=2.50,
-                )
-            )
 
 
 class TestCreateOptionSymbol:
