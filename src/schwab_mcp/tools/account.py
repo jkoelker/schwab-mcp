@@ -29,6 +29,7 @@ _COMPACT_BALANCE_FIELDS = frozenset(
 class AccountIdentity:
     account_hash: str
     nickname: str | None
+    is_default: bool
 
 
 def _prune_position(position: dict[str, Any]) -> dict[str, Any]:
@@ -100,7 +101,7 @@ async def _get_identity_map(ctx: SchwabContext) -> dict[str, AccountIdentity]:
 
     Identity enrichment is best-effort metadata: if either upstream endpoint
     fails, callers still get their primary account/balance data, just without
-    accountHash/nickname enrichment (an empty map is returned).
+    accountHash/nickname/isDefault enrichment (an empty map is returned).
     """
     try:
         numbers_payload = await call(ctx.accounts.get_account_numbers)
@@ -119,18 +120,24 @@ async def _get_identity_map(ctx: SchwabContext) -> dict[str, AccountIdentity]:
     accounts = (
         prefs_payload.get("accounts") if isinstance(prefs_payload, dict) else None
     )
-    nick_map: dict[str, str | None] = {
-        acct["accountNumber"]: acct.get("nickName")
-        if isinstance(acct.get("nickName"), str)
-        else None
-        for acct in (accounts if isinstance(accounts, list) else [])
-        if isinstance(acct, dict) and isinstance(acct.get("accountNumber"), str)
-    }
+    nick_map: dict[str, str | None] = {}
+    default_map: dict[str, bool] = {}
+    for acct in accounts if isinstance(accounts, list) else []:
+        if not isinstance(acct, dict):
+            continue
+        acct_num = acct.get("accountNumber")
+        if not isinstance(acct_num, str):
+            continue
+        nick_map[acct_num] = (
+            acct.get("nickName") if isinstance(acct.get("nickName"), str) else None
+        )
+        default_map[acct_num] = acct.get("primaryAccount") is True
 
     return {
         acct_num: AccountIdentity(
             account_hash=hash_val,
             nickname=nick_map.get(acct_num),
+            is_default=default_map.get(acct_num, False),
         )
         for acct_num, hash_val in hash_map.items()
     }
@@ -142,12 +149,12 @@ def _enrich_with_identity(
     *,
     fallback_hash: str | None = None,
 ) -> JSONType:
-    """Inject accountHash and nickname into each securitiesAccount dict.
+    """Inject accountHash, nickname, and isDefault into each securitiesAccount dict.
 
     Handles both list-of-accounts and single-account dict shapes.
-    Always sets both keys; falls back to fallback_hash (typically the
+    Always sets all three keys; falls back to fallback_hash (typically the
     account_hash the caller already supplied) if no identity-map entry is
-    found, and uses None for nickname in that case.
+    found, and uses None for nickname and False for isDefault in that case.
     """
 
     def _enrich_sec(sec: dict[str, Any]) -> None:
@@ -155,6 +162,7 @@ def _enrich_with_identity(
         identity = identity_map.get(acct_num) if isinstance(acct_num, str) else None
         sec["accountHash"] = identity.account_hash if identity else fallback_hash
         sec["nickname"] = identity.nickname if identity else None
+        sec["isDefault"] = identity.is_default if identity else False
 
     if isinstance(payload, list):
         for item in payload:
@@ -185,7 +193,7 @@ async def get_accounts(
 ) -> JSONType:
     """
     Returns balances/info for all linked accounts (funds, cash, margin); pass include_positions=True to also include holdings.
-    Includes each account's accountHash (required for account-specific calls like get_account, orders, transactions) and nickname.
+    Includes each account's accountHash (required for account-specific calls like get_account, orders, transactions), nickname, and isDefault (the account marked as primary in Schwab user preferences).
     By default returns compact fields only (account type/number, equity/buyingPower/cashBalance/cashAvailableForTrading/liquidationValue from currentBalances; initialBalances and projectedBalances are dropped; positions if included are reduced to symbol, net quantity (positive=long/negative=short), marketValue, averagePrice, unrealizedPL); pass verbose=True for the full raw payload (positions unpruned if include_positions=True).
     """
     identity_map = await _get_identity_map(ctx)
@@ -213,7 +221,7 @@ async def get_account(
 ) -> JSONType:
     """
     Returns balance/info for a specific account via account_hash (from get_accounts); pass include_positions=True to also include holdings. Includes funds, cash, margin info.
-    Includes the account's accountHash and nickname for self-describing output.
+    Includes the account's accountHash, nickname, and isDefault for self-describing output.
     By default returns compact fields only (account type/number, equity/buyingPower/cashBalance/cashAvailableForTrading/liquidationValue from currentBalances; initialBalances and projectedBalances are dropped; positions if included are reduced to symbol, net quantity (positive=long/negative=short), marketValue, averagePrice, unrealizedPL); pass verbose=True for the full raw payload (positions unpruned if include_positions=True).
     """
     identity_map = await _get_identity_map(ctx)

@@ -82,7 +82,9 @@ _RAW_DICT_PAYLOAD = {"securitiesAccount": _RAW_SEC_ACCOUNT}
 _RAW_DICT_WITH_POSITIONS = {"securitiesAccount": _RAW_SEC_ACCOUNT_WITH_POSITIONS}
 
 _SAMPLE_IDENTITY_MAP: dict[str, account.AccountIdentity] = {
-    "123": account.AccountIdentity(account_hash="hash_abc", nickname="My Margin"),
+    "123": account.AccountIdentity(
+        account_hash="hash_abc", nickname="My Margin", is_default=False
+    ),
 }
 
 
@@ -95,7 +97,13 @@ class TestGetIdentityMap:
     def test_builds_map_from_numbers_and_prefs(self, monkeypatch):
         numbers_payload = [{"accountNumber": "123", "hashValue": "hash_abc"}]
         prefs_payload = {
-            "accounts": [{"accountNumber": "123", "nickName": "My Margin"}]
+            "accounts": [
+                {
+                    "accountNumber": "123",
+                    "nickName": "My Margin",
+                    "primaryAccount": True,
+                }
+            ]
         }
         call_returns = iter([numbers_payload, prefs_payload])
 
@@ -109,7 +117,7 @@ class TestGetIdentityMap:
 
         assert result == {
             "123": account.AccountIdentity(
-                account_hash="hash_abc", nickname="My Margin"
+                account_hash="hash_abc", nickname="My Margin", is_default=True
             )
         }
 
@@ -127,7 +135,9 @@ class TestGetIdentityMap:
         result = run(account._get_identity_map(ctx))
 
         assert result == {
-            "456": account.AccountIdentity(account_hash="hash_def", nickname=None)
+            "456": account.AccountIdentity(
+                account_hash="hash_def", nickname=None, is_default=False
+            )
         }
 
     def test_empty_payloads_yield_empty_map(self, monkeypatch):
@@ -176,6 +186,36 @@ class TestGetIdentityMap:
 
         assert result["123"].nickname is None
 
+    def test_identity_map_defaults_false_when_primary_account_missing_or_false(
+        self, monkeypatch
+    ):
+        numbers_payload = [
+            {"accountNumber": "123", "hashValue": "hash_abc"},
+            {"accountNumber": "456", "hashValue": "hash_def"},
+        ]
+        prefs_payload = {
+            "accounts": [
+                {"accountNumber": "123", "nickName": "No Primary"},  # key absent
+                {
+                    "accountNumber": "456",
+                    "nickName": "False Primary",
+                    "primaryAccount": False,
+                },
+            ]
+        }
+        call_returns = iter([numbers_payload, prefs_payload])
+
+        async def fake_call(func, *args, **kwargs):
+            return next(call_returns)
+
+        monkeypatch.setattr(account, "call", fake_call)
+        client = DummyAccountClient()
+        ctx = make_ctx(client)
+        result = run(account._get_identity_map(ctx))
+
+        assert result["123"].is_default is False
+        assert result["456"].is_default is False
+
     def test_api_error_is_best_effort_and_yields_empty_map(self, monkeypatch):
         from schwab_mcp.tools.utils import SchwabAPIError
 
@@ -203,6 +243,7 @@ class TestEnrichWithIdentity:
         sec = result[0]["securitiesAccount"]
         assert sec["accountHash"] == "hash_abc"
         assert sec["nickname"] == "My Margin"
+        assert sec["isDefault"] == _SAMPLE_IDENTITY_MAP["123"].is_default
 
     def test_dict_shape_injects_fields(self):
         payload = {"securitiesAccount": {"accountNumber": "123"}}
@@ -211,6 +252,7 @@ class TestEnrichWithIdentity:
         sec = result["securitiesAccount"]
         assert sec["accountHash"] == "hash_abc"
         assert sec["nickname"] == "My Margin"
+        assert sec["isDefault"] == _SAMPLE_IDENTITY_MAP["123"].is_default
 
     def test_no_match_yields_null_fields(self):
         payload = {"securitiesAccount": {"accountNumber": "UNKNOWN"}}
@@ -219,17 +261,20 @@ class TestEnrichWithIdentity:
         sec = result["securitiesAccount"]
         assert sec["accountHash"] is None
         assert sec["nickname"] is None
+        assert sec["isDefault"] is False
 
     def test_null_fields_always_present(self):
-        """Both keys must be present even when identity map is empty."""
+        """All three keys must be present even when identity map is empty."""
         payload = {"securitiesAccount": {"accountNumber": "999"}}
         result = account._enrich_with_identity(payload, {})
         assert isinstance(result, dict)
         sec = result["securitiesAccount"]
         assert "accountHash" in sec
         assert "nickname" in sec
+        assert "isDefault" in sec
         assert sec["accountHash"] is None
         assert sec["nickname"] is None
+        assert sec["isDefault"] is False
 
     def test_list_item_without_securities_account_passes_through(self):
         payload = [{"other": "data"}, {"securitiesAccount": {"accountNumber": "123"}}]
@@ -247,6 +292,7 @@ class TestEnrichWithIdentity:
         sec = result["securitiesAccount"]
         assert sec["accountHash"] == "requested_hash"
         assert sec["nickname"] is None
+        assert sec["isDefault"] is False
 
     def test_fallback_hash_ignored_when_match_found(self):
         payload = {"securitiesAccount": {"accountNumber": "123"}}
@@ -320,6 +366,7 @@ class TestGetAccounts:
         sec = result[0]["securitiesAccount"]
         assert sec["accountHash"] == "hash_abc"
         assert sec["nickname"] == "My Margin"
+        assert sec["isDefault"] is False
 
     def test_verbose_includes_identity_fields(self, monkeypatch, fake_call_factory):
         _, fake_call = fake_call_factory(return_value=_RAW_LIST_PAYLOAD)
@@ -334,6 +381,7 @@ class TestGetAccounts:
         sec = result[0]["securitiesAccount"]
         assert sec["accountHash"] == "hash_abc"
         assert sec["nickname"] == "My Margin"
+        assert sec["isDefault"] is False
 
     def test_no_identity_match_yields_null_fields(self, monkeypatch, fake_call_factory):
         _, fake_call = fake_call_factory(return_value=_RAW_LIST_PAYLOAD)
@@ -347,6 +395,7 @@ class TestGetAccounts:
         sec = result[0]["securitiesAccount"]
         assert sec["accountHash"] is None
         assert sec["nickname"] is None
+        assert sec["isDefault"] is False
 
     def test_default_does_not_request_positions_field(
         self, monkeypatch, fake_call_factory
@@ -483,6 +532,7 @@ class TestGetAccount:
         sec = result["securitiesAccount"]
         assert sec["accountHash"] == "hash_abc"
         assert sec["nickname"] == "My Margin"
+        assert sec["isDefault"] is False
 
     def test_verbose_includes_identity_fields(self, monkeypatch, fake_call_factory):
         _, fake_call = fake_call_factory(return_value=_RAW_DICT_PAYLOAD)
@@ -496,6 +546,7 @@ class TestGetAccount:
         sec = result["securitiesAccount"]
         assert sec["accountHash"] == "hash_abc"
         assert sec["nickname"] == "My Margin"
+        assert sec["isDefault"] is False
 
     def test_no_identity_match_falls_back_to_requested_hash(
         self, monkeypatch, fake_call_factory
@@ -513,6 +564,7 @@ class TestGetAccount:
         sec = result["securitiesAccount"]
         assert sec["accountHash"] == "hash_abc"
         assert sec["nickname"] is None
+        assert sec["isDefault"] is False
 
     def test_default_does_not_request_positions_field(
         self, monkeypatch, fake_call_factory
