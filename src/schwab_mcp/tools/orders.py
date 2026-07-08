@@ -42,7 +42,7 @@ from schwab_mcp.tools.order_helpers import (
     option_sell_to_open_limit,
     option_sell_to_open_market,
 )
-from schwab_mcp.tools.utils import JSONType, ResponseHandler, call
+from schwab_mcp.tools.utils import JSONType, ResponseHandler, SchwabAPIError, call
 
 
 _COMPACT_ORDER_TOP_FIELDS = frozenset(
@@ -774,10 +774,24 @@ async def cancel_order(
     order_id: Annotated[str, "Order ID to cancel"],
 ) -> JSONType:
     """
-    Cancels a pending order. Cannot cancel executed/terminal orders. Params: account_hash, order_id. Returns cancellation request confirmation; check status after. *Write operation.*
+    Cancels a pending order. Cannot cancel executed/terminal orders. Params: account_hash, order_id. Returns updated order details (compact/pruned, same shape as get_order) after cancellation; falls back to a minimal {orderId, status, note} payload if the post-cancel status fetch fails or returns no data. *Write operation.*
     """
     client = ctx.orders
-    return await call(client.cancel_order, order_id=order_id, account_hash=account_hash)
+    await call(client.cancel_order, order_id=order_id, account_hash=account_hash)
+    fallback: JSONType = {
+        "orderId": order_id,
+        "status": "PENDING_CANCEL",
+        "note": "Cancel submitted; status fetch failed",
+    }
+    try:
+        result = await call(
+            client.get_order, order_id=order_id, account_hash=account_hash
+        )
+    except SchwabAPIError:
+        return fallback
+    if not isinstance(result, dict):
+        return fallback
+    return _prune_order(result)
 
 
 async def create_option_symbol(

@@ -5,6 +5,7 @@ from typing import Any
 import pytest
 
 from schwab_mcp.tools import orders
+from schwab_mcp.tools.utils import SchwabAPIError
 
 from conftest import make_ctx, run
 
@@ -369,12 +370,19 @@ class TestGetOrdersCompact:
 
 class TestCancelOrder:
     def test_calls_client_with_correct_args(self, monkeypatch):
-        captured: dict[str, Any] = {}
+        sample_order = {
+            "orderId": "order456",
+            "status": "CANCELED",
+            "quantity": 10,
+            "filledQuantity": 0,
+        }
+        calls: list[Any] = []
 
         async def fake_call(func, *args, **kwargs):
-            captured["func"] = func
-            captured["kwargs"] = kwargs
-            return None
+            calls.append({"func": func, "kwargs": kwargs})
+            if len(calls) == 1:
+                return None  # cancel_order response
+            return sample_order  # get_order response
 
         monkeypatch.setattr(orders, "call", fake_call)
 
@@ -382,14 +390,103 @@ class TestCancelOrder:
             async def cancel_order(self, *args, **kwargs):
                 return None
 
+            async def get_order(self, *args, **kwargs):
+                return sample_order
+
         client = DummyClient()
         ctx = make_ctx(client)
         result = run(orders.cancel_order(ctx, "hash123", "order456"))
 
-        assert result is None
-        assert captured["func"] == client.cancel_order
-        assert captured["kwargs"]["account_hash"] == "hash123"
-        assert captured["kwargs"]["order_id"] == "order456"
+        assert len(calls) == 2
+        assert calls[0]["func"] == client.cancel_order
+        assert calls[0]["kwargs"]["account_hash"] == "hash123"
+        assert calls[0]["kwargs"]["order_id"] == "order456"
+        assert calls[1]["func"] == client.get_order
+        assert calls[1]["kwargs"]["account_hash"] == "hash123"
+        assert calls[1]["kwargs"]["order_id"] == "order456"
+        # sample_order only contains compact fields, so pruning is a no-op.
+        assert result == sample_order
+
+    def test_returns_fallback_when_get_order_returns_no_data(self, monkeypatch):
+        calls: list[Any] = []
+
+        async def fake_call(func, *args, **kwargs):
+            calls.append(func)
+            if len(calls) == 1:
+                return None  # cancel_order succeeds
+            return None  # get_order returns empty body (e.g. 204)
+
+        monkeypatch.setattr(orders, "call", fake_call)
+
+        class DummyClient:
+            async def cancel_order(self, *args, **kwargs):
+                return None
+
+            async def get_order(self, *args, **kwargs):
+                return None
+
+        client = DummyClient()
+        ctx = make_ctx(client)
+        result = run(orders.cancel_order(ctx, "hash123", "order456"))
+
+        assert result == {
+            "orderId": "order456",
+            "status": "PENDING_CANCEL",
+            "note": "Cancel submitted; status fetch failed",
+        }
+
+    def test_returns_fallback_when_get_order_fails(self, monkeypatch):
+        calls: list[Any] = []
+
+        async def fake_call(func, *args, **kwargs):
+            calls.append(func)
+            if len(calls) == 1:
+                return None  # cancel_order succeeds
+            raise SchwabAPIError(status_code=404, url="/order", body="not found")
+
+        monkeypatch.setattr(orders, "call", fake_call)
+
+        class DummyClient:
+            async def cancel_order(self, *args, **kwargs):
+                return None
+
+            async def get_order(self, *args, **kwargs):
+                return None
+
+        client = DummyClient()
+        ctx = make_ctx(client)
+        result = run(orders.cancel_order(ctx, "hash123", "order456"))
+
+        assert result == {
+            "orderId": "order456",
+            "status": "PENDING_CANCEL",
+            "note": "Cancel submitted; status fetch failed",
+        }
+
+    def test_cancel_order_error_propagates_without_get_order(self, monkeypatch):
+        calls: list[Any] = []
+
+        async def fake_call(func, *args, **kwargs):
+            calls.append(func)
+            raise SchwabAPIError(status_code=400, url="/cancel", body="bad request")
+
+        monkeypatch.setattr(orders, "call", fake_call)
+
+        class DummyClient:
+            async def cancel_order(self, *args, **kwargs):
+                return None
+
+            async def get_order(self, *args, **kwargs):
+                return None
+
+        client = DummyClient()
+        ctx = make_ctx(client)
+
+        with pytest.raises(SchwabAPIError):
+            run(orders.cancel_order(ctx, "hash123", "order456"))
+
+        # Only cancel_order was called, not get_order
+        assert len(calls) == 1
 
 
 class TestPlacePreviewedOrder:
