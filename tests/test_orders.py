@@ -922,6 +922,24 @@ class TestPlaceBracketOrder:
         for exit_order in oco_child["childOrderStrategies"]:
             assert exit_order["duration"] == "GOOD_TILL_CANCEL"
 
+    def test_build_bracket_exit_order_neither_price_raises(self):
+        """Defense-in-depth: _build_bracket_exit_order rejects neither-price
+        calls even though place_bracket_order already guards against this."""
+        with pytest.raises(
+            ValueError,
+            match="At least one of profit_price or loss_price must be provided",
+        ):
+            orders._build_bracket_exit_order(
+                entry_order_builder=object(),
+                symbol="SPY",
+                quantity=100,
+                exit_instruction="SELL",
+                profit_price=None,
+                loss_price=None,
+                exit_session="NORMAL",
+                exit_duration="DAY",
+            )
+
 
 class TestBuildOrderFromDesc:
     """Tests for the _build_order_from_desc dispatcher."""

@@ -201,7 +201,27 @@ def _build_equity_order_spec(
     builder_func, needs_price, needs_stop_price = _EQUITY_ORDER_BUILDERS[
         (order_type, instruction)
     ]
+    _validate_equity_order_prices(
+        order_type, needs_price, needs_stop_price, price, stop_price
+    )
 
+    args: list[Any] = [symbol, quantity]
+    if needs_stop_price:
+        args.append(stop_price)
+    if needs_price:
+        args.append(price)
+    return builder_func(*args)
+
+
+def _validate_equity_order_prices(
+    order_type: str,
+    needs_price: bool,
+    needs_stop_price: bool,
+    price: float | None,
+    stop_price: float | None,
+) -> None:
+    """Validate that price/stop_price are supplied exactly when the order type
+    requires them, raising ValueError otherwise."""
     if needs_price and price is None:
         raise ValueError(f"{order_type} orders require a price")
     if not needs_price and price is not None:
@@ -211,14 +231,25 @@ def _build_equity_order_spec(
     if not needs_stop_price and stop_price is not None:
         raise ValueError(f"{order_type} orders should not include stop_price")
 
-    if needs_price and needs_stop_price:
-        return builder_func(symbol, quantity, stop_price, price)
-    elif needs_price:
-        return builder_func(symbol, quantity, price)
-    elif needs_stop_price:
-        return builder_func(symbol, quantity, stop_price)
-    else:
-        return builder_func(symbol, quantity)
+
+def _build_trailing_stop_from_desc(
+    desc: "OrderDesc",
+    symbol: str,
+    quantity: int,
+    instruction: str,
+    asset_type: str,
+) -> Any:
+    """Extract and build a TRAILING_STOP order from an OrderDesc, raising the same
+    ValueErrors as the inline branch it replaces."""
+    if asset_type == "OPTION":
+        raise ValueError("TRAILING_STOP orders are not supported for OPTION asset_type")
+    trail_offset = desc.get("trail_offset")
+    if trail_offset is None:
+        raise ValueError("TRAILING_STOP orders require 'trail_offset'")
+    trail_type = desc.get("trail_type", "VALUE")
+    return _build_trailing_stop_order_spec(
+        symbol, quantity, instruction, trail_offset, trail_type
+    )
 
 
 def _build_trailing_stop_order_spec(
@@ -318,6 +349,46 @@ class OrderDesc(_OrderDescRequired, total=False):
     duration: str
 
 
+def _validate_order_desc_fields(desc: OrderDesc) -> tuple[str, int, str, str, str]:
+    """Validate and extract the required OrderDesc fields, raising ValueError with
+    a descriptive message if required fields are missing or values are invalid.
+
+    Since OrderDesc dicts typically originate from untrusted MCP tool-call JSON
+    (not Python literals), required keys are checked explicitly at runtime
+    rather than relying on static typing.
+    """
+    required = ("symbol", "quantity", "instruction", "order_type")
+    missing = [field for field in required if field not in desc]
+    if missing:
+        raise ValueError(f"missing required field(s): {', '.join(missing)}")
+
+    for field in ("symbol", "instruction", "order_type"):
+        value = desc[field]
+        if not isinstance(value, str):
+            raise ValueError(f"{field} must be a string, got {value!r}")
+
+    quantity = desc["quantity"]
+    if not isinstance(quantity, int) or isinstance(quantity, bool):
+        raise ValueError(f"quantity must be an integer, got {quantity!r}")
+
+    symbol = desc["symbol"]
+    instruction = desc["instruction"]
+    order_type = desc["order_type"].upper()
+    asset_type = _validate_order_desc_asset_type(desc.get("asset_type", "EQUITY"))
+
+    return symbol, quantity, instruction, order_type, asset_type
+
+
+def _validate_order_desc_asset_type(raw_asset_type: Any) -> str:
+    """Validate and normalize the OrderDesc asset_type field."""
+    if not isinstance(raw_asset_type, str):
+        raise ValueError(f"asset_type must be a string, got {raw_asset_type!r}")
+    asset_type = raw_asset_type.upper()
+    if asset_type not in ("EQUITY", "OPTION"):
+        raise ValueError(f"Invalid asset_type: {asset_type}. Must be EQUITY or OPTION.")
+    return asset_type
+
+
 def _build_order_from_desc(
     desc: OrderDesc,
     default_session: str | None,
@@ -334,53 +405,17 @@ def _build_order_from_desc(
     from untrusted MCP tool-call JSON (not Python literals), required keys
     are checked explicitly at runtime rather than relying on static typing.
     """
-    missing = [
-        field
-        for field in ("symbol", "quantity", "instruction", "order_type")
-        if field not in desc
-    ]
-    if missing:
-        raise ValueError(f"missing required field(s): {', '.join(missing)}")
-
-    symbol = desc["symbol"]
-    if not isinstance(symbol, str):
-        raise ValueError(f"symbol must be a string, got {symbol!r}")
-
-    quantity = desc["quantity"]
-    if not isinstance(quantity, int) or isinstance(quantity, bool):
-        raise ValueError(f"quantity must be an integer, got {quantity!r}")
-
-    instruction = desc["instruction"]
-    if not isinstance(instruction, str):
-        raise ValueError(f"instruction must be a string, got {instruction!r}")
-
-    raw_order_type = desc["order_type"]
-    if not isinstance(raw_order_type, str):
-        raise ValueError(f"order_type must be a string, got {raw_order_type!r}")
-    order_type = raw_order_type.upper()
-
-    raw_asset_type = desc.get("asset_type", "EQUITY")
-    if not isinstance(raw_asset_type, str):
-        raise ValueError(f"asset_type must be a string, got {raw_asset_type!r}")
-    asset_type = raw_asset_type.upper()
-    if asset_type not in ("EQUITY", "OPTION"):
-        raise ValueError(f"Invalid asset_type: {asset_type}. Must be EQUITY or OPTION.")
+    symbol, quantity, instruction, order_type, asset_type = _validate_order_desc_fields(
+        desc
+    )
 
     # Determine effective session/duration (per-leg overrides defaults)
     session = desc.get("session", default_session)
     duration = desc.get("duration", default_duration)
 
     if order_type == "TRAILING_STOP":
-        if asset_type == "OPTION":
-            raise ValueError(
-                "TRAILING_STOP orders are not supported for OPTION asset_type"
-            )
-        trail_offset = desc.get("trail_offset")
-        if trail_offset is None:
-            raise ValueError("TRAILING_STOP orders require 'trail_offset'")
-        trail_type = desc.get("trail_type", "VALUE")
-        builder = _build_trailing_stop_order_spec(
-            symbol, quantity, instruction, trail_offset, trail_type
+        builder = _build_trailing_stop_from_desc(
+            desc, symbol, quantity, instruction, asset_type
         )
     elif asset_type == "OPTION":
         builder = _build_option_order_spec(
@@ -864,6 +899,50 @@ async def create_option_symbol(
     return option_symbol.build()
 
 
+def _build_bracket_exit_order(
+    entry_order_builder: Any,
+    symbol: str,
+    quantity: int,
+    exit_instruction: str,
+    profit_price: float | None,
+    loss_price: float | None,
+    exit_session: str | None,
+    exit_duration: str | None,
+) -> Any:
+    """Build the exit leg(s) for a bracket order and assemble the
+    TRIGGER > OCO/SINGLE builder around the given entry leg."""
+    if profit_price is None and loss_price is None:
+        raise ValueError("At least one of profit_price or loss_price must be provided")
+
+    profit_order_builder = None
+    if profit_price is not None:
+        profit_order_builder = _build_equity_order_spec(
+            symbol, quantity, exit_instruction, "LIMIT", price=profit_price
+        )
+        profit_order_builder = _apply_order_settings(
+            profit_order_builder, exit_session, exit_duration
+        )
+
+    loss_order_builder = None
+    if loss_price is not None:
+        loss_order_builder = _build_equity_order_spec(
+            symbol, quantity, exit_instruction, "STOP", stop_price=loss_price
+        )
+        loss_order_builder = _apply_order_settings(
+            loss_order_builder, exit_session, exit_duration
+        )
+
+    if profit_order_builder is not None and loss_order_builder is not None:
+        # Both prices: entry triggers OCO(profit, loss)
+        oco_exit_order_builder = oco_builder(profit_order_builder, loss_order_builder)
+        return trigger_builder(entry_order_builder, oco_exit_order_builder)
+    if loss_order_builder is not None:
+        # Stop-loss only: entry triggers single stop order
+        return trigger_builder(entry_order_builder, loss_order_builder)
+    # Take-profit only: entry triggers single limit order
+    return trigger_builder(entry_order_builder, profit_order_builder)
+
+
 async def place_bracket_order(
     ctx: SchwabContext,
     account_hash: Annotated[str, "Account hash for the Schwab account"],
@@ -949,41 +1028,17 @@ async def place_bracket_order(
     # Apply settings to entry order builder
     entry_order_builder = _apply_order_settings(entry_order_builder, session, duration)
 
-    # Build exit leg(s) based on which prices are provided
-    if profit_price is not None:
-        # Create take-profit (limit) order spec builder
-        if exit_instruction == "BUY":
-            profit_order_builder = equity_buy_limit(symbol, quantity, profit_price)
-        else:  # SELL
-            profit_order_builder = equity_sell_limit(symbol, quantity, profit_price)
-        profit_order_builder = _apply_order_settings(
-            profit_order_builder, eff_exit_session, eff_exit_duration
-        )
-
-    if loss_price is not None:
-        # Create stop-loss (stop) order spec builder
-        if exit_instruction == "BUY":
-            loss_order_builder = equity_buy_stop(symbol, quantity, loss_price)
-        else:  # SELL
-            loss_order_builder = equity_sell_stop(symbol, quantity, loss_price)
-        loss_order_builder = _apply_order_settings(
-            loss_order_builder, eff_exit_session, eff_exit_duration
-        )
-
-    if profit_price is not None and loss_price is not None:
-        # Both prices: entry triggers OCO(profit, loss)
-        oco_exit_order_builder = oco_builder(profit_order_builder, loss_order_builder)
-        bracket_order_builder = trigger_builder(
-            entry_order_builder, oco_exit_order_builder
-        )
-    elif loss_price is not None:
-        # Stop-loss only: entry triggers single stop order
-        bracket_order_builder = trigger_builder(entry_order_builder, loss_order_builder)
-    else:
-        # Take-profit only: entry triggers single limit order
-        bracket_order_builder = trigger_builder(
-            entry_order_builder, profit_order_builder
-        )
+    # Build exit leg(s) and assemble the trigger/OCO bracket order
+    bracket_order_builder = _build_bracket_exit_order(
+        entry_order_builder,
+        symbol,
+        quantity,
+        exit_instruction,
+        profit_price,
+        loss_price,
+        eff_exit_session,
+        eff_exit_duration,
+    )
 
     # Build the final complex bracket order dictionary
     bracket_order_dict = cast(dict[str, Any], bracket_order_builder.build())
