@@ -12,7 +12,7 @@ from schwab_mcp.tools.utils import JSONType, call, parse_date
 async def get_transactions(
     ctx: SchwabContext,
     account_hash: Annotated[
-        str, "Account hash for the Schwab account (from get_account_numbers)"
+        str, "Account hash for the Schwab account (from get_accounts)"
     ],
     start_date: Annotated[
         str | None,

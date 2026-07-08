@@ -338,7 +338,7 @@ async def get_order(
 async def get_orders(
     ctx: SchwabContext,
     account_hash: Annotated[
-        str, "Account hash for the Schwab account (from get_account_numbers)"
+        str, "Account hash for the Schwab account (from get_accounts)"
     ],
     max_results: Annotated[int | None, "Maximum number of orders to return"] = None,
     from_date: Annotated[
