@@ -7,6 +7,7 @@ from schwab.client import AsyncClient
 from mcp.server.fastmcp import Context as MCPContext
 
 from schwab_mcp.approvals import ApprovalManager
+from schwab_mcp.previews import PreviewStore
 
 if TYPE_CHECKING:
     from schwab_mcp.tools._protocols import (
@@ -37,6 +38,7 @@ class SchwabServerContext:
     orders: OrdersClient = field(init=False)
     quotes: QuotesClient = field(init=False)
     transactions: TransactionsClient = field(init=False)
+    preview_store: PreviewStore = field(default_factory=PreviewStore)
 
     def __post_init__(self) -> None:
         self.tools = cast(ToolsClient, self.client)
@@ -65,6 +67,10 @@ class SchwabContext(MCPContext[Any, SchwabServerContext, Any]):
     @property
     def approvals(self) -> ApprovalManager:
         return self.schwab.approval_manager
+
+    @property
+    def previews(self) -> PreviewStore:
+        return self.schwab.preview_store
 
     @property
     def tools(self) -> ToolsClient:
