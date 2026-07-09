@@ -340,10 +340,10 @@ class TestCredentialsPath:
 
 
 class TestLoadCredentials:
-    def test_returns_empty_dict_when_file_missing(self, tmp_path):
+    def test_returns_empty_credentials_when_file_missing(self, tmp_path):
         result = tokens.load_credentials(str(tmp_path / "nonexistent.yaml"))
 
-        assert result == {}
+        assert result == tokens.Credentials()
 
     def test_loads_credentials_from_yaml(self, tmp_path):
         path = str(tmp_path / "credentials.yaml")
@@ -352,25 +352,54 @@ class TestLoadCredentials:
 
         result = tokens.load_credentials(path)
 
-        assert result == {"client_id": "my-id", "client_secret": "my-secret"}
+        assert result == tokens.Credentials(
+            client_id="my-id", client_secret="my-secret"
+        )
 
-    def test_returns_empty_dict_for_non_dict_content(self, tmp_path):
+    def test_returns_empty_credentials_for_non_dict_content(self, tmp_path):
         path = str(tmp_path / "credentials.yaml")
         with open(path, "w") as f:
             f.write("just a string\n")
 
         result = tokens.load_credentials(path)
 
-        assert result == {}
+        assert result == tokens.Credentials()
 
-    def test_returns_empty_dict_for_empty_file(self, tmp_path):
+    def test_returns_empty_credentials_for_empty_file(self, tmp_path):
         path = str(tmp_path / "credentials.yaml")
         with open(path, "w") as f:
             f.write("")
 
         result = tokens.load_credentials(path)
 
-        assert result == {}
+        assert result == tokens.Credentials()
+
+    def test_ignores_unknown_keys(self, tmp_path):
+        path = str(tmp_path / "credentials.yaml")
+        with open(path, "w") as f:
+            yaml.safe_dump(
+                {
+                    "client_id": "id1",
+                    "client_secret": "secret1",
+                    "extra_field": "ignored",
+                },
+                f,
+            )
+
+        result = tokens.load_credentials(path)
+
+        assert result == tokens.Credentials(client_id="id1", client_secret="secret1")
+
+    def test_coerces_non_string_values_to_none(self, tmp_path):
+        path = str(tmp_path / "credentials.yaml")
+        with open(path, "w") as f:
+            yaml.safe_dump(
+                {"client_id": 12345, "client_secret": ["not", "a", "str"]}, f
+            )
+
+        result = tokens.load_credentials(path)
+
+        assert result == tokens.Credentials()
 
 
 class TestSaveCredentials:

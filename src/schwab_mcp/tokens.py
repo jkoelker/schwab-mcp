@@ -5,6 +5,7 @@ from __future__ import annotations
 import json
 import os
 import pathlib
+from dataclasses import dataclass
 from typing import Any, Callable, Protocol
 
 import yaml
@@ -113,6 +114,12 @@ class Manager:
         return os.path.exists(self.path)
 
 
+@dataclass(frozen=True)
+class Credentials:
+    client_id: str | None = None
+    client_secret: str | None = None
+
+
 def credentials_path(app_name: str, filename: str = "credentials.yaml") -> str:
     """Get the path to the credentials file.
 
@@ -128,26 +135,31 @@ def credentials_path(app_name: str, filename: str = "credentials.yaml") -> str:
     return os.path.join(data_dir, filename)
 
 
-def load_credentials(path: str) -> dict[str, str]:
+def load_credentials(path: str) -> Credentials:
     """Load client credentials from a YAML file.
 
     Args:
         path: Path to the credentials file
 
     Returns:
-        Dictionary with ``client_id`` and ``client_secret`` keys, or empty
-        dict if the file does not exist.
+        Credentials with None fields if the file does not exist or is invalid.
     """
     if not os.path.exists(path):
-        return {}
+        return Credentials()
 
     with open(path) as f:
         data = yaml.safe_load(f)
 
     if not isinstance(data, dict):
-        return {}
+        return Credentials()
 
-    return data
+    client_id = data.get("client_id")
+    client_secret = data.get("client_secret")
+
+    return Credentials(
+        client_id=client_id if isinstance(client_id, str) else None,
+        client_secret=client_secret if isinstance(client_secret, str) else None,
+    )
 
 
 def save_credentials(path: str, client_id: str, client_secret: str) -> None:

@@ -70,8 +70,8 @@ def auth(
 ) -> int:
     """Initialize Schwab client authentication."""
     creds = tokens.load_credentials(tokens.credentials_path(APP_NAME))
-    client_id = client_id or creds.get("client_id")
-    client_secret = client_secret or creds.get("client_secret")
+    client_id = client_id or creds.client_id
+    client_secret = client_secret or creds.client_secret
     if not client_id or not client_secret:
         click.echo(
             "Error: client-id and client-secret are required. "
@@ -201,8 +201,8 @@ def server(
 ) -> int:
     """Run the Schwab MCP server."""
     creds = tokens.load_credentials(tokens.credentials_path(APP_NAME))
-    client_id = client_id or creds.get("client_id")
-    client_secret = client_secret or creds.get("client_secret")
+    client_id = client_id or creds.client_id
+    client_secret = client_secret or creds.client_secret
     if not client_id or not client_secret:
         send_error_response(
             "client-id and client-secret are required. "
