@@ -1,8 +1,8 @@
 from __future__ import annotations
 
-from click.testing import CliRunner
 from typing import Any
 
+from click.testing import CliRunner
 from schwab.client import AsyncClient
 
 from schwab_mcp import cli

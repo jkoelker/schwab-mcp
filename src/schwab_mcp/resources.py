@@ -1,3 +1,5 @@
+"""Static MCP resources exposing Schwab reference data (order types, sessions, etc.)."""
+
 from __future__ import annotations
 
 from typing import Any
@@ -225,13 +227,14 @@ TRADING_SESSIONS: dict[str, Any] = {
         "Extended hours have wider spreads and lower liquidity",
         "Not all securities trade in extended hours",
         "FILL_OR_KILL only works with LIMIT and STOP_LIMIT orders",
-        "Common shorthand is accepted: GTC, IOC, and FOK are normalized to "
-        "their full duration names before submission",
+        "Common shorthand is accepted: GTC, IOC, and FOK are normalized to their full duration names before submission",
     ],
 }
 
 
 def register_resources(server: FastMCP) -> None:
+    """Register all static reference resources with the MCP server."""
+
     @server.resource("schwab://reference/order-statuses")
     def order_statuses_resource() -> dict:
         """Reference guide for order status values, their meanings, and common queries."""

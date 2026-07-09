@@ -56,9 +56,7 @@ def make_request(
         tool_name=tool_name,
         request_id=request_id,
         client_id=client_id,
-        arguments=arguments
-        if arguments is not None
-        else {"symbol": "AAPL", "qty": "10"},
+        arguments=arguments if arguments is not None else {"symbol": "AAPL", "qty": "10"},
     )
 
 
@@ -112,16 +110,10 @@ def make_fake_user(user_id: int, *, bot: bool = False) -> Any:
     return user
 
 
-def inject_pending(
-    mgr: DiscordApprovalManager, msg: Any
-) -> asyncio.Future[ApprovalDecision]:
+def inject_pending(mgr: DiscordApprovalManager, msg: Any) -> asyncio.Future[ApprovalDecision]:
     """Register a _PendingApproval and return the future for direct resolution."""
-    future: asyncio.Future[ApprovalDecision] = (
-        asyncio.get_running_loop().create_future()
-    )
-    mgr._pending[msg.id] = _PendingApproval(
-        request=make_request(), future=future, message=msg
-    )
+    future: asyncio.Future[ApprovalDecision] = asyncio.get_running_loop().create_future()
+    mgr._pending[msg.id] = _PendingApproval(request=make_request(), future=future, message=msg)
     return future
 
 
@@ -436,9 +428,7 @@ async def test_require_denied_when_add_reaction_raises_http_exception() -> None:
 
     channel = make_fake_channel()
     msg = make_fake_message(channel)
-    msg.add_reaction = AsyncMock(
-        side_effect=discord.HTTPException(MagicMock(status=403), "Forbidden")
-    )
+    msg.add_reaction = AsyncMock(side_effect=discord.HTTPException(MagicMock(status=403), "Forbidden"))
     channel.send = AsyncMock(return_value=msg)
     mgr._channel = channel
 
@@ -575,9 +565,7 @@ async def test_handle_reaction_add_removes_unauthorized_user_reaction() -> None:
 
 
 @pytest.mark.anyio
-async def test_handle_reaction_add_unauthorized_remove_survives_http_exception() -> (
-    None
-):
+async def test_handle_reaction_add_unauthorized_remove_survives_http_exception() -> None:
     mgr = make_manager()
     mgr._ready.set()
 
@@ -586,9 +574,7 @@ async def test_handle_reaction_add_unauthorized_remove_survives_http_exception()
     future = inject_pending(mgr, msg)
 
     reaction = make_fake_reaction(msg, "✅")
-    reaction.remove = AsyncMock(
-        side_effect=discord.HTTPException(MagicMock(status=403), "Forbidden")
-    )
+    reaction.remove = AsyncMock(side_effect=discord.HTTPException(MagicMock(status=403), "Forbidden"))
     unauthorized_user = make_fake_user(OTHER_USER_ID)
 
     await mgr._handle_reaction_add(reaction, unauthorized_user)  # must not raise

@@ -1,4 +1,4 @@
-#
+"""Entry point for the schwab-mcp package."""
 
 from typing import Any
 

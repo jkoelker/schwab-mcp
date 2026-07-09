@@ -98,9 +98,7 @@ class DummyOrderResponse:
         self.url = f"https://api.schwabapi.com/trader/v1/accounts/{account_hash}/orders"
         self.text = ""
         self.content = b""
-        self.headers = {
-            "Location": f"https://api.schwabapi.com/trader/v1/accounts/{account_hash}/orders/{order_id}"
-        }
+        self.headers = {"Location": f"https://api.schwabapi.com/trader/v1/accounts/{account_hash}/orders/{order_id}"}
         self.is_error = False
 
     def raise_for_status(self) -> None:

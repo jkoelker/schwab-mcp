@@ -1,9 +1,11 @@
+"""Base classes and data types for the approval workflow."""
+
 from __future__ import annotations
 
 import abc
+from collections.abc import Mapping
 from dataclasses import dataclass
 from enum import Enum
-from typing import Mapping
 
 
 class ApprovalDecision(str, Enum):
@@ -28,10 +30,10 @@ class ApprovalRequest:
 class ApprovalManager(abc.ABC):
     """Interface for asynchronous approval backends."""
 
-    async def start(self) -> None:
+    async def start(self) -> None:  # noqa: B027
         """Perform any startup/connection work."""
 
-    async def stop(self) -> None:
+    async def stop(self) -> None:  # noqa: B027
         """Clean up resources."""
 
     @abc.abstractmethod
@@ -43,6 +45,7 @@ class NoOpApprovalManager(ApprovalManager):
     """Approval manager that always approves requests."""
 
     async def require(self, request: ApprovalRequest) -> ApprovalDecision:  # noqa: ARG002
+        """Always approve the request without any external check."""
         return ApprovalDecision.APPROVED
 
 

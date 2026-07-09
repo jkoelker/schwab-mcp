@@ -2,9 +2,9 @@ import datetime
 from enum import Enum
 from typing import Any
 
-from schwab_mcp.tools import options
-
 from conftest import make_ctx, run
+
+from schwab_mcp.tools import options
 
 
 class DummyOptionsClient:
@@ -25,9 +25,7 @@ class DummyOptionsClient:
         return None
 
 
-def test_get_advanced_option_chain_parses_and_maps_parameters(
-    monkeypatch, fake_call_factory
-):
+def test_get_advanced_option_chain_parses_and_maps_parameters(monkeypatch, fake_call_factory):
     captured, fake_call = fake_call_factory()
 
     monkeypatch.setattr(options, "call", fake_call)
@@ -182,9 +180,7 @@ def test_prune_option_chain_advanced_default_prunes(monkeypatch, fake_call_facto
     assert set(call_contract.keys()) == options._COMPACT_CONTRACT_FIELDS
 
 
-def test_prune_option_chain_advanced_verbose_returns_raw(
-    monkeypatch, fake_call_factory
-):
+def test_prune_option_chain_advanced_verbose_returns_raw(monkeypatch, fake_call_factory):
     payload = _make_chain_payload(_SAMPLE_CONTRACT)
     _, fake_call = fake_call_factory(return_value=payload)
     monkeypatch.setattr(options, "call", fake_call)

@@ -1,4 +1,4 @@
-#
+"""Account and user-preference tools for the Schwab MCP server."""
 
 from collections.abc import Callable
 from dataclasses import dataclass
@@ -10,9 +10,7 @@ from schwab_mcp.context import SchwabContext
 from schwab_mcp.tools._registration import register_tool
 from schwab_mcp.tools.utils import JSONType, SchwabAPIError, call
 
-_COMPACT_ACCOUNT_FIELDS = frozenset(
-    {"type", "accountNumber", "roundTrips", "isDayTrader"}
-)
+_COMPACT_ACCOUNT_FIELDS = frozenset({"type", "accountNumber", "roundTrips", "isDayTrader"})
 
 _COMPACT_BALANCE_FIELDS = frozenset(
     {
@@ -27,6 +25,8 @@ _COMPACT_BALANCE_FIELDS = frozenset(
 
 @dataclass(frozen=True, slots=True)
 class AccountIdentity:
+    """Minimal account identifier returned by account-listing helpers."""
+
     account_hash: str
     nickname: str | None
     is_default: bool
@@ -60,15 +60,11 @@ def _prune_position(position: dict[str, Any]) -> dict[str, Any]:
 
 
 def _prune_securities_account(sec_account: dict[str, Any]) -> dict[str, Any]:
-    result: dict[str, Any] = {
-        k: v for k, v in sec_account.items() if k in _COMPACT_ACCOUNT_FIELDS
-    }
+    result: dict[str, Any] = {k: v for k, v in sec_account.items() if k in _COMPACT_ACCOUNT_FIELDS}
     current_balances = sec_account.get("currentBalances")
     if not isinstance(current_balances, dict):
         current_balances = {}
-    result["currentBalances"] = {
-        k: v for k, v in current_balances.items() if k in _COMPACT_BALANCE_FIELDS
-    }
+    result["currentBalances"] = {k: v for k, v in current_balances.items() if k in _COMPACT_BALANCE_FIELDS}
     if "positions" in sec_account:
         positions = sec_account["positions"]
         if isinstance(positions, list):
@@ -82,9 +78,7 @@ def _prune_account_response(payload: JSONType) -> JSONType:
     if isinstance(payload, list):
         return [
             {"securitiesAccount": _prune_securities_account(item["securitiesAccount"])}
-            if isinstance(item, dict)
-            and "securitiesAccount" in item
-            and isinstance(item["securitiesAccount"], dict)
+            if isinstance(item, dict) and "securitiesAccount" in item and isinstance(item["securitiesAccount"], dict)
             else item
             for item in payload
         ]
@@ -117,9 +111,7 @@ async def _get_identity_map(ctx: SchwabContext) -> dict[str, AccountIdentity]:
         and isinstance(entry.get("hashValue"), str)
     }
 
-    accounts = (
-        prefs_payload.get("accounts") if isinstance(prefs_payload, dict) else None
-    )
+    accounts = prefs_payload.get("accounts") if isinstance(prefs_payload, dict) else None
     nick_map: dict[str, str | None] = {}
     default_map: dict[str, bool] = {}
     for acct in accounts if isinstance(accounts, list) else []:
@@ -128,9 +120,7 @@ async def _get_identity_map(ctx: SchwabContext) -> dict[str, AccountIdentity]:
         acct_num = acct.get("accountNumber")
         if not isinstance(acct_num, str):
             continue
-        nick_map[acct_num] = (
-            acct.get("nickName") if isinstance(acct.get("nickName"), str) else None
-        )
+        nick_map[acct_num] = acct.get("nickName") if isinstance(acct.get("nickName"), str) else None
         default_map[acct_num] = acct.get("primaryAccount") is True
 
     return {
@@ -166,11 +156,7 @@ def _enrich_with_identity(
 
     if isinstance(payload, list):
         for item in payload:
-            if (
-                isinstance(item, dict)
-                and "securitiesAccount" in item
-                and isinstance(item["securitiesAccount"], dict)
-            ):
+            if isinstance(item, dict) and "securitiesAccount" in item and isinstance(item["securitiesAccount"], dict):
                 _enrich_sec(item["securitiesAccount"])
         return payload
     if isinstance(payload, dict) and "securitiesAccount" in payload:
@@ -191,8 +177,7 @@ async def get_accounts(
         "Return the full raw payload (all balance types, and full position fields if include_positions=True) instead of the compact default.",
     ] = False,
 ) -> JSONType:
-    """
-    Returns balances/info for all linked accounts (funds, cash, margin); pass include_positions=True to also include holdings.
+    """Returns balances/info for all linked accounts (funds, cash, margin); pass include_positions=True to also include holdings.
     Includes each account's accountHash (required for account-specific calls like get_account, orders, transactions), nickname, and isDefault (the account marked as primary in Schwab user preferences).
     By default returns compact fields only (account type/number, equity/buyingPower/cashBalance/cashAvailableForTrading/liquidationValue from currentBalances; initialBalances and projectedBalances are dropped; positions if included are reduced to symbol, net quantity (positive=long/negative=short), marketValue, averagePrice, unrealizedPL); pass verbose=True for the full raw payload (positions unpruned if include_positions=True).
     """
@@ -207,9 +192,7 @@ async def get_accounts(
 
 async def get_account(
     ctx: SchwabContext,
-    account_hash: Annotated[
-        str, "Account hash for the Schwab account (from get_accounts)"
-    ],
+    account_hash: Annotated[str, "Account hash for the Schwab account (from get_accounts)"],
     include_positions: Annotated[
         bool,
         "Request holdings/positions. In compact mode (default) positions are pruned to symbol, quantity, marketValue, averagePrice, unrealizedPL; verbose=True returns the raw, unpruned position fields instead.",
@@ -219,8 +202,7 @@ async def get_account(
         "Return the full raw payload (all balance types, and full position fields if include_positions=True) instead of the compact default.",
     ] = False,
 ) -> JSONType:
-    """
-    Returns balance/info for a specific account via account_hash (from get_accounts); pass include_positions=True to also include holdings. Includes funds, cash, margin info.
+    """Returns balance/info for a specific account via account_hash (from get_accounts); pass include_positions=True to also include holdings. Includes funds, cash, margin info.
     Includes the account's accountHash, nickname, and isDefault for self-describing output.
     By default returns compact fields only (account type/number, equity/buyingPower/cashBalance/cashAvailableForTrading/liquidationValue from currentBalances; initialBalances and projectedBalances are dropped; positions if included are reduced to symbol, net quantity (positive=long/negative=short), marketValue, averagePrice, unrealizedPL); pass verbose=True for the full raw payload (positions unpruned if include_positions=True).
     """
@@ -245,6 +227,7 @@ def register(
     allow_write: bool,
     result_transform: Callable[[Any], Any] | None = None,
 ) -> None:
+    """Register account tools with the MCP server."""
     _ = allow_write
     for func in _READ_ONLY_TOOLS:
         register_tool(server, func, result_transform=result_transform)

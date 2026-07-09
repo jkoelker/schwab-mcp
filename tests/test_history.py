@@ -2,9 +2,9 @@ import datetime
 from enum import Enum
 from types import SimpleNamespace
 
-from schwab_mcp.tools import history
-
 from conftest import make_ctx, run
+
+from schwab_mcp.tools import history
 
 
 class DummyHistoryClient:
@@ -98,8 +98,5 @@ def test_get_advanced_price_history_intraday(monkeypatch, fake_call_factory):
                 end_datetime="2024-03-01T16:00:00",
             )
         )
-        assert (
-            captured["kwargs"]["frequency_type"]
-            is client.PriceHistory.FrequencyType.MINUTE
-        )
+        assert captured["kwargs"]["frequency_type"] is client.PriceHistory.FrequencyType.MINUTE
         assert captured["kwargs"]["frequency"] == freq

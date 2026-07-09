@@ -1,4 +1,4 @@
-#
+"""Price history tools for retrieving OHLCV candle data from Schwab."""
 
 from collections.abc import Callable
 from typing import Annotated, Any
@@ -13,9 +13,7 @@ from schwab_mcp.tools.utils import JSONType, call, parse_datetime
 async def get_advanced_price_history(
     ctx: SchwabContext,
     symbol: Annotated[str, "Symbol of the security"],
-    period_type: Annotated[
-        str | None, "Period type: DAY, MONTH, YEAR, YEAR_TO_DATE"
-    ] = None,
+    period_type: Annotated[str | None, "Period type: DAY, MONTH, YEAR, YEAR_TO_DATE"] = None,
     period: Annotated[
         str | None,
         (
@@ -31,17 +29,12 @@ async def get_advanced_price_history(
         int | str | None,
         "Number of frequencyType per candle (e.g., 1, 5, 10 for MINUTE). Strings are coerced to int.",
     ] = None,
-    start_datetime: Annotated[
-        str | None, "Start date for history (ISO format, e.g., '2023-01-01T09:30:00')"
-    ] = None,
-    end_datetime: Annotated[
-        str | None, "End date for history (ISO format, e.g., '2023-01-31T16:00:00')"
-    ] = None,
+    start_datetime: Annotated[str | None, "Start date for history (ISO format, e.g., '2023-01-01T09:30:00')"] = None,
+    end_datetime: Annotated[str | None, "End date for history (ISO format, e.g., '2023-01-31T16:00:00')"] = None,
     extended_hours: Annotated[bool | None, "Include extended hours data"] = None,
     previous_close: Annotated[bool | None, "Include previous close data"] = None,
 ) -> JSONType:
-    """
-    Get price history with advanced period/frequency options. Specify period/frequency OR start/end datetimes.
+    """Get price history with advanced period/frequency options. Specify period/frequency OR start/end datetimes.
 
     For intraday candles use period_type=DAY with frequency_type=MINUTE and
     frequency 1/5/10/15/30; MINUTE frequency is only valid when period_type=DAY.
@@ -64,15 +57,9 @@ async def get_advanced_price_history(
     end_dt = parse_datetime(end_datetime)
 
     # Normalize enum-like strings
-    period_type_enum = (
-        client.PriceHistory.PeriodType[period_type.upper()] if period_type else None
-    )
+    period_type_enum = client.PriceHistory.PeriodType[period_type.upper()] if period_type else None
     period_enum = client.PriceHistory.Period[period.upper()] if period else None
-    frequency_type_enum = (
-        client.PriceHistory.FrequencyType[frequency_type.upper()]
-        if frequency_type
-        else None
-    )
+    frequency_type_enum = client.PriceHistory.FrequencyType[frequency_type.upper()] if frequency_type else None
 
     # Coerce frequency to int if provided as string
     if isinstance(frequency, str):
@@ -101,6 +88,7 @@ def register(
     allow_write: bool,
     result_transform: Callable[[Any], Any] | None = None,
 ) -> None:
+    """Register price history tools with the MCP server."""
     _ = allow_write
     for func in _READ_ONLY_TOOLS:
         register_tool(server, func, result_transform=result_transform)

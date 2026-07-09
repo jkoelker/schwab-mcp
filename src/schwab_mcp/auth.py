@@ -1,6 +1,4 @@
-#
-# Wrappers around schwab.auth to inject our own token manager
-#
+"""Wrappers around schwab.auth to inject the schwab-mcp token manager."""
 
 import logging
 import urllib.parse
@@ -11,7 +9,6 @@ from schwab import auth
 from schwab.client import AsyncClient, Client
 
 from schwab_mcp import tokens
-
 
 DEFAULT_MAX_TOKEN_AGE_SECONDS = 5 * 24 * 60 * 60
 
@@ -38,6 +35,7 @@ def easy_client(
     requested_browser: str | None = None,
     base_url: str = auth.DEFAULT_BASE_URL,
 ) -> AsyncClient | Client:
+    """Return an authenticated Schwab client, reusing a cached token when valid."""
     effective_max_token_age = 0 if max_token_age is None else max_token_age
 
     if effective_max_token_age < 0:
@@ -59,10 +57,7 @@ def easy_client(
         )
         logger.info("Loaded token from %s", token_manager.path)
 
-        if (
-            effective_max_token_age > 0
-            and client.token_age() >= effective_max_token_age
-        ):
+        if effective_max_token_age > 0 and client.token_age() >= effective_max_token_age:
             logger.info("token too old, proactively creating a new one")
             client = None
 
@@ -83,9 +78,7 @@ def easy_client(
         base_url=base_url,
     )
 
-    logger.info(
-        f"Returning client fetched using web browser, writing token to '{token_manager.path}'"
-    )
+    logger.info(f"Returning client fetched using web browser, writing token to '{token_manager.path}'")
 
     return client
 
@@ -102,6 +95,7 @@ def client_from_login_flow(
     requested_browser: str | None = None,
     base_url: str = auth.DEFAULT_BASE_URL,
 ) -> AsyncClient | Client:
+    """Run the browser OAuth flow and return a fresh Schwab client."""
     if callback_timeout is None:
         callback_timeout = 0
 
@@ -179,9 +173,7 @@ def client_from_login_flow(
 
         if interactive:
             print()
-            print(
-                "***********************************************************************"
-            )
+            print("***********************************************************************")
             print()
             print("This is the browser-assisted login and token creation flow for")
             print("schwab-py. This flow automatically opens the login page on your")
@@ -195,9 +187,7 @@ def client_from_login_flow(
             print("schwab-py has started a server on your machine to receive the OAuth")
             print("redirect using a self-signed SSL certificate. You can ignore that")
             print("warning, but make sure to first check that the URL matches your")
-            print(
-                "callback URL, ignoring URL parameters. As a reminder, your callback URL"
-            )
+            print("callback URL, ignoring URL parameters. As a reminder, your callback URL")
             print("is:")
             print()
             print(">>", callback_url)
@@ -206,12 +196,8 @@ def client_from_login_flow(
             print("https://schwab-py.readthedocs.io/en/latest/auth.html#ssl-errors")
             print()
             print("If you encounter any issues, see here for troubleshooting:")
-            print(
-                "https://schwab-py.readthedocs.io/en/latest/auth.html#troubleshooting"
-            )
-            print(
-                "***********************************************************************"
-            )
+            print("https://schwab-py.readthedocs.io/en/latest/auth.html#troubleshooting")
+            print("***********************************************************************")
             print()
 
         try:

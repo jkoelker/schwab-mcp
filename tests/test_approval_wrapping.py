@@ -1,12 +1,12 @@
 import asyncio
+from collections.abc import Awaitable
 from contextlib import suppress
 from types import SimpleNamespace
-from typing import Any, Awaitable, TypeVar, cast
+from typing import Any, TypeVar, cast
 
 import pytest
-from schwab.client import AsyncClient
-
 from mcp.server.fastmcp import Context as MCPContext
+from schwab.client import AsyncClient
 
 from schwab_mcp.approvals import (
     ApprovalDecision,
@@ -66,11 +66,7 @@ def make_ctx(
         approval_manager=approval_manager,
     )
     session = DummySession()
-    meta = (
-        SimpleNamespace(progressToken=progress_token, client_id="client-123")
-        if progress_token
-        else None
-    )
+    meta = SimpleNamespace(progressToken=progress_token, client_id="client-123") if progress_token else None
     request_context = SimpleNamespace(
         lifespan_context=lifespan_context,
         request_id="req-123",
@@ -157,9 +153,7 @@ def test_write_tool_accepts_base_context() -> None:
 
 
 def test_progress_notifications_emitted_when_supported() -> None:
-    ctx, approval_manager, session, _ = make_ctx(
-        ApprovalDecision.APPROVED, progress_token="token-1"
-    )
+    ctx, approval_manager, session, _ = make_ctx(ApprovalDecision.APPROVED, progress_token="token-1")
     tool = wrapped_tool()
 
     result = await_result(tool(ctx, "spy"))
@@ -241,9 +235,7 @@ def test_wrap_with_approval_handles_sync_result() -> None:
 
 def test_keepalive_task_sends_progress_and_cancels_cleanly(monkeypatch) -> None:
     """The keepalive task emits progress pings and exits on cancellation."""
-    ctx, _, session, _ = make_ctx(
-        ApprovalDecision.APPROVED, progress_token="tok-keepalive"
-    )
+    ctx, _, session, _ = make_ctx(ApprovalDecision.APPROVED, progress_token="tok-keepalive")
     monkeypatch.setattr(_registration, "_APPROVAL_PROGRESS_INTERVAL", 0.001)
 
     async def runner() -> None:
@@ -255,9 +247,7 @@ def test_keepalive_task_sends_progress_and_cancels_cleanly(monkeypatch) -> None:
         with suppress(asyncio.CancelledError):
             await task
         # At least one keepalive progress notification should have been emitted.
-        keepalive_msgs = [
-            p for p in session.progress if "elapsed" in (p.get("message") or "")
-        ]
+        keepalive_msgs = [p for p in session.progress if "elapsed" in (p.get("message") or "")]
         assert len(keepalive_msgs) >= 1
 
     asyncio.run(runner())

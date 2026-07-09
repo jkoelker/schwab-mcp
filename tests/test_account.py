@@ -3,8 +3,10 @@ from __future__ import annotations
 from enum import Enum
 from types import SimpleNamespace
 from typing import Any
-from schwab_mcp.tools import account
+
 from conftest import make_ctx, run
+
+from schwab_mcp.tools import account
 
 
 class DummyAccountClient:
@@ -82,9 +84,7 @@ _RAW_DICT_PAYLOAD = {"securitiesAccount": _RAW_SEC_ACCOUNT}
 _RAW_DICT_WITH_POSITIONS = {"securitiesAccount": _RAW_SEC_ACCOUNT_WITH_POSITIONS}
 
 _SAMPLE_IDENTITY_MAP: dict[str, account.AccountIdentity] = {
-    "123": account.AccountIdentity(
-        account_hash="hash_abc", nickname="My Margin", is_default=False
-    ),
+    "123": account.AccountIdentity(account_hash="hash_abc", nickname="My Margin", is_default=False),
 }
 
 
@@ -116,9 +116,7 @@ class TestGetIdentityMap:
         result = run(account._get_identity_map(ctx))
 
         assert result == {
-            "123": account.AccountIdentity(
-                account_hash="hash_abc", nickname="My Margin", is_default=True
-            )
+            "123": account.AccountIdentity(account_hash="hash_abc", nickname="My Margin", is_default=True)
         }
 
     def test_missing_nickname_yields_none(self, monkeypatch):
@@ -134,11 +132,7 @@ class TestGetIdentityMap:
         ctx = make_ctx(client)
         result = run(account._get_identity_map(ctx))
 
-        assert result == {
-            "456": account.AccountIdentity(
-                account_hash="hash_def", nickname=None, is_default=False
-            )
-        }
+        assert result == {"456": account.AccountIdentity(account_hash="hash_def", nickname=None, is_default=False)}
 
     def test_empty_payloads_yield_empty_map(self, monkeypatch):
         async def fake_call(func, *args, **kwargs):
@@ -186,9 +180,7 @@ class TestGetIdentityMap:
 
         assert result["123"].nickname is None
 
-    def test_identity_map_defaults_false_when_primary_account_missing_or_false(
-        self, monkeypatch
-    ):
+    def test_identity_map_defaults_false_when_primary_account_missing_or_false(self, monkeypatch):
         numbers_payload = [
             {"accountNumber": "123", "hashValue": "hash_abc"},
             {"accountNumber": "456", "hashValue": "hash_def"},
@@ -285,9 +277,7 @@ class TestEnrichWithIdentity:
 
     def test_fallback_hash_used_when_no_match(self):
         payload = {"securitiesAccount": {"accountNumber": "UNKNOWN"}}
-        result = account._enrich_with_identity(
-            payload, {}, fallback_hash="requested_hash"
-        )
+        result = account._enrich_with_identity(payload, {}, fallback_hash="requested_hash")
         assert isinstance(result, dict)
         sec = result["securitiesAccount"]
         assert sec["accountHash"] == "requested_hash"
@@ -296,9 +286,7 @@ class TestEnrichWithIdentity:
 
     def test_fallback_hash_ignored_when_match_found(self):
         payload = {"securitiesAccount": {"accountNumber": "123"}}
-        result = account._enrich_with_identity(
-            payload, _SAMPLE_IDENTITY_MAP, fallback_hash="requested_hash"
-        )
+        result = account._enrich_with_identity(payload, _SAMPLE_IDENTITY_MAP, fallback_hash="requested_hash")
         assert isinstance(result, dict)
         sec = result["securitiesAccount"]
         assert sec["accountHash"] == "hash_abc"
@@ -320,9 +308,7 @@ class TestGetAccounts:
         monkeypatch.setattr(account, "_get_identity_map", fake_get_identity_map)
 
     def test_calls_client_method(self, monkeypatch, fake_call_factory):
-        captured, fake_call = fake_call_factory(
-            return_value=[{"securitiesAccount": {"accountNumber": "123"}}]
-        )
+        captured, fake_call = fake_call_factory(return_value=[{"securitiesAccount": {"accountNumber": "123"}}])
         self._patch_identity(monkeypatch)
         monkeypatch.setattr(account, "call", fake_call)
 
@@ -397,9 +383,7 @@ class TestGetAccounts:
         assert sec["nickname"] is None
         assert sec["isDefault"] is False
 
-    def test_default_does_not_request_positions_field(
-        self, monkeypatch, fake_call_factory
-    ):
+    def test_default_does_not_request_positions_field(self, monkeypatch, fake_call_factory):
         captured, fake_call = fake_call_factory(return_value=_RAW_LIST_PAYLOAD)
         self._patch_identity(monkeypatch)
         monkeypatch.setattr(account, "call", fake_call)
@@ -410,13 +394,9 @@ class TestGetAccounts:
 
         assert "fields" not in captured["kwargs"]
 
-    def test_include_positions_requests_positions_field(
-        self, monkeypatch, fake_call_factory
-    ):
+    def test_include_positions_requests_positions_field(self, monkeypatch, fake_call_factory):
         captured, fake_call = fake_call_factory(
-            return_value=[
-                {"securitiesAccount": {"accountNumber": "123", "positions": []}}
-            ]
+            return_value=[{"securitiesAccount": {"accountNumber": "123", "positions": []}}]
         )
         self._patch_identity(monkeypatch)
         monkeypatch.setattr(account, "call", fake_call)
@@ -429,9 +409,7 @@ class TestGetAccounts:
         assert captured["func"].__name__ == "get_accounts"
         assert captured["kwargs"]["fields"] == [client.Account.Fields.POSITIONS]
 
-    def test_include_positions_compact_default_prunes_positions(
-        self, monkeypatch, fake_call_factory
-    ):
+    def test_include_positions_compact_default_prunes_positions(self, monkeypatch, fake_call_factory):
         _, fake_call = fake_call_factory(return_value=_RAW_LIST_WITH_POSITIONS)
         self._patch_identity(monkeypatch)
         monkeypatch.setattr(account, "call", fake_call)
@@ -455,9 +433,7 @@ class TestGetAccounts:
         assert "settledLongQuantity" not in pos
         assert "maintenanceRequirement" not in pos
 
-    def test_include_positions_verbose_returns_enriched_payload(
-        self, monkeypatch, fake_call_factory
-    ):
+    def test_include_positions_verbose_returns_enriched_payload(self, monkeypatch, fake_call_factory):
         _, fake_call = fake_call_factory(return_value=_RAW_LIST_WITH_POSITIONS)
         self._patch_identity(monkeypatch)
         monkeypatch.setattr(account, "call", fake_call)
@@ -488,9 +464,7 @@ class TestGetAccount:
         monkeypatch.setattr(account, "_get_identity_map", fake_get_identity_map)
 
     def test_calls_client_with_account_hash(self, monkeypatch, fake_call_factory):
-        captured, fake_call = fake_call_factory(
-            return_value={"securitiesAccount": {"accountNumber": "123"}}
-        )
+        captured, fake_call = fake_call_factory(return_value={"securitiesAccount": {"accountNumber": "123"}})
         self._patch_identity(monkeypatch)
         monkeypatch.setattr(account, "call", fake_call)
 
@@ -548,9 +522,7 @@ class TestGetAccount:
         assert sec["nickname"] == "My Margin"
         assert sec["isDefault"] is False
 
-    def test_no_identity_match_falls_back_to_requested_hash(
-        self, monkeypatch, fake_call_factory
-    ):
+    def test_no_identity_match_falls_back_to_requested_hash(self, monkeypatch, fake_call_factory):
         """get_account() already knows account_hash; enrichment falling short
         should not discard it."""
         _, fake_call = fake_call_factory(return_value=_RAW_DICT_PAYLOAD)
@@ -566,9 +538,7 @@ class TestGetAccount:
         assert sec["nickname"] is None
         assert sec["isDefault"] is False
 
-    def test_default_does_not_request_positions_field(
-        self, monkeypatch, fake_call_factory
-    ):
+    def test_default_does_not_request_positions_field(self, monkeypatch, fake_call_factory):
         captured, fake_call = fake_call_factory(return_value=_RAW_DICT_PAYLOAD)
         self._patch_identity(monkeypatch)
         monkeypatch.setattr(account, "call", fake_call)
@@ -579,9 +549,7 @@ class TestGetAccount:
 
         assert "fields" not in captured["kwargs"]
 
-    def test_include_positions_requests_positions_field(
-        self, monkeypatch, fake_call_factory
-    ):
+    def test_include_positions_requests_positions_field(self, monkeypatch, fake_call_factory):
         captured, fake_call = fake_call_factory(
             return_value={
                 "securitiesAccount": {
@@ -595,18 +563,14 @@ class TestGetAccount:
 
         client = DummyAccountClient()
         ctx = make_ctx(client)
-        result = run(
-            account.get_account(ctx, "hash789", include_positions=True, verbose=True)
-        )
+        result = run(account.get_account(ctx, "hash789", include_positions=True, verbose=True))
 
         assert isinstance(result, dict)
         assert captured["func"].__name__ == "get_account"
         assert captured["args"] == ("hash789",)
         assert captured["kwargs"]["fields"] == [client.Account.Fields.POSITIONS]
 
-    def test_include_positions_compact_default_prunes_positions(
-        self, monkeypatch, fake_call_factory
-    ):
+    def test_include_positions_compact_default_prunes_positions(self, monkeypatch, fake_call_factory):
         _, fake_call = fake_call_factory(return_value=_RAW_DICT_WITH_POSITIONS)
         self._patch_identity(monkeypatch)
         monkeypatch.setattr(account, "call", fake_call)
@@ -629,18 +593,14 @@ class TestGetAccount:
         assert pos["unrealizedPL"] == 100.0
         assert "settledLongQuantity" not in pos
 
-    def test_include_positions_verbose_returns_enriched_payload(
-        self, monkeypatch, fake_call_factory
-    ):
+    def test_include_positions_verbose_returns_enriched_payload(self, monkeypatch, fake_call_factory):
         _, fake_call = fake_call_factory(return_value=_RAW_DICT_WITH_POSITIONS)
         self._patch_identity(monkeypatch)
         monkeypatch.setattr(account, "call", fake_call)
 
         client = DummyAccountClient()
         ctx = make_ctx(client)
-        result = run(
-            account.get_account(ctx, "hash789", include_positions=True, verbose=True)
-        )
+        result = run(account.get_account(ctx, "hash789", include_positions=True, verbose=True))
 
         assert isinstance(result, dict)
         sec = result["securitiesAccount"]

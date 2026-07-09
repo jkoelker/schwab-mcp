@@ -94,9 +94,7 @@ class TestAuthCredentialsFile:
         monkeypatch.delenv("SCHWAB_CLIENT_SECRET", raising=False)
 
         runner = CliRunner()
-        result = runner.invoke(
-            cli.cli, ["auth", "--token-path", str(tmp_path / "t.yaml")]
-        )
+        result = runner.invoke(cli.cli, ["auth", "--token-path", str(tmp_path / "t.yaml")])
 
         assert result.exit_code == 1
         assert "client-id and client-secret are required" in result.output
@@ -110,9 +108,7 @@ class TestServerCredentialsFile:
             captured["easy_client_kwargs"] = kwargs
             return FakeAsyncClient()
 
-        monkeypatch.setattr(
-            cli.tokens, "Manager", lambda p: type("M", (), {"path": p})()
-        )
+        monkeypatch.setattr(cli.tokens, "Manager", lambda p: type("M", (), {"path": p})())
         monkeypatch.setattr(cli.schwab_auth, "easy_client", fake_easy_client)
         monkeypatch.setattr(
             cli,
@@ -191,9 +187,7 @@ class TestServerCredentialsFile:
         monkeypatch.delenv("SCHWAB_CLIENT_SECRET", raising=False)
 
         runner = CliRunner()
-        result = runner.invoke(
-            cli.cli, ["server", "--token-path", str(tmp_path / "t.yaml")]
-        )
+        result = runner.invoke(cli.cli, ["server", "--token-path", str(tmp_path / "t.yaml")])
 
         assert result.exit_code == 1
 

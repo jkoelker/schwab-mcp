@@ -3,11 +3,10 @@ from enum import Enum
 from typing import Any
 
 import pytest
+from conftest import make_ctx, run
 
 from schwab_mcp.tools import orders
 from schwab_mcp.tools.utils import SchwabAPIError
-
-from conftest import make_ctx, run
 
 
 class DummyOrdersClient:
@@ -50,10 +49,7 @@ class TestNormalizeDuration:
             orders._normalize_duration(123)  # type: ignore[arg-type]
 
     def test_accepts_duration_enum_instance(self):
-        assert (
-            orders._normalize_duration(orders.Duration.GOOD_TILL_CANCEL)
-            == "GOOD_TILL_CANCEL"
-        )
+        assert orders._normalize_duration(orders.Duration.GOOD_TILL_CANCEL) == "GOOD_TILL_CANCEL"
 
     def test_empty_string_raises_before_api_call(self):
         with pytest.raises(ValueError, match="Invalid duration"):
@@ -268,9 +264,7 @@ class TestGetOrderCompact:
         assert "orderActivityCollection" not in result
         assert "accountNumber" not in result
         # legs summary present
-        assert result["legs"] == [
-            {"symbol": "AAPL", "instruction": "BUY", "quantity": 10.0}
-        ]
+        assert result["legs"] == [{"symbol": "AAPL", "instruction": "BUY", "quantity": 10.0}]
         # child order also pruned
         assert "childOrderStrategies" in result
         child = result["childOrderStrategies"][0]
@@ -279,9 +273,7 @@ class TestGetOrderCompact:
         assert "requestedDestination" not in child
         assert "tag" not in child
         assert "orderActivityCollection" not in child
-        assert child["legs"] == [
-            {"symbol": "AAPL", "instruction": "SELL", "quantity": 10.0}
-        ]
+        assert child["legs"] == [{"symbol": "AAPL", "instruction": "SELL", "quantity": 10.0}]
 
     def test_verbose_returns_raw_payload(self, monkeypatch):
         raw = dict(self._RAW_ORDER)
@@ -349,9 +341,7 @@ class TestGetOrdersCompact:
         assert "requestedDestination" not in order
         assert "tag" not in order
         assert "orderActivityCollection" not in order
-        assert order["legs"] == [
-            {"symbol": "MSFT", "instruction": "BUY", "quantity": 5.0}
-        ]
+        assert order["legs"] == [{"symbol": "MSFT", "instruction": "BUY", "quantity": 5.0}]
 
     def test_verbose_returns_raw_list(self, monkeypatch):
         raw_orders = [{"orderId": "1", "status": "FILLED", "tag": "noise"}]
@@ -564,9 +554,7 @@ class TestPlacePreviewedOrder:
         assert calls[1]["kwargs"]["order_id"] == "42"
         assert calls[1]["kwargs"]["account_hash"] == account_hash
 
-    def test_returns_fallback_when_get_order_fails(
-        self, monkeypatch, account_hash, order_spec
-    ):
+    def test_returns_fallback_when_get_order_fails(self, monkeypatch, account_hash, order_spec):
         """If the post-placement get_order fetch fails, fall back to a minimal
         note instead of masking the successful placement."""
         from schwab_mcp.approvals import ApprovalDecision
@@ -599,9 +587,7 @@ class TestPlacePreviewedOrder:
             "note": "Order placed; status fetch failed",
         }
 
-    def test_returns_fallback_when_get_order_raises_value_error(
-        self, monkeypatch, account_hash, order_spec
-    ):
+    def test_returns_fallback_when_get_order_raises_value_error(self, monkeypatch, account_hash, order_spec):
         """If the post-placement get_order fetch raises ValueError (e.g. the
         Schwab endpoint returned a non-JSON body), fall back to a minimal
         note instead of letting the error mask the successful placement."""
@@ -634,9 +620,7 @@ class TestPlacePreviewedOrder:
             "note": "Order placed; status fetch failed",
         }
 
-    def test_returns_fallback_when_get_order_returns_no_data(
-        self, monkeypatch, account_hash, order_spec
-    ):
+    def test_returns_fallback_when_get_order_returns_no_data(self, monkeypatch, account_hash, order_spec):
         """If the post-placement get_order fetch returns no data (e.g. empty
         body), fall back to a minimal note instead of masking the successful
         placement."""
@@ -696,9 +680,7 @@ class TestPlacePreviewedOrder:
         assert result == {"location": "https://api.schwabapi.com/orders/123"}
         assert len(calls) == 1
 
-    def test_denied_raises_permission_error(
-        self, monkeypatch, account_hash, order_spec
-    ):
+    def test_denied_raises_permission_error(self, monkeypatch, account_hash, order_spec):
         """DENIED decision raises PermissionError."""
         from schwab_mcp.approvals import ApprovalDecision
         from schwab_mcp.tools import orders as orders_mod
@@ -732,9 +714,7 @@ class TestPlacePreviewedOrder:
         with pytest.raises(TimeoutError, match="expired"):
             run(orders.place_previewed_order(ctx, account_hash, preview_id))
 
-    def test_pop_before_approval_denied_consumes_entry(
-        self, monkeypatch, account_hash, order_spec
-    ):
+    def test_pop_before_approval_denied_consumes_entry(self, monkeypatch, account_hash, order_spec):
         """After a DENIED decision the entry is consumed; a second call raises ValueError."""
         from schwab_mcp.approvals import ApprovalDecision
         from schwab_mcp.tools import orders as orders_mod
@@ -755,9 +735,7 @@ class TestPlacePreviewedOrder:
         with pytest.raises(ValueError, match="not found or expired"):
             run(orders.place_previewed_order(ctx, account_hash, preview_id))
 
-    def test_account_hash_mismatch_checked_before_approval(
-        self, monkeypatch, account_hash, order_spec
-    ):
+    def test_account_hash_mismatch_checked_before_approval(self, monkeypatch, account_hash, order_spec):
         """Mismatched account_hash raises ValueError before run_approval is called."""
         from schwab_mcp.tools import orders as orders_mod
 
@@ -781,9 +759,7 @@ class TestPlacePreviewedOrder:
         with pytest.raises(ValueError, match="not found or expired"):
             run(orders.place_previewed_order(ctx, account_hash, "deadbeef"))
 
-    def test_approval_request_includes_summary(
-        self, monkeypatch, account_hash, order_spec
-    ):
+    def test_approval_request_includes_summary(self, monkeypatch, account_hash, order_spec):
         """The ApprovalRequest sent to run_approval contains the human-readable summary."""
         from schwab_mcp.approvals import ApprovalDecision
         from schwab_mcp.tools import orders as orders_mod
@@ -827,9 +803,7 @@ class TestPrepareEquityOrderValidation:
             orders._prepare_equity_order("AAPL", 100, "HOLD", "MARKET")
 
     def test_applies_session_and_duration(self):
-        spec = orders._prepare_equity_order(
-            "AAPL", 50, "BUY", "LIMIT", price=175.0, session="AM", duration="GTC"
-        )
+        spec = orders._prepare_equity_order("AAPL", 50, "BUY", "LIMIT", price=175.0, session="AM", duration="GTC")
         assert spec["session"] == "AM"
         assert spec["duration"] == "GOOD_TILL_CANCEL"
 
@@ -861,9 +835,7 @@ class TestPrepareTrailingStopOrderValidation:
 
     def test_parametrized_trail_types(self):
         for trail_type in ("VALUE", "PERCENT"):
-            spec = orders._prepare_trailing_stop_order(
-                "AAPL", 10, "SELL", 3.0, trail_type
-            )
+            spec = orders._prepare_trailing_stop_order("AAPL", 10, "SELL", 3.0, trail_type)
             assert spec["stopPriceLinkType"] == trail_type
 
 
@@ -951,36 +923,26 @@ class TestPrepareTriggerOrderValidation:
 
 class TestPrepareBracketOrderValidation:
     def test_neither_price_raises(self):
-        with pytest.raises(
-            ValueError, match="At least one of profit_price or loss_price"
-        ):
+        with pytest.raises(ValueError, match="At least one of profit_price or loss_price"):
             orders._prepare_bracket_order("SPY", 100, "BUY", "MARKET")
 
     def test_invalid_entry_instruction_raises(self):
         with pytest.raises(ValueError, match="Invalid entry_instruction: HOLD"):
-            orders._prepare_bracket_order(
-                "SPY", 100, "HOLD", "MARKET", profit_price=160.0
-            )
+            orders._prepare_bracket_order("SPY", 100, "HOLD", "MARKET", profit_price=160.0)
 
     def test_stop_only_structure(self):
-        spec = orders._prepare_bracket_order(
-            "SPY", 100, "BUY", "MARKET", loss_price=140.0
-        )
+        spec = orders._prepare_bracket_order("SPY", 100, "BUY", "MARKET", loss_price=140.0)
         assert spec["orderStrategyType"] == "TRIGGER"
         child = spec["childOrderStrategies"][0]
         assert child["orderType"] == "STOP"
 
     def test_profit_only_structure(self):
-        spec = orders._prepare_bracket_order(
-            "SPY", 100, "BUY", "MARKET", profit_price=160.0
-        )
+        spec = orders._prepare_bracket_order("SPY", 100, "BUY", "MARKET", profit_price=160.0)
         child = spec["childOrderStrategies"][0]
         assert child["orderType"] == "LIMIT"
 
     def test_full_bracket_has_oco_child(self):
-        spec = orders._prepare_bracket_order(
-            "SPY", 100, "BUY", "MARKET", profit_price=160.0, loss_price=140.0
-        )
+        spec = orders._prepare_bracket_order("SPY", 100, "BUY", "MARKET", profit_price=160.0, loss_price=140.0)
         oco_child = spec["childOrderStrategies"][0]
         assert oco_child["orderStrategyType"] == "OCO"
 
@@ -1003,9 +965,7 @@ class TestPrepareBracketOrderValidation:
             assert exit_order["duration"] == "GOOD_TILL_CANCEL"
 
     def test_loss_type_limit(self):
-        spec = orders._prepare_bracket_order(
-            "SPY", 100, "BUY", "MARKET", loss_price=140.0, loss_type="LIMIT"
-        )
+        spec = orders._prepare_bracket_order("SPY", 100, "BUY", "MARKET", loss_price=140.0, loss_type="LIMIT")
         child = spec["childOrderStrategies"][0]
         assert child["orderType"] == "LIMIT"
         assert float(child["price"]) == 140.0
@@ -1051,15 +1011,11 @@ class TestPrepareBracketOrderValidation:
 
     def test_invalid_loss_type_raises(self):
         with pytest.raises(ValueError, match="Invalid loss_type"):
-            orders._prepare_bracket_order(
-                "SPY", 100, "BUY", "MARKET", loss_price=140.0, loss_type="GTC"
-            )
+            orders._prepare_bracket_order("SPY", 100, "BUY", "MARKET", loss_price=140.0, loss_type="GTC")
 
     def test_loss_type_without_loss_price_raises(self):
         with pytest.raises(ValueError, match="loss_type/loss_limit_price"):
-            orders._prepare_bracket_order(
-                "SPY", 100, "BUY", "MARKET", profit_price=160.0, loss_type="LIMIT"
-            )
+            orders._prepare_bracket_order("SPY", 100, "BUY", "MARKET", profit_price=160.0, loss_type="LIMIT")
 
     def test_loss_limit_price_without_loss_price_raises(self):
         with pytest.raises(ValueError, match="loss_type/loss_limit_price"):
@@ -1298,9 +1254,7 @@ class TestBuildOrderFromDesc:
             "instruction": "SELL",
             "order_type": "TRAILING_STOP",
         }
-        with pytest.raises(
-            ValueError, match="TRAILING_STOP orders require 'trail_offset'"
-        ):
+        with pytest.raises(ValueError, match="TRAILING_STOP orders require 'trail_offset'"):
             orders._build_order_from_desc(desc, "NORMAL", "DAY")
 
     def test_non_string_order_type_raises_value_error(self):
@@ -1392,21 +1346,15 @@ class TestCreateOptionSymbol:
             ("TSLA", "250117", "C", "250.5", "TSLA  250117C00250500"),
         ],
     )
-    def test_creates_valid_option_symbol(
-        self, underlying, expiration, contract_type, strike, expected
-    ):
-        result = run(
-            orders.create_option_symbol(underlying, expiration, contract_type, strike)
-        )
+    def test_creates_valid_option_symbol(self, underlying, expiration, contract_type, strike, expected):
+        result = run(orders.create_option_symbol(underlying, expiration, contract_type, strike))
         assert result == expected
 
 
 class TestOrderResponseHandler:
     @pytest.fixture
     def make_response(self):
-        def _make(
-            account_hash: str, order_id: int | None, include_location: bool = True
-        ):
+        def _make(account_hash: str, order_id: int | None, include_location: bool = True):
             class DummyResponse:
                 is_error = False
                 status_code = 201
@@ -1415,13 +1363,10 @@ class TestOrderResponseHandler:
                     self.headers = {}
                     if include_location and order_id is not None:
                         self.headers["Location"] = (
-                            f"https://api.schwabapi.com/trader/v1/accounts/"
-                            f"{account_hash}/orders/{order_id}"
+                            f"https://api.schwabapi.com/trader/v1/accounts/{account_hash}/orders/{order_id}"
                         )
                     elif include_location:
-                        self.headers["Location"] = (
-                            "https://api.schwabapi.com/trader/v1/some/other/path"
-                        )
+                        self.headers["Location"] = "https://api.schwabapi.com/trader/v1/some/other/path"
 
             return DummyResponse()
 
@@ -1602,11 +1547,7 @@ class TestPreviewEquityOrder:
 
         monkeypatch.setattr(orders, "call", fake_call)
 
-        result = run(
-            orders.preview_equity_order(
-                ctx, "acc123", "AAPL", 100, "BUY", "LIMIT", price=150.0
-            )
-        )
+        result = run(orders.preview_equity_order(ctx, "acc123", "AAPL", 100, "BUY", "LIMIT", price=150.0))
 
         assert isinstance(result, dict)
         assert "preview_id" in result
@@ -1628,11 +1569,7 @@ class TestPreviewEquityOrder:
 
         monkeypatch.setattr(orders, "call", fake_call)
 
-        run(
-            orders.preview_equity_order(
-                ctx, "acc123", "AAPL", 100, "BUY", "LIMIT", price=150.0
-            )
-        )
+        run(orders.preview_equity_order(ctx, "acc123", "AAPL", 100, "BUY", "LIMIT", price=150.0))
 
         assert captured["func"] == client.preview_order
         assert captured["kwargs"]["account_hash"] == "acc123"
@@ -1650,11 +1587,7 @@ class TestPreviewEquityOrder:
 
         monkeypatch.setattr(orders, "call", fake_call)
 
-        result = run(
-            orders.preview_equity_order(
-                ctx, "acc123", "AAPL", 100, "BUY", "LIMIT", price=150.0
-            )
-        )
+        result = run(orders.preview_equity_order(ctx, "acc123", "AAPL", 100, "BUY", "LIMIT", price=150.0))
 
         preview_id = result["preview_id"]
         entry = ctx.previews.pop(preview_id, "acc123")
@@ -1680,9 +1613,7 @@ class TestPreviewOptionOrder:
         monkeypatch.setattr(orders, "call", fake_call)
 
         result = run(
-            orders.preview_option_order(
-                ctx, "acc123", "SPY 230616C400", 1, "BUY_TO_OPEN", "LIMIT", price=2.50
-            )
+            orders.preview_option_order(ctx, "acc123", "SPY 230616C400", 1, "BUY_TO_OPEN", "LIMIT", price=2.50)
         )
 
         assert "preview_id" in result
@@ -1693,11 +1624,7 @@ class TestPreviewOptionOrder:
         client = DummyPreviewClient()
         ctx = make_ctx(client)
         with pytest.raises(ValueError, match="Invalid instruction"):
-            run(
-                orders.preview_option_order(
-                    ctx, "acc123", "SPY 230616C400", 1, "BOGUS", "LIMIT", price=2.50
-                )
-            )
+            run(orders.preview_option_order(ctx, "acc123", "SPY 230616C400", 1, "BOGUS", "LIMIT", price=2.50))
 
     def test_stores_correct_spec_in_previews(self, monkeypatch):
         client = DummyPreviewClient()
@@ -1708,11 +1635,7 @@ class TestPreviewOptionOrder:
 
         monkeypatch.setattr(orders, "call", fake_call)
 
-        result = run(
-            orders.preview_option_order(
-                ctx, "acc123", "SPY 230616C400", 2, "BUY_TO_OPEN", "LIMIT", price=3.0
-            )
-        )
+        result = run(orders.preview_option_order(ctx, "acc123", "SPY 230616C400", 2, "BUY_TO_OPEN", "LIMIT", price=3.0))
 
         entry = ctx.previews.pop(result["preview_id"], "acc123")
         assert entry.tool_name == "preview_option_order"
@@ -1729,11 +1652,7 @@ class TestPreviewEquityTrailingStopOrder:
 
         monkeypatch.setattr(orders, "call", fake_call)
 
-        result = run(
-            orders.preview_equity_trailing_stop_order(
-                ctx, "acc123", "AAPL", 50, "SELL", trail_offset=5.0
-            )
-        )
+        result = run(orders.preview_equity_trailing_stop_order(ctx, "acc123", "AAPL", 50, "SELL", trail_offset=5.0))
 
         assert "preview_id" in result
         assert "action" in result
@@ -1747,11 +1666,7 @@ class TestPreviewEquityTrailingStopOrder:
 
         monkeypatch.setattr(orders, "call", fake_call)
 
-        result = run(
-            orders.preview_equity_trailing_stop_order(
-                ctx, "acc123", "AAPL", 50, "SELL", trail_offset=5.0
-            )
-        )
+        result = run(orders.preview_equity_trailing_stop_order(ctx, "acc123", "AAPL", 50, "SELL", trail_offset=5.0))
 
         entry = ctx.previews.pop(result["preview_id"], "acc123")
         assert entry.tool_name == "preview_equity_trailing_stop_order"
@@ -1809,9 +1724,7 @@ class TestPreviewOcoOrder:
 
 
 class TestPreviewTriggerOrder:
-    def _make_leg(
-        self, instruction: str = "BUY", order_type: str = "MARKET"
-    ) -> dict[str, Any]:
+    def _make_leg(self, instruction: str = "BUY", order_type: str = "MARKET") -> dict[str, Any]:
         return {
             "symbol": "AAPL",
             "quantity": 100,
@@ -1929,14 +1842,8 @@ class TestPreviewBracketOrder:
     def test_rejects_missing_exit_prices(self):
         client = DummyPreviewClient()
         ctx = make_ctx(client)
-        with pytest.raises(
-            ValueError, match="At least one of profit_price or loss_price"
-        ):
-            run(
-                orders.preview_bracket_order(
-                    ctx, "acc123", "AAPL", 100, "BUY", "MARKET"
-                )
-            )
+        with pytest.raises(ValueError, match="At least one of profit_price or loss_price"):
+            run(orders.preview_bracket_order(ctx, "acc123", "AAPL", 100, "BUY", "MARKET"))
 
     def test_resolved_leg_types_full_bracket_default_loss(self, monkeypatch):
         client = DummyPreviewClient()
@@ -2032,11 +1939,7 @@ class TestPreviewOptionComboOrder:
 
         monkeypatch.setattr(orders, "call", fake_call)
 
-        result = run(
-            orders.preview_option_combo_order(
-                ctx, "acc123", self._LEGS, "NET_CREDIT", price=1.0
-            )
-        )
+        result = run(orders.preview_option_combo_order(ctx, "acc123", self._LEGS, "NET_CREDIT", price=1.0))
 
         assert "preview_id" in result
         assert "preview" in result
@@ -2051,11 +1954,7 @@ class TestPreviewOptionComboOrder:
 
         monkeypatch.setattr(orders, "call", fake_call)
 
-        result = run(
-            orders.preview_option_combo_order(
-                ctx, "acc123", self._LEGS, "NET_CREDIT", price=1.0
-            )
-        )
+        result = run(orders.preview_option_combo_order(ctx, "acc123", self._LEGS, "NET_CREDIT", price=1.0))
 
         entry = ctx.previews.pop(result["preview_id"], "acc123")
         assert entry.tool_name == "preview_option_combo_order"
@@ -2066,8 +1965,4 @@ class TestPreviewOptionComboOrder:
         client = DummyPreviewClient()
         ctx = make_ctx(client)
         with pytest.raises(ValueError, match="at least two option legs"):
-            run(
-                orders.preview_option_combo_order(
-                    ctx, "acc123", [self._LEGS[0]], "NET_CREDIT", price=1.0
-                )
-            )
+            run(orders.preview_option_combo_order(ctx, "acc123", [self._LEGS[0]], "NET_CREDIT", price=1.0))

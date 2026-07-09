@@ -1,10 +1,9 @@
 import datetime
 from enum import Enum
 
-from schwab_mcp.tools import tools
-from schwab_mcp.tools import options as options_tools
-
 from conftest import make_ctx, run
+
+from schwab_mcp.tools import options as options_tools, tools
 
 
 class DummyToolsClient:
@@ -13,9 +12,7 @@ class DummyToolsClient:
 
     class Movers:
         Index = Enum("Index", "DJI COMPX SPX")
-        SortOrder = Enum(
-            "SortOrder", "VOLUME TRADES PERCENT_CHANGE_UP PERCENT_CHANGE_DOWN"
-        )
+        SortOrder = Enum("SortOrder", "VOLUME TRADES PERCENT_CHANGE_UP PERCENT_CHANGE_DOWN")
         Frequency = Enum("Frequency", "ZERO ONE FIVE TEN")
 
     class Instrument:
@@ -135,7 +132,7 @@ def test_get_datetime_returns_eastern_time(monkeypatch):
 
     assert result.startswith("2024-01-15T12:30:45")
     assert "-05:00" in result or "-04:00" in result
-    assert result.endswith("EST") or result.endswith("EDT")
+    assert result.endswith(("EST", "EDT"))
     assert "Eastern Time" not in result
 
 

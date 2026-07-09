@@ -137,9 +137,7 @@ class TestResponseHandler:
             return (True, custom_payload)
 
         async def fake_endpoint():
-            return MockResponse(
-                json_data={"ignored": True}, content=b'{"ignored": true}'
-            )
+            return MockResponse(json_data={"ignored": True}, content=b'{"ignored": true}')
 
         result = run(call(fake_endpoint, response_handler=handler))
         assert result == custom_payload
@@ -320,9 +318,7 @@ class TestStripNoise:
         # A tool result like {"candles": []} must remain intact end-to-end,
         # since it represents a confirmed-empty result, not a missing field.
         assert strip_noise({"candles": []}) == {"candles": []}
-        assert strip_noise({"securitiesAccount": {"positions": []}}) == {
-            "securitiesAccount": {"positions": []}
-        }
+        assert strip_noise({"securitiesAccount": {"positions": []}}) == {"securitiesAccount": {"positions": []}}
 
     def test_inner_empty_after_strip_causes_outer_drop(self):
         # {"a": {"b": None}} -> inner becomes {} -> outer key "a" is dropped

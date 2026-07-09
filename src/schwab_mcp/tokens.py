@@ -1,12 +1,13 @@
-from __future__ import annotations
+"""Token and credentials persistence for the Schwab OAuth client."""
 
-#
+from __future__ import annotations
 
 import json
 import os
 import pathlib
+from collections.abc import Callable
 from dataclasses import dataclass
-from typing import Any, Callable, Protocol
+from typing import Any, Protocol
 
 import yaml
 from platformdirs import user_data_dir
@@ -31,7 +32,11 @@ def token_path(app_name: str, filename: str = "token.yaml") -> str:
 
 
 class TokenWriter(Protocol):
-    def __call__(self, token: dict[str, Any], *args: Any, **kwargs: Any) -> None: ...
+    """Callable protocol for writing an OAuth token dictionary to storage."""
+
+    def __call__(self, token: dict[str, Any], *args: Any, **kwargs: Any) -> None:
+        """Write *token* to the backing store."""
+        ...
 
 
 def token_writer(token_path: str) -> TokenWriter:
@@ -95,7 +100,7 @@ def token_loader(token_path: str) -> Callable[[], dict[str, Any]]:
         Returns:
             The OAuth token data as a dictionary
         """
-        with open(token_path, "r") as f:
+        with open(token_path) as f:
             if token_path.endswith(".json"):
                 return json.load(f)
 
@@ -105,17 +110,23 @@ def token_loader(token_path: str) -> Callable[[], dict[str, Any]]:
 
 
 class Manager:
-    def __init__(self, path: str):
+    """Token manager that binds a file path to load and write callables."""
+
+    def __init__(self, path: str) -> None:
+        """Initialize the manager for the given token file path."""
         self.path = path
         self.load = token_loader(self.path)
         self.write = token_writer(self.path)
 
     def exists(self) -> bool:
+        """Return True if the token file exists on disk."""
         return os.path.exists(self.path)
 
 
 @dataclass(frozen=True)
 class Credentials:
+    """Schwab API client credentials loaded from a local credentials file."""
+
     client_id: str | None = None
     client_secret: str | None = None
 

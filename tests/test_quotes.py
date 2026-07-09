@@ -1,8 +1,8 @@
 from enum import Enum
 
-from schwab_mcp.tools import quotes
-
 from conftest import make_ctx, run
+
+from schwab_mcp.tools import quotes
 
 
 class DummyQuotesClient:

@@ -1,9 +1,12 @@
+"""Momentum indicator tools: RSI, Stochastic oscillator."""
+
 from __future__ import annotations
 
 from collections.abc import Callable
 from typing import Annotated, Any
 
 from mcp.server.fastmcp import FastMCP
+
 from schwab_mcp.context import SchwabContext
 from schwab_mcp.tools._registration import register_tool
 from schwab_mcp.tools.utils import JSONType
@@ -102,6 +105,7 @@ def register(
     allow_write: bool,
     result_transform: Callable[[Any], Any] | None = None,
 ) -> None:
+    """Register momentum indicator tools with the MCP server."""
     _ = allow_write
     register_tool(server, rsi, result_transform=result_transform)
     register_tool(server, stoch, result_transform=result_transform)

@@ -3,9 +3,9 @@ from __future__ import annotations
 from mcp.server.fastmcp import FastMCP
 
 from schwab_mcp.resources import (
+    OPTION_SYMBOLS,
     ORDER_STATUSES,
     ORDER_TYPES,
-    OPTION_SYMBOLS,
     TRADING_SESSIONS,
     register_resources,
 )
@@ -19,10 +19,7 @@ class TestStaticReferenceData:
 
     def test_order_statuses_includes_trailing_stop_status(self):
         assert "AWAITING_STOP_CONDITION" in ORDER_STATUSES["statuses"]
-        assert (
-            "AWAITING_STOP_CONDITION"
-            in ORDER_STATUSES["common_queries"]["trailing_stops"]
-        )
+        assert "AWAITING_STOP_CONDITION" in ORDER_STATUSES["common_queries"]["trailing_stops"]
 
     def test_order_types_has_equity_and_option_sections(self):
         assert "equity_orders" in ORDER_TYPES
