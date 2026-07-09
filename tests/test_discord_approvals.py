@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import contextlib
 from typing import Any
 from unittest.mock import AsyncMock, MagicMock, patch
 
@@ -123,9 +124,11 @@ def inject_pending(mgr: DiscordApprovalManager, msg: Any) -> asyncio.Future[Appr
 
 
 def test_requires_at_least_one_approver_id() -> None:
-    with pytest.raises(ValueError, match="at least one approver ID"):
-        with patch("schwab_mcp.approvals.discord._ApprovalClient"):
-            DiscordApprovalManager(make_settings(approver_ids=frozenset()))
+    with (
+        pytest.raises(ValueError, match="at least one approver ID"),
+        patch("schwab_mcp.approvals.discord._ApprovalClient"),
+    ):
+        DiscordApprovalManager(make_settings(approver_ids=frozenset()))
 
 
 # ---------------------------------------------------------------------------
@@ -150,10 +153,8 @@ async def test_start_launches_runner_task_and_waits_for_ready() -> None:
     # Clean up
     runner = mgr._runner
     runner.cancel()
-    try:
+    with contextlib.suppress(asyncio.CancelledError):
         await runner
-    except (asyncio.CancelledError, Exception):
-        pass
 
 
 @pytest.mark.anyio
@@ -175,10 +176,8 @@ async def test_start_is_idempotent() -> None:
     runner = mgr._runner
     if runner is not None:
         runner.cancel()
-        try:
+        with contextlib.suppress(asyncio.CancelledError):
             await runner
-        except (asyncio.CancelledError, Exception):
-            pass
 
 
 @pytest.mark.anyio

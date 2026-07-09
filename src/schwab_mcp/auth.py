@@ -134,10 +134,9 @@ def client_from_login_flow(
         try:
             yield
         finally:
-            try:
-                auth.psutil.Process(server.pid).kill()
-            except auth.psutil.NoSuchProcess:
-                pass
+            if server.pid is not None:
+                with auth.contextlib.suppress(auth.psutil.NoSuchProcess):
+                    auth.psutil.Process(server.pid).kill()
 
     with callback_server():
         # Wait until the server successfully starts
@@ -200,11 +199,9 @@ def client_from_login_flow(
             print("***********************************************************************")
             print()
 
-        try:
+        with auth.contextlib.suppress(Exception):
             controller = auth.webbrowser.get(requested_browser)
             controller.open(auth_context.authorization_url)
-        except Exception:
-            pass
 
         # Wait for a response
         now = auth.__TIME_TIME()
@@ -217,7 +214,7 @@ def client_from_login_flow(
                     # XXX: We're detecting a test environment here to avoid an
                     #      infinite sleep. Surely there must be a better way to do
                     #      this...
-                    if auth.__TIME_TIME != auth.time.time:  # pragma: no cover
+                    if auth.time.time != auth.__TIME_TIME:  # pragma: no cover
                         raise ValueError("endless wait requested")
                 else:
                     break
