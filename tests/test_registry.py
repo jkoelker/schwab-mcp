@@ -1,15 +1,23 @@
 import asyncio
+import inspect
 from types import SimpleNamespace
-from typing import Any, Callable, cast
+from typing import Annotated, Any, Callable, Union, cast
 
-from mcp.server.fastmcp import FastMCP
+from mcp.server.fastmcp import FastMCP, Context as MCPContext
 from mcp.server.fastmcp.tools import Tool
 from mcp.types import ToolAnnotations
 from schwab.client import AsyncClient
 
+import pytest
 import schwab_mcp.tools as tools_module
-from schwab_mcp.tools._registration import register_tool
-from schwab_mcp.context import SchwabContext
+from schwab_mcp.tools import _registration
+from schwab_mcp.tools._registration import (
+    register_tool,
+    _is_context_annotation,
+    _format_argument,
+)
+from schwab_mcp.context import SchwabContext, SchwabServerContext
+from schwab_mcp.approvals import ApprovalDecision, ApprovalManager, ApprovalRequest
 
 
 async def _dummy_tool(ctx: SchwabContext) -> str:  # noqa: ARG001
@@ -122,6 +130,23 @@ def test_register_tool_applies_result_transform() -> None:
     assert captured["payload"] == {"ok": "yes"}
 
 
+def test_result_transform_handles_sync_tool() -> None:
+    """_wrap_result_transform works when the wrapped function returns synchronously."""
+    server = FastMCP(name="sync-transform")
+
+    def sync_tool() -> str:  # type: ignore[return-value]
+        return "raw"
+
+    register_tool(server, sync_tool, result_transform=str.upper)  # type: ignore[arg-type]
+    tool = _tool_by_name(server, "sync_tool")
+
+    async def runner() -> str:
+        return await tool.fn()
+
+    result = asyncio.run(runner())
+    assert result == "RAW"
+
+
 def test_result_transform_preserves_strings() -> None:
     server = FastMCP(name="string-transform")
 
@@ -145,3 +170,226 @@ def test_result_transform_preserves_strings() -> None:
     result = asyncio.run(runner())
     assert result == "already-string"
     assert captured["payload"] == "already-string"
+
+
+# ---------------------------------------------------------------------------
+# _is_context_annotation edge cases
+# ---------------------------------------------------------------------------
+
+
+def test_is_context_annotation_none_returns_false() -> None:
+    assert _is_context_annotation(None) is False
+
+
+def test_is_context_annotation_empty_returns_false() -> None:
+    assert _is_context_annotation(inspect._empty) is False  # type: ignore[attr-defined]
+
+
+def test_is_context_annotation_string_schwabcontext_returns_true() -> None:
+    assert _is_context_annotation("SchwabContext") is True
+
+
+def test_is_context_annotation_other_string_returns_false() -> None:
+    assert _is_context_annotation("str") is False
+
+
+def test_is_context_annotation_annotated_type_returns_true() -> None:
+    annotated = Annotated[SchwabContext, "the mcp context"]
+    assert _is_context_annotation(annotated) is True
+
+
+def test_is_context_annotation_union_containing_context_returns_true() -> None:
+    union = Union[SchwabContext, None]
+    assert _is_context_annotation(union) is True
+
+
+def test_is_context_annotation_union_without_context_returns_false() -> None:
+    union = Union[str, int]
+    assert _is_context_annotation(union) is False
+
+
+def test_is_context_annotation_unrelated_type_returns_false() -> None:
+    assert _is_context_annotation(int) is False
+
+
+def test_is_context_annotation_generic_with_other_origin_returns_false() -> None:
+    # list[str] has a non-Annotated, non-Union origin → falls through to False
+    assert _is_context_annotation(list[str]) is False
+
+
+# ---------------------------------------------------------------------------
+# _format_argument truncation
+# ---------------------------------------------------------------------------
+
+
+def test_format_argument_truncates_long_values() -> None:
+    long_str = "x" * 300
+    result = _format_argument(long_str)
+    assert len(result) <= 256
+    assert result.endswith("...")
+
+
+def test_format_argument_short_values_unchanged() -> None:
+    result = _format_argument("hello")
+    assert result == repr("hello")
+
+
+# ---------------------------------------------------------------------------
+# _ensure_schwab_context: MCPContext conversion and invalid-type guard
+# ---------------------------------------------------------------------------
+
+
+class _DummyApprovalManager(ApprovalManager):
+    async def require(self, request: ApprovalRequest) -> ApprovalDecision:  # noqa: ARG002
+        return ApprovalDecision.APPROVED
+
+
+def _make_request_context() -> Any:
+    lifespan_context = SchwabServerContext(
+        client=cast(AsyncClient, object()),
+        approval_manager=_DummyApprovalManager(),
+    )
+    return SimpleNamespace(
+        lifespan_context=lifespan_context,
+        request_id="test-req",
+        meta=None,
+        session=SimpleNamespace(send_log_message=lambda **_: None),
+    )
+
+
+def test_ensure_schwab_context_converts_mcp_context() -> None:
+    """An MCPContext argument is transparently converted to SchwabContext."""
+    request_context = _make_request_context()
+
+    received: list[Any] = []
+
+    async def tool(ctx: SchwabContext) -> str:
+        received.append(ctx)
+        return "ok"
+
+    wrapped = _registration._ensure_schwab_context(tool)
+
+    base_ctx = MCPContext.model_construct(
+        _request_context=cast(Any, request_context),
+        _fastmcp=None,
+    )
+
+    async def runner() -> str:
+        return await wrapped(base_ctx)
+
+    asyncio.run(runner())
+    assert len(received) == 1
+    assert isinstance(received[0], SchwabContext)
+
+
+def test_ensure_schwab_context_rejects_invalid_type() -> None:
+    """A non-context argument raises TypeError."""
+
+    async def tool(ctx: SchwabContext) -> str:
+        return "ok"
+
+    wrapped = _registration._ensure_schwab_context(tool)
+
+    async def runner() -> None:
+        await wrapped("not-a-context")  # type: ignore[arg-type]
+
+    with pytest.raises(TypeError, match="must be an MCP context"):
+        asyncio.run(runner())
+
+
+def test_ensure_schwab_context_handles_sync_result() -> None:
+    """Works when the wrapped function returns a non-awaitable synchronously."""
+
+    def sync_tool(ctx: SchwabContext) -> str:  # type: ignore[return-value]
+        return "sync"
+
+    wrapped = _registration._ensure_schwab_context(sync_tool)  # type: ignore[arg-type]
+    request_context = _make_request_context()
+    ctx = SchwabContext.model_construct(
+        _request_context=cast(Any, request_context),
+        _fastmcp=None,
+    )
+
+    async def runner() -> Any:
+        return await wrapped(ctx)
+
+    result = asyncio.run(runner())
+    assert result == "sync"
+
+
+# ---------------------------------------------------------------------------
+# register_tool: annotation backfill from partial ToolAnnotations
+# ---------------------------------------------------------------------------
+
+
+async def _noop_tool(ctx: SchwabContext) -> str:  # noqa: ARG001
+    """noop"""
+    return "ok"
+
+
+def test_register_tool_fills_readonly_hint_when_missing() -> None:
+    """readOnlyHint=None in caller-supplied annotations is filled based on write flag."""
+    server = FastMCP(name="hint-test")
+    partial_annotations = ToolAnnotations(readOnlyHint=None, destructiveHint=None)
+    register_tool(server, _noop_tool, annotations=partial_annotations)
+
+    tool = _tool_by_name(server, "_noop_tool")
+    assert tool.annotations is not None
+    assert tool.annotations.readOnlyHint is True  # non-write tool → True
+
+
+def test_register_tool_fills_destructive_hint_for_write_tools() -> None:
+    """destructiveHint=None is filled to True for write tools."""
+    server = FastMCP(name="destructive-test")
+    partial_annotations = ToolAnnotations(readOnlyHint=False, destructiveHint=None)
+    register_tool(server, _noop_tool, write=True, annotations=partial_annotations)
+
+    tool = _tool_by_name(server, "_noop_tool")
+    assert tool.annotations is not None
+    assert tool.annotations.readOnlyHint is False
+    assert tool.annotations.destructiveHint is True
+
+
+def test_register_tool_preserves_explicit_annotation_values() -> None:
+    """Explicitly set annotation values are not overwritten."""
+    server = FastMCP(name="explicit-test")
+    explicit_annotations = ToolAnnotations(readOnlyHint=True, destructiveHint=False)
+    register_tool(server, _noop_tool, write=True, annotations=explicit_annotations)
+
+    tool = _tool_by_name(server, "_noop_tool")
+    assert tool.annotations is not None
+    assert tool.annotations.readOnlyHint is True
+    assert tool.annotations.destructiveHint is False
+
+
+# ---------------------------------------------------------------------------
+# Forward-ref globals: integration test that covers globals-copy call sites
+# ---------------------------------------------------------------------------
+
+
+def test_wrapped_tool_resolves_forward_ref_annotations() -> None:
+    """A tool using forward-ref annotations from its own module executes without NameError."""
+
+    # Define a tool at module scope so its __module__ resolves correctly,
+    # then register it through the full stack (ensure + wrap + result_transform).
+    # All three wrappers copy the originating module's globals into the wrapper,
+    # ensuring forward-ref annotations remain resolvable.
+
+    async def annotated_tool(ctx: "SchwabContext") -> "str":  # noqa: F821
+        return "forward-ref-ok"
+
+    annotated_tool.__module__ = __name__
+
+    server = FastMCP(name="fwd-ref")
+    register_tool(server, annotated_tool, result_transform=lambda v: v)
+
+    tool = _tool_by_name(server, "annotated_tool")
+
+    request_context = _make_request_context()
+    ctx = SchwabContext.model_construct(
+        _request_context=cast(Any, request_context),
+        _fastmcp=None,
+    )
+
+    result = asyncio.run(tool.fn(ctx))
+    assert result == "forward-ref-ok"
