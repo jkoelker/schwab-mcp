@@ -2,6 +2,7 @@
 
 import uuid
 from collections.abc import Callable
+from dataclasses import dataclass
 from typing import Annotated, Any, cast
 
 from typing_extensions import TypedDict
@@ -247,12 +248,10 @@ def _build_trailing_stop_from_desc(
     ValueErrors as the inline branch it replaces."""
     if asset_type == "OPTION":
         raise ValueError("TRAILING_STOP orders are not supported for OPTION asset_type")
-    trail_offset = desc.get("trail_offset")
-    if trail_offset is None:
+    if desc.trail_offset is None:
         raise ValueError("TRAILING_STOP orders require 'trail_offset'")
-    trail_type = desc.get("trail_type", "VALUE")
     return _build_trailing_stop_order_spec(
-        symbol, quantity, instruction, trail_offset, trail_type
+        symbol, quantity, instruction, desc.trail_offset, desc.trail_type
     )
 
 
@@ -323,8 +322,8 @@ def _build_option_order_spec(
         return limit_builder(symbol, quantity, price)
 
 
-class _OrderDescRequired(TypedDict):
-    """Required fields for an order leg description."""
+class _OrderDescInputRequired(TypedDict):
+    """Required fields for an order leg description (TypedDict for MCP schema)."""
 
     symbol: str
     quantity: int
@@ -332,16 +331,13 @@ class _OrderDescRequired(TypedDict):
     order_type: str
 
 
-class OrderDesc(_OrderDescRequired, total=False):
-    """Description of a single order leg for composite order tools.
+class _OrderDescInput(_OrderDescInputRequired, total=False):
+    """TypedDict used as the MCP tool parameter type for order leg dicts.
 
-    Required fields: symbol, quantity, instruction, order_type.
-    Conditional fields depend on order_type:
-      - price: required for LIMIT and STOP_LIMIT (equity/option)
-      - stop_price: required for STOP and STOP_LIMIT (equity only)
-      - trail_offset: required for TRAILING_STOP
-      - trail_type: VALUE (default) or PERCENT for TRAILING_STOP
-    Optional overrides: asset_type (EQUITY default), session, duration.
+    FastMCP generates the JSON schema for tool inputs from this TypedDict.
+    Raw dicts received from MCP clients are validated and converted to
+    ``OrderDesc`` dataclass instances via ``OrderDesc.from_dict()`` before
+    any internal processing occurs.
     """
 
     price: float
@@ -353,91 +349,147 @@ class OrderDesc(_OrderDescRequired, total=False):
     duration: str
 
 
-def _validate_order_desc_fields(desc: OrderDesc) -> tuple[str, int, str, str, str]:
-    """Validate and extract the required OrderDesc fields, raising ValueError with
-    a descriptive message if required fields are missing or values are invalid.
+@dataclass(frozen=True)
+class OrderDesc:
+    """Description of a single order leg for composite order tools.
 
-    Since OrderDesc dicts typically originate from untrusted MCP tool-call JSON
-    (not Python literals), required keys are checked explicitly at runtime
-    rather than relying on static typing.
+    Instances are created via ``OrderDesc.from_dict(raw)`` which validates
+    and normalises the raw dict received from untrusted MCP tool-call JSON.
+
+    Required fields: symbol, quantity, instruction, order_type.
+    Conditional fields depend on order_type:
+      - price: required for LIMIT and STOP_LIMIT (equity/option)
+      - stop_price: required for STOP and STOP_LIMIT (equity only)
+      - trail_offset: required for TRAILING_STOP (validated lazily at build time)
+      - trail_type: VALUE (default) or PERCENT for TRAILING_STOP
+    Optional overrides: asset_type (EQUITY default), session, duration.
     """
-    required = ("symbol", "quantity", "instruction", "order_type")
-    missing = [field for field in required if field not in desc]
-    if missing:
-        raise ValueError(f"missing required field(s): {', '.join(missing)}")
 
-    for field in ("symbol", "instruction", "order_type"):
-        value = desc[field]
-        if not isinstance(value, str):
-            raise ValueError(f"{field} must be a string, got {value!r}")
+    symbol: str
+    quantity: int
+    instruction: str
+    order_type: str
+    price: float | None = None
+    stop_price: float | None = None
+    trail_offset: float | None = None
+    trail_type: str = "VALUE"
+    asset_type: str = "EQUITY"
+    session: str | None = None
+    duration: str | None = None
 
-    quantity = desc["quantity"]
-    if not isinstance(quantity, int) or isinstance(quantity, bool):
-        raise ValueError(f"quantity must be an integer, got {quantity!r}")
+    @classmethod
+    def from_dict(cls, raw: dict[str, Any]) -> "OrderDesc":
+        """Validate and construct an ``OrderDesc`` from a raw dict.
 
-    symbol = desc["symbol"]
-    instruction = desc["instruction"]
-    order_type = desc["order_type"].upper()
-    asset_type = _validate_order_desc_asset_type(desc.get("asset_type", "EQUITY"))
+        Performs all field-presence and type checks (including optional
+        fields, when present), normalises ``order_type`` and ``asset_type``
+        to uppercase, and raises ``ValueError`` with a descriptive message on
+        any validation failure.
 
-    return symbol, quantity, instruction, order_type, asset_type
+        Requiredness of conditional fields (e.g. ``price`` for LIMIT orders,
+        ``trail_offset`` for TRAILING_STOP orders) is intentionally left to
+        the order builders, which know which fields apply for a given
+        ``order_type``/``asset_type`` combination. This method only checks
+        that fields, when present, have the right type.
+        """
+        required = ("symbol", "quantity", "instruction", "order_type")
+        missing = [field for field in required if field not in raw]
+        if missing:
+            raise ValueError(f"missing required field(s): {', '.join(missing)}")
 
+        for field in ("symbol", "instruction", "order_type"):
+            value = raw[field]
+            if not isinstance(value, str):
+                raise ValueError(f"{field} must be a string, got {value!r}")
 
-def _validate_order_desc_asset_type(raw_asset_type: Any) -> str:
-    """Validate and normalize the OrderDesc asset_type field."""
-    if not isinstance(raw_asset_type, str):
-        raise ValueError(f"asset_type must be a string, got {raw_asset_type!r}")
-    asset_type = raw_asset_type.upper()
-    if asset_type not in ("EQUITY", "OPTION"):
-        raise ValueError(f"Invalid asset_type: {asset_type}. Must be EQUITY or OPTION.")
-    return asset_type
+        quantity = raw["quantity"]
+        if not isinstance(quantity, int) or isinstance(quantity, bool):
+            raise ValueError(f"quantity must be an integer, got {quantity!r}")
+
+        raw_asset_type = raw.get("asset_type", "EQUITY")
+        if not isinstance(raw_asset_type, str):
+            raise ValueError(f"asset_type must be a string, got {raw_asset_type!r}")
+        asset_type = raw_asset_type.upper()
+        if asset_type not in ("EQUITY", "OPTION"):
+            raise ValueError(
+                f"Invalid asset_type: {asset_type}. Must be EQUITY or OPTION."
+            )
+
+        for field in ("price", "stop_price", "trail_offset"):
+            value = raw.get(field)
+            if value is not None and (
+                not isinstance(value, (int, float)) or isinstance(value, bool)
+            ):
+                raise ValueError(f"{field} must be a number, got {value!r}")
+
+        trail_type = raw.get("trail_type", "VALUE")
+        if not isinstance(trail_type, str):
+            raise ValueError(f"trail_type must be a string, got {trail_type!r}")
+
+        for field in ("session", "duration"):
+            value = raw.get(field)
+            if value is not None and not isinstance(value, str):
+                raise ValueError(f"{field} must be a string, got {value!r}")
+
+        return cls(
+            symbol=raw["symbol"],
+            quantity=quantity,
+            instruction=raw["instruction"],
+            order_type=raw["order_type"].upper(),
+            price=raw.get("price"),
+            stop_price=raw.get("stop_price"),
+            trail_offset=raw.get("trail_offset"),
+            trail_type=trail_type,
+            asset_type=asset_type,
+            session=raw.get("session"),
+            duration=raw.get("duration"),
+        )
 
 
 def _build_order_from_desc(
-    desc: OrderDesc,
+    desc: dict[str, Any],
     default_session: str | None,
     default_duration: str | None,
 ) -> Any:
-    """Build an OrderBuilder from an OrderDesc dict.
+    """Build an OrderBuilder from a raw order-leg dict.
 
-    Routes to the appropriate internal builder based on asset_type and
-    order_type. Per-leg session/duration in the OrderDesc override the
-    provided defaults when present.
+    Validates and converts ``desc`` to an ``OrderDesc`` dataclass via
+    ``OrderDesc.from_dict()``, then routes to the appropriate internal
+    builder based on asset_type and order_type. Per-leg session/duration
+    in the dict override the provided defaults when present.
 
     Raises ValueError with a descriptive message if required fields are
-    missing or values are invalid. Since OrderDesc dicts typically originate
+    missing or values are invalid. Since order-leg dicts typically originate
     from untrusted MCP tool-call JSON (not Python literals), required keys
     are checked explicitly at runtime rather than relying on static typing.
     """
-    symbol, quantity, instruction, order_type, asset_type = _validate_order_desc_fields(
-        desc
-    )
+    od = OrderDesc.from_dict(desc)
 
     # Determine effective session/duration (per-leg overrides defaults)
-    session = desc.get("session", default_session)
-    duration = desc.get("duration", default_duration)
+    session = od.session if od.session is not None else default_session
+    duration = od.duration if od.duration is not None else default_duration
 
-    if order_type == "TRAILING_STOP":
+    if od.order_type == "TRAILING_STOP":
         builder = _build_trailing_stop_from_desc(
-            desc, symbol, quantity, instruction, asset_type
+            od, od.symbol, od.quantity, od.instruction, od.asset_type
         )
-    elif asset_type == "OPTION":
+    elif od.asset_type == "OPTION":
         builder = _build_option_order_spec(
-            symbol,
-            quantity,
-            instruction,
-            order_type,
-            price=desc.get("price"),
+            od.symbol,
+            od.quantity,
+            od.instruction,
+            od.order_type,
+            price=od.price,
         )
     else:
         # Default: EQUITY
         builder = _build_equity_order_spec(
-            symbol,
-            quantity,
-            instruction,
-            order_type,
-            price=desc.get("price"),
-            stop_price=desc.get("stop_price"),
+            od.symbol,
+            od.quantity,
+            od.instruction,
+            od.order_type,
+            price=od.price,
+            stop_price=od.stop_price,
         )
 
     builder = _apply_order_settings(builder, session, duration)
@@ -526,8 +578,8 @@ def _prepare_trailing_stop_order(
 
 
 def _prepare_oco_order(
-    first_order: "OrderDesc",
-    second_order: "OrderDesc",
+    first_order: dict[str, Any],
+    second_order: dict[str, Any],
     session: str | None = "NORMAL",
     duration: str | None = "DAY",
 ) -> dict[str, Any]:
@@ -544,8 +596,8 @@ def _prepare_oco_order(
 
 
 def _prepare_trigger_order(
-    entry_order: "OrderDesc",
-    exit_orders: "list[OrderDesc]",
+    entry_order: dict[str, Any],
+    exit_orders: list[dict[str, Any]],
     session: str | None = "NORMAL",
     duration: str | None = "DAY",
 ) -> dict[str, Any]:
@@ -1037,13 +1089,13 @@ async def preview_oco_order(
     ctx: SchwabContext,
     account_hash: Annotated[str, "Account hash for the Schwab account"],
     first_order: Annotated[
-        OrderDesc,
+        _OrderDescInput,
         "First order leg description. Required fields: symbol, quantity, instruction, order_type. "
         "Conditional: price (LIMIT/STOP_LIMIT), stop_price (STOP/STOP_LIMIT), "
         "trail_offset (TRAILING_STOP). Optional: asset_type (EQUITY/OPTION), session, duration.",
     ],
     second_order: Annotated[
-        OrderDesc,
+        _OrderDescInput,
         "Second order leg description. Same fields as first_order. "
         "Execution of one cancels the other.",
     ],
@@ -1062,7 +1114,12 @@ async def preview_oco_order(
     Call place_previewed_order(account_hash, preview_id) to execute this
     exact order. Params: same as this order shape's fields below.
     """
-    order_spec_dict = _prepare_oco_order(first_order, second_order, session, duration)
+    order_spec_dict = _prepare_oco_order(
+        cast(dict[str, Any], first_order),
+        cast(dict[str, Any], second_order),
+        session,
+        duration,
+    )
     preview = await call(
         ctx.orders.preview_order, account_hash=account_hash, order_spec=order_spec_dict
     )
@@ -1084,13 +1141,13 @@ async def preview_trigger_order(
     ctx: SchwabContext,
     account_hash: Annotated[str, "Account hash for the Schwab account"],
     entry_order: Annotated[
-        OrderDesc,
+        _OrderDescInput,
         "Entry (primary) order description. Required fields: symbol, quantity, instruction, order_type. "
         "Conditional: price (LIMIT/STOP_LIMIT), stop_price (STOP/STOP_LIMIT), "
         "trail_offset (TRAILING_STOP). Optional: asset_type (EQUITY/OPTION), session, duration.",
     ],
     exit_orders: Annotated[
-        list[OrderDesc],
+        list[_OrderDescInput],
         "Exit order(s) triggered after entry fills. "
         "1 exit: simple trigger(entry, exit). "
         "2 exits: trigger(entry, oco(exit1, exit2)) — full bracket-like structure. "
@@ -1112,7 +1169,10 @@ async def preview_trigger_order(
     exact order. Params: same as this order shape's fields below.
     """
     order_spec_dict = _prepare_trigger_order(
-        entry_order, exit_orders, session, duration
+        cast(dict[str, Any], entry_order),
+        cast(list[dict[str, Any]], exit_orders),
+        session,
+        duration,
     )
     preview = await call(
         ctx.orders.preview_order, account_hash=account_hash, order_spec=order_spec_dict

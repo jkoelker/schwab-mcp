@@ -868,14 +868,14 @@ class TestPrepareTrailingStopOrderValidation:
 
 
 class TestPrepareOcoOrderValidation:
-    _GOOD_FIRST: orders.OrderDesc = {
+    _GOOD_FIRST: dict[str, Any] = {
         "symbol": "SPY",
         "quantity": 100,
         "instruction": "SELL",
         "order_type": "LIMIT",
         "price": 160.0,
     }
-    _GOOD_SECOND: orders.OrderDesc = {
+    _GOOD_SECOND: dict[str, Any] = {
         "symbol": "SPY",
         "quantity": 100,
         "instruction": "SELL",
@@ -884,7 +884,7 @@ class TestPrepareOcoOrderValidation:
     }
 
     def test_invalid_first_order_raises_with_prefix(self):
-        bad_first: orders.OrderDesc = {
+        bad_first: dict[str, Any] = {
             "symbol": "SPY",
             "quantity": 100,
             "instruction": "SELL",
@@ -894,7 +894,7 @@ class TestPrepareOcoOrderValidation:
             orders._prepare_oco_order(bad_first, self._GOOD_SECOND)
 
     def test_invalid_second_order_raises_with_prefix(self):
-        bad_second: orders.OrderDesc = {
+        bad_second: dict[str, Any] = {
             "symbol": "SPY",
             "quantity": 100,
             "instruction": "SELL",
@@ -910,7 +910,7 @@ class TestPrepareOcoOrderValidation:
 
 
 class TestPrepareTriggerOrderValidation:
-    _ENTRY: orders.OrderDesc = {
+    _ENTRY: dict[str, Any] = {
         "symbol": "SPY",
         "quantity": 100,
         "instruction": "BUY",
@@ -922,13 +922,13 @@ class TestPrepareTriggerOrderValidation:
             orders._prepare_trigger_order(self._ENTRY, [])
 
     def test_invalid_entry_raises_with_prefix(self):
-        bad_entry: orders.OrderDesc = {
+        bad_entry: dict[str, Any] = {
             "symbol": "SPY",
             "quantity": 10,
             "instruction": "BUY",
             "order_type": "LIMIT",
         }
-        exit_order: orders.OrderDesc = {
+        exit_order: dict[str, Any] = {
             "symbol": "SPY",
             "quantity": 10,
             "instruction": "SELL",
@@ -938,7 +938,7 @@ class TestPrepareTriggerOrderValidation:
             orders._prepare_trigger_order(bad_entry, [exit_order])
 
     def test_invalid_exit_raises_with_index_prefix(self):
-        bad_exit: orders.OrderDesc = {
+        bad_exit: dict[str, Any] = {
             "symbol": "SPY",
             "quantity": 10,
             "instruction": "SELL",
@@ -1096,7 +1096,7 @@ class TestBuildOrderFromDesc:
     """Tests for the _build_order_from_desc dispatcher."""
 
     def test_equity_market_order(self):
-        desc: orders.OrderDesc = {
+        desc: dict[str, Any] = {
             "symbol": "AAPL",
             "quantity": 10,
             "instruction": "BUY",
@@ -1109,7 +1109,7 @@ class TestBuildOrderFromDesc:
         assert spec["orderLegCollection"][0]["instrument"]["symbol"] == "AAPL"
 
     def test_equity_limit_order(self):
-        desc: orders.OrderDesc = {
+        desc: dict[str, Any] = {
             "symbol": "SPY",
             "quantity": 5,
             "instruction": "SELL",
@@ -1122,7 +1122,7 @@ class TestBuildOrderFromDesc:
         assert float(spec["price"]) == 450.00
 
     def test_equity_stop_order(self):
-        desc: orders.OrderDesc = {
+        desc: dict[str, Any] = {
             "symbol": "TSLA",
             "quantity": 2,
             "instruction": "SELL",
@@ -1135,7 +1135,7 @@ class TestBuildOrderFromDesc:
         assert float(spec["stopPrice"]) == 200.00
 
     def test_equity_stop_limit_order(self):
-        desc: orders.OrderDesc = {
+        desc: dict[str, Any] = {
             "symbol": "NVDA",
             "quantity": 3,
             "instruction": "BUY",
@@ -1150,7 +1150,7 @@ class TestBuildOrderFromDesc:
         assert float(spec["stopPrice"]) == 795.00
 
     def test_option_buy_to_open_market(self):
-        desc: orders.OrderDesc = {
+        desc: dict[str, Any] = {
             "symbol": "SPY 251219C500",
             "quantity": 1,
             "instruction": "BUY_TO_OPEN",
@@ -1163,7 +1163,7 @@ class TestBuildOrderFromDesc:
         assert spec["orderLegCollection"][0]["instruction"] == "BUY_TO_OPEN"
 
     def test_option_sell_to_close_limit(self):
-        desc: orders.OrderDesc = {
+        desc: dict[str, Any] = {
             "symbol": "SPY 251219C500",
             "quantity": 2,
             "instruction": "SELL_TO_CLOSE",
@@ -1178,7 +1178,7 @@ class TestBuildOrderFromDesc:
         assert spec["orderLegCollection"][0]["instruction"] == "SELL_TO_CLOSE"
 
     def test_trailing_stop_value(self):
-        desc: orders.OrderDesc = {
+        desc: dict[str, Any] = {
             "symbol": "AAPL",
             "quantity": 10,
             "instruction": "SELL",
@@ -1193,7 +1193,7 @@ class TestBuildOrderFromDesc:
         assert spec["stopPriceLinkType"] == "VALUE"
 
     def test_trailing_stop_percent(self):
-        desc: orders.OrderDesc = {
+        desc: dict[str, Any] = {
             "symbol": "TSLA",
             "quantity": 5,
             "instruction": "SELL",
@@ -1206,20 +1206,57 @@ class TestBuildOrderFromDesc:
         assert spec["stopPriceLinkType"] == "PERCENT"
 
     def test_missing_required_field_raises(self):
-        # OrderDesc dicts arrive as untrusted MCP tool-call JSON, not Python
-        # literals, so required keys are checked explicitly at runtime and
-        # raise a descriptive ValueError rather than a bare KeyError.
+        # Order-leg dicts arrive as untrusted MCP tool-call JSON, not Python
+        # literals, so required keys are checked explicitly at runtime (via
+        # OrderDesc.from_dict()) and raise a descriptive ValueError rather
+        # than a bare KeyError.
         bad_desc = {"symbol": "AAPL", "quantity": 10, "instruction": "BUY"}
         with pytest.raises(ValueError, match="order_type"):
-            orders._build_order_from_desc(bad_desc, "NORMAL", "DAY")  # type: ignore[arg-type]
+            orders._build_order_from_desc(bad_desc, "NORMAL", "DAY")
 
     def test_missing_multiple_required_fields_raises(self):
         bad_desc = {"symbol": "AAPL"}
         with pytest.raises(ValueError, match="quantity.*instruction.*order_type"):
-            orders._build_order_from_desc(bad_desc, "NORMAL", "DAY")  # type: ignore[arg-type]
+            orders._build_order_from_desc(bad_desc, "NORMAL", "DAY")
+
+    @pytest.mark.parametrize("field", ["price", "stop_price", "trail_offset"])
+    def test_non_numeric_optional_field_raises(self, field):
+        bad_desc = {
+            "symbol": "AAPL",
+            "quantity": 10,
+            "instruction": "BUY",
+            "order_type": "LIMIT",
+            field: "not-a-number",
+        }
+        with pytest.raises(ValueError, match=f"{field} must be a number"):
+            orders._build_order_from_desc(bad_desc, "NORMAL", "DAY")
+
+    def test_non_string_trail_type_raises(self):
+        bad_desc = {
+            "symbol": "AAPL",
+            "quantity": 10,
+            "instruction": "SELL",
+            "order_type": "TRAILING_STOP",
+            "trail_offset": 1.0,
+            "trail_type": 123,
+        }
+        with pytest.raises(ValueError, match="trail_type must be a string"):
+            orders._build_order_from_desc(bad_desc, "NORMAL", "DAY")
+
+    @pytest.mark.parametrize("field", ["session", "duration"])
+    def test_non_string_session_or_duration_raises(self, field):
+        bad_desc = {
+            "symbol": "AAPL",
+            "quantity": 10,
+            "instruction": "BUY",
+            "order_type": "MARKET",
+            field: 123,
+        }
+        with pytest.raises(ValueError, match=f"{field} must be a string"):
+            orders._build_order_from_desc(bad_desc, "NORMAL", "DAY")
 
     def test_trailing_stop_with_option_raises(self):
-        desc: orders.OrderDesc = {
+        desc: dict[str, Any] = {
             "symbol": "SPY 251219C500",
             "quantity": 1,
             "instruction": "SELL_TO_CLOSE",
@@ -1231,7 +1268,7 @@ class TestBuildOrderFromDesc:
             orders._build_order_from_desc(desc, "NORMAL", "DAY")
 
     def test_per_leg_session_overrides_default(self):
-        desc: orders.OrderDesc = {
+        desc: dict[str, Any] = {
             "symbol": "AAPL",
             "quantity": 10,
             "instruction": "BUY",
@@ -1243,7 +1280,7 @@ class TestBuildOrderFromDesc:
         assert spec["session"] == "AM"
 
     def test_per_leg_duration_overrides_default(self):
-        desc: orders.OrderDesc = {
+        desc: dict[str, Any] = {
             "symbol": "AAPL",
             "quantity": 10,
             "instruction": "BUY",
@@ -1255,7 +1292,7 @@ class TestBuildOrderFromDesc:
         assert spec["duration"] == "GOOD_TILL_CANCEL"
 
     def test_trailing_stop_missing_trail_offset_raises(self):
-        desc: orders.OrderDesc = {
+        desc: dict[str, Any] = {
             "symbol": "AAPL",
             "quantity": 5,
             "instruction": "SELL",
@@ -1277,7 +1314,7 @@ class TestBuildOrderFromDesc:
             "order_type": None,
         }
         with pytest.raises(ValueError, match="order_type must be a string"):
-            orders._build_order_from_desc(bad_desc, "NORMAL", "DAY")  # type: ignore[arg-type]
+            orders._build_order_from_desc(bad_desc, "NORMAL", "DAY")
 
     def test_non_string_asset_type_raises_value_error(self):
         bad_desc = {
@@ -1288,10 +1325,10 @@ class TestBuildOrderFromDesc:
             "asset_type": 123,
         }
         with pytest.raises(ValueError, match="asset_type must be a string"):
-            orders._build_order_from_desc(bad_desc, "NORMAL", "DAY")  # type: ignore[arg-type]
+            orders._build_order_from_desc(bad_desc, "NORMAL", "DAY")
 
     def test_invalid_asset_type_raises_value_error(self):
-        bad_desc: orders.OrderDesc = {
+        bad_desc: dict[str, Any] = {
             "symbol": "AAPL",
             "quantity": 10,
             "instruction": "BUY",
@@ -1309,7 +1346,7 @@ class TestBuildOrderFromDesc:
             "order_type": "MARKET",
         }
         with pytest.raises(ValueError, match="symbol must be a string"):
-            orders._build_order_from_desc(bad_desc, "NORMAL", "DAY")  # type: ignore[arg-type]
+            orders._build_order_from_desc(bad_desc, "NORMAL", "DAY")
 
     def test_non_int_quantity_raises_value_error(self):
         bad_desc = {
@@ -1319,7 +1356,7 @@ class TestBuildOrderFromDesc:
             "order_type": "MARKET",
         }
         with pytest.raises(ValueError, match="quantity must be an integer"):
-            orders._build_order_from_desc(bad_desc, "NORMAL", "DAY")  # type: ignore[arg-type]
+            orders._build_order_from_desc(bad_desc, "NORMAL", "DAY")
 
     def test_bool_quantity_raises_value_error(self):
         # bool is a subclass of int in Python; reject it explicitly so a
@@ -1331,7 +1368,7 @@ class TestBuildOrderFromDesc:
             "order_type": "MARKET",
         }
         with pytest.raises(ValueError, match="quantity must be an integer"):
-            orders._build_order_from_desc(bad_desc, "NORMAL", "DAY")  # type: ignore[arg-type]
+            orders._build_order_from_desc(bad_desc, "NORMAL", "DAY")
 
     def test_non_string_instruction_raises_value_error(self):
         bad_desc = {
@@ -1341,7 +1378,7 @@ class TestBuildOrderFromDesc:
             "order_type": "MARKET",
         }
         with pytest.raises(ValueError, match="instruction must be a string"):
-            orders._build_order_from_desc(bad_desc, "NORMAL", "DAY")  # type: ignore[arg-type]
+            orders._build_order_from_desc(bad_desc, "NORMAL", "DAY")
 
 
 class TestCreateOptionSymbol:
@@ -1722,14 +1759,14 @@ class TestPreviewEquityTrailingStopOrder:
 
 
 class TestPreviewOcoOrder:
-    _LIMIT_LEG: orders.OrderDesc = {
+    _LIMIT_LEG: dict[str, Any] = {
         "symbol": "AAPL",
         "quantity": 100,
         "instruction": "SELL",
         "order_type": "LIMIT",
         "price": 160.0,
     }
-    _STOP_LEG: orders.OrderDesc = {
+    _STOP_LEG: dict[str, Any] = {
         "symbol": "AAPL",
         "quantity": 100,
         "instruction": "SELL",
@@ -1747,7 +1784,7 @@ class TestPreviewOcoOrder:
         monkeypatch.setattr(orders, "call", fake_call)
 
         result = run(
-            orders.preview_oco_order(ctx, "acc123", self._LIMIT_LEG, self._STOP_LEG)
+            orders.preview_oco_order(ctx, "acc123", self._LIMIT_LEG, self._STOP_LEG)  # type: ignore[arg-type]
         )
 
         assert "preview_id" in result
@@ -1763,7 +1800,7 @@ class TestPreviewOcoOrder:
         monkeypatch.setattr(orders, "call", fake_call)
 
         result = run(
-            orders.preview_oco_order(ctx, "acc123", self._LIMIT_LEG, self._STOP_LEG)
+            orders.preview_oco_order(ctx, "acc123", self._LIMIT_LEG, self._STOP_LEG)  # type: ignore[arg-type]
         )
 
         entry = ctx.previews.pop(result["preview_id"], "acc123")
@@ -1774,7 +1811,7 @@ class TestPreviewOcoOrder:
 class TestPreviewTriggerOrder:
     def _make_leg(
         self, instruction: str = "BUY", order_type: str = "MARKET"
-    ) -> orders.OrderDesc:
+    ) -> dict[str, Any]:
         return {
             "symbol": "AAPL",
             "quantity": 100,
@@ -1791,7 +1828,7 @@ class TestPreviewTriggerOrder:
 
         monkeypatch.setattr(orders, "call", fake_call)
 
-        exit_leg: orders.OrderDesc = {
+        exit_leg: dict[str, Any] = {
             "symbol": "AAPL",
             "quantity": 100,
             "instruction": "SELL",
@@ -1799,7 +1836,7 @@ class TestPreviewTriggerOrder:
             "price": 160.0,
         }
         result = run(
-            orders.preview_trigger_order(ctx, "acc123", self._make_leg(), [exit_leg])
+            orders.preview_trigger_order(ctx, "acc123", self._make_leg(), [exit_leg])  # type: ignore[arg-type]
         )
 
         assert "preview_id" in result
@@ -1814,7 +1851,7 @@ class TestPreviewTriggerOrder:
 
         monkeypatch.setattr(orders, "call", fake_call)
 
-        exit_leg: orders.OrderDesc = {
+        exit_leg: dict[str, Any] = {
             "symbol": "AAPL",
             "quantity": 100,
             "instruction": "SELL",
@@ -1822,7 +1859,7 @@ class TestPreviewTriggerOrder:
             "price": 160.0,
         }
         result = run(
-            orders.preview_trigger_order(ctx, "acc123", self._make_leg(), [exit_leg])
+            orders.preview_trigger_order(ctx, "acc123", self._make_leg(), [exit_leg])  # type: ignore[arg-type]
         )
 
         entry = ctx.previews.pop(result["preview_id"], "acc123")
@@ -1833,7 +1870,7 @@ class TestPreviewTriggerOrder:
         client = DummyPreviewClient()
         ctx = make_ctx(client)
         with pytest.raises(ValueError, match="exit_orders must contain"):
-            run(orders.preview_trigger_order(ctx, "acc123", self._make_leg(), []))
+            run(orders.preview_trigger_order(ctx, "acc123", self._make_leg(), []))  # type: ignore[arg-type]
 
 
 class TestPreviewBracketOrder:
