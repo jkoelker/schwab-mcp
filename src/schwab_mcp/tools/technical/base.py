@@ -362,7 +362,9 @@ def series_to_json(
         if pd.isna(timestamp) or pd.isna(value):
             continue
 
-        rows.append({"timestamp": timestamp.isoformat(), value_key: float(value)})
+        rows.append(
+            {"timestamp": timestamp.isoformat(), value_key: round(float(value), 6)}
+        )
 
     return rows
 
@@ -389,7 +391,7 @@ def frame_to_json(
     rows: list[dict[str, Any]] = []
     for timestamp, (_, row) in zip(index, numeric.iterrows()):
         valid_items = {
-            str(column): float(value)
+            str(column): round(float(value), 6)
             for column, value in row.items()
             if pd.notna(value)
         }

@@ -261,22 +261,22 @@ async def expected_move(
     adjusted_move_percent = adjusted_move / float(underlying)
 
     boundaries = {
-        "upper_1x": float(underlying) + adjusted_move,
-        "lower_1x": float(underlying) - adjusted_move,
-        "upper_2x": float(underlying) + (adjusted_move * 2.0),
-        "lower_2x": float(underlying) - (adjusted_move * 2.0),
+        "upper_1x": _round(float(underlying) + adjusted_move, 6),
+        "lower_1x": _round(float(underlying) - adjusted_move, 6),
+        "upper_2x": _round(float(underlying) + (adjusted_move * 2.0), 6),
+        "lower_2x": _round(float(underlying) - (adjusted_move * 2.0), 6),
     }
 
     response: dict[str, JSONType] = {
         "symbol": symbol.upper(),
-        "call_price": float(call_price),
-        "put_price": float(put_price),
-        "underlying_price": float(underlying),
-        "expected_move": straddle_price,
-        "expected_move_percent": move_percent,
+        "call_price": _round(float(call_price), 6),
+        "put_price": _round(float(put_price), 6),
+        "underlying_price": _round(float(underlying), 6),
+        "expected_move": _round(straddle_price, 6),
+        "expected_move_percent": _round(move_percent, 6),
         "multiplier": float(multiplier),
-        "adjusted_move": adjusted_move,
-        "adjusted_move_percent": adjusted_move_percent,
+        "adjusted_move": _round(adjusted_move, 6),
+        "adjusted_move_percent": _round(adjusted_move_percent, 6),
         "boundaries": boundaries,
     }
 
