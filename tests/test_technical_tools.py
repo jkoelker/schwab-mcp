@@ -859,3 +859,821 @@ def test_pivot_points_defaults_to_default_points_not_lookback(
 
     values = result["values"]
     assert len(values) == base.DEFAULT_POINTS
+
+
+# ---------------------------------------------------------------------------
+# base.py — normalize_interval
+# ---------------------------------------------------------------------------
+
+
+def test_normalize_interval_rejects_unknown_interval():
+    with pytest.raises(ValueError, match="Unsupported interval"):
+        base.normalize_interval("2h")
+
+
+def test_normalize_interval_accepts_valid_intervals():
+    for iv in ("1m", "5m", "10m", "15m", "30m", "1d", "1w"):
+        assert base.normalize_interval(iv) == iv
+
+
+# ---------------------------------------------------------------------------
+# base.py — series_to_json edge cases
+# ---------------------------------------------------------------------------
+
+
+def test_series_to_json_returns_empty_for_empty_series():
+    assert base.series_to_json(pd.Series([], dtype=float)) == []
+
+
+def test_series_to_json_returns_empty_after_dropna():
+    s = pd.Series(
+        [float("nan")], index=pd.date_range("2024-01-01", periods=1, tz="UTC")
+    )
+    assert base.series_to_json(s) == []
+
+
+def test_series_to_json_uses_series_name_when_no_value_key():
+    index = pd.date_range("2024-01-01", periods=2, tz="UTC")
+    s = pd.Series([1.0, 2.0], index=index, name="my_col")
+    rows = base.series_to_json(s)
+    assert rows[-1]["my_col"] == pytest.approx(2.0)
+
+
+def test_series_to_json_uses_value_fallback_name_when_no_name():
+    index = pd.date_range("2024-01-01", periods=2, tz="UTC")
+    s = pd.Series([1.0, 2.0], index=index)  # name=None
+    rows = base.series_to_json(s)
+    assert "value" in rows[-1]
+
+
+def test_series_to_json_with_limit_none_returns_all_rows():
+    index = pd.date_range("2024-01-01", periods=5, tz="UTC")
+    s = pd.Series(range(5, 10), index=index, dtype=float)
+    rows = base.series_to_json(s, limit=None, value_key="v")
+    assert len(rows) == 5
+
+
+def test_series_to_json_non_datetime_index_is_normalized():
+    # String index → converted via pd.to_datetime path (covers non-DatetimeIndex branch)
+    index = pd.Index(["2024-01-01", "2024-01-02"])
+    s = pd.Series([10.0, 20.0], index=index)
+    rows = base.series_to_json(s, value_key="x")
+    assert len(rows) == 2
+
+
+# ---------------------------------------------------------------------------
+# base.py — frame_to_json edge cases
+# ---------------------------------------------------------------------------
+
+
+def test_frame_to_json_returns_empty_for_empty_frame():
+    assert base.frame_to_json(pd.DataFrame()) == []
+
+
+def test_frame_to_json_returns_empty_when_all_non_numeric():
+    index = pd.date_range("2024-01-01", periods=2, tz="UTC")
+    frame = pd.DataFrame({"col": ["a", "b"]}, index=index)
+    assert base.frame_to_json(frame) == []
+
+
+def test_frame_to_json_with_limit_none_returns_all_rows():
+    index = pd.date_range("2024-01-01", periods=4, tz="UTC")
+    frame = pd.DataFrame({"v": [1.0, 2.0, 3.0, 4.0]}, index=index)
+    rows = base.frame_to_json(frame, limit=None)
+    assert len(rows) == 4
+
+
+# ---------------------------------------------------------------------------
+# base.py — compute_series_indicator error branches
+# ---------------------------------------------------------------------------
+
+
+def test_compute_series_indicator_raises_on_empty_frame(monkeypatch, dummy_ctx):
+    async def fake_fetch(ctx, symbol, **kwargs):
+        meta = {
+            "symbol": symbol,
+            "interval": "1d",
+            "start": None,
+            "end": "2024-01-06T00:00:00+00:00",
+            "bars_requested": None,
+            "empty": True,
+            "candles_returned": 0,
+        }
+        return pd.DataFrame(), meta
+
+    monkeypatch.setattr(base, "fetch_price_frame", fake_fetch)
+
+    with pytest.raises(ValueError, match="No price data"):
+        run(
+            base.compute_series_indicator(
+                dummy_ctx,
+                "HOOD",
+                indicator_fn=lambda f: None,
+                indicator_name="test",
+                interval="1d",
+                start=None,
+                end=None,
+                bars=10,
+                points=3,
+                value_key="v",
+                required_columns=(),  # skip column check so empty-frame branch fires
+            )
+        )
+
+
+def test_compute_series_indicator_raises_when_fn_returns_none(
+    monkeypatch, dummy_ctx, price_data
+):
+    frame, metadata = price_data
+
+    async def fake_fetch(ctx, symbol, **kwargs):
+        return frame, metadata
+
+    monkeypatch.setattr(base, "fetch_price_frame", fake_fetch)
+
+    with pytest.raises(RuntimeError, match="returned no values"):
+        run(
+            base.compute_series_indicator(
+                dummy_ctx,
+                "HOOD",
+                indicator_fn=lambda f: None,
+                indicator_name="bad_ind",
+                interval="1d",
+                start=None,
+                end=None,
+                bars=10,
+                points=3,
+                value_key="v",
+            )
+        )
+
+
+def test_compute_series_indicator_raises_when_fn_returns_dataframe(
+    monkeypatch, dummy_ctx, price_data
+):
+    frame, metadata = price_data
+
+    async def fake_fetch(ctx, symbol, **kwargs):
+        return frame, metadata
+
+    monkeypatch.setattr(base, "fetch_price_frame", fake_fetch)
+
+    with pytest.raises(TypeError, match="got DataFrame"):
+        run(
+            base.compute_series_indicator(
+                dummy_ctx,
+                "HOOD",
+                indicator_fn=lambda f: pd.DataFrame({"a": f["close"]}),
+                indicator_name="bad_ind",
+                interval="1d",
+                start=None,
+                end=None,
+                bars=10,
+                points=3,
+                value_key="v",
+            )
+        )
+
+
+def test_compute_series_indicator_raises_when_result_all_nan(
+    monkeypatch, dummy_ctx, price_data
+):
+    frame, metadata = price_data
+
+    async def fake_fetch(ctx, symbol, **kwargs):
+        return frame, metadata
+
+    monkeypatch.setattr(base, "fetch_price_frame", fake_fetch)
+
+    with pytest.raises(ValueError, match="Not enough price history"):
+        run(
+            base.compute_series_indicator(
+                dummy_ctx,
+                "HOOD",
+                indicator_fn=lambda f: pd.Series(
+                    [float("nan")] * len(f), index=f.index
+                ),
+                indicator_name="all_nan_ind",
+                interval="1d",
+                start=None,
+                end=None,
+                bars=10,
+                points=3,
+                value_key="v",
+            )
+        )
+
+
+def test_compute_series_indicator_includes_extra_metadata(
+    monkeypatch, dummy_ctx, price_data
+):
+    frame, metadata = price_data
+
+    async def fake_fetch(ctx, symbol, **kwargs):
+        return frame, metadata
+
+    monkeypatch.setattr(base, "fetch_price_frame", fake_fetch)
+
+    result = run(
+        base.compute_series_indicator(
+            dummy_ctx,
+            "HOOD",
+            indicator_fn=lambda f: f["close"],
+            indicator_name="close",
+            interval="1d",
+            start=None,
+            end=None,
+            bars=10,
+            points=3,
+            value_key="close",
+            extra_metadata={"foo": "bar"},
+        )
+    )
+    assert isinstance(result, dict)
+    assert result["foo"] == "bar"
+
+
+# ---------------------------------------------------------------------------
+# base.py — compute_frame_indicator error branches
+# ---------------------------------------------------------------------------
+
+
+def test_compute_frame_indicator_raises_on_empty_frame(monkeypatch, dummy_ctx):
+    async def fake_fetch(ctx, symbol, **kwargs):
+        meta = {
+            "symbol": symbol,
+            "interval": "1d",
+            "start": None,
+            "end": "2024-01-06T00:00:00+00:00",
+            "bars_requested": None,
+            "empty": True,
+            "candles_returned": 0,
+        }
+        return pd.DataFrame(), meta
+
+    monkeypatch.setattr(base, "fetch_price_frame", fake_fetch)
+
+    with pytest.raises(ValueError, match="No price data"):
+        run(
+            base.compute_frame_indicator(
+                dummy_ctx,
+                "HOOD",
+                indicator_fn=lambda f: None,
+                indicator_name="test",
+                interval="1d",
+                start=None,
+                end=None,
+                bars=10,
+                points=3,
+                required_columns=(),  # skip column check so empty-frame branch fires
+            )
+        )
+
+
+def test_compute_frame_indicator_raises_when_fn_returns_none(
+    monkeypatch, dummy_ctx, price_data
+):
+    frame, metadata = price_data
+
+    async def fake_fetch(ctx, symbol, **kwargs):
+        return frame, metadata
+
+    monkeypatch.setattr(base, "fetch_price_frame", fake_fetch)
+
+    with pytest.raises(RuntimeError, match="returned no values"):
+        run(
+            base.compute_frame_indicator(
+                dummy_ctx,
+                "HOOD",
+                indicator_fn=lambda f: None,
+                indicator_name="bad_ind",
+                interval="1d",
+                start=None,
+                end=None,
+                bars=10,
+                points=3,
+            )
+        )
+
+
+def test_compute_frame_indicator_raises_when_fn_returns_series(
+    monkeypatch, dummy_ctx, price_data
+):
+    frame, metadata = price_data
+
+    async def fake_fetch(ctx, symbol, **kwargs):
+        return frame, metadata
+
+    monkeypatch.setattr(base, "fetch_price_frame", fake_fetch)
+
+    with pytest.raises(TypeError, match="got Series"):
+        run(
+            base.compute_frame_indicator(
+                dummy_ctx,
+                "HOOD",
+                indicator_fn=lambda f: f["close"],
+                indicator_name="bad_ind",
+                interval="1d",
+                start=None,
+                end=None,
+                bars=10,
+                points=3,
+            )
+        )
+
+
+def test_compute_frame_indicator_raises_when_result_all_nan(
+    monkeypatch, dummy_ctx, price_data
+):
+    frame, metadata = price_data
+
+    async def fake_fetch(ctx, symbol, **kwargs):
+        return frame, metadata
+
+    monkeypatch.setattr(base, "fetch_price_frame", fake_fetch)
+
+    with pytest.raises(ValueError, match="Not enough price history"):
+        run(
+            base.compute_frame_indicator(
+                dummy_ctx,
+                "HOOD",
+                indicator_fn=lambda f: pd.DataFrame(
+                    {"a": [float("nan")] * len(f)}, index=f.index
+                ),
+                indicator_name="all_nan_ind",
+                interval="1d",
+                start=None,
+                end=None,
+                bars=10,
+                points=3,
+            )
+        )
+
+
+def test_compute_frame_indicator_includes_extra_metadata(
+    monkeypatch, dummy_ctx, price_data
+):
+    frame, metadata = price_data
+
+    async def fake_fetch(ctx, symbol, **kwargs):
+        return frame, metadata
+
+    monkeypatch.setattr(base, "fetch_price_frame", fake_fetch)
+
+    result = run(
+        base.compute_frame_indicator(
+            dummy_ctx,
+            "HOOD",
+            indicator_fn=lambda f: pd.DataFrame({"a": f["close"]}, index=f.index),
+            indicator_name="test",
+            interval="1d",
+            start=None,
+            end=None,
+            bars=10,
+            points=3,
+            extra_metadata={"baz": 42},
+        )
+    )
+    assert isinstance(result, dict)
+    assert result["baz"] == 42
+
+
+# ---------------------------------------------------------------------------
+# overlays.py — additional pivot methods
+# ---------------------------------------------------------------------------
+
+
+def test_pivot_points_fibonacci_returns_levels(monkeypatch, dummy_ctx, ohlcv_data):
+    frame, metadata = ohlcv_data
+
+    async def fake_fetch(ctx, symbol, **kwargs):
+        return frame, metadata
+
+    monkeypatch.setattr(base, "fetch_price_frame", fake_fetch)
+
+    result = run_tool(overlays.pivot_points(dummy_ctx, "HOOD", method="fibonacci"))
+
+    values = result["values"]
+    assert len(values) > 0
+    assert {"PP", "R1", "S1", "R2", "S2", "R3", "S3"}.issubset(values[-1].keys())
+
+
+def test_pivot_points_camarilla_returns_r4_and_s4(monkeypatch, dummy_ctx, ohlcv_data):
+    frame, metadata = ohlcv_data
+
+    async def fake_fetch(ctx, symbol, **kwargs):
+        return frame, metadata
+
+    monkeypatch.setattr(base, "fetch_price_frame", fake_fetch)
+
+    result = run_tool(overlays.pivot_points(dummy_ctx, "HOOD", method="camarilla"))
+
+    values = result["values"]
+    assert len(values) > 0
+    assert {"PP", "R1", "S1", "R2", "S2", "R3", "S3", "R4", "S4"}.issubset(
+        values[-1].keys()
+    )
+
+
+def test_pivot_points_woodie_returns_levels(monkeypatch, dummy_ctx, ohlcv_data):
+    frame, metadata = ohlcv_data
+
+    async def fake_fetch(ctx, symbol, **kwargs):
+        return frame, metadata
+
+    monkeypatch.setattr(base, "fetch_price_frame", fake_fetch)
+
+    result = run_tool(overlays.pivot_points(dummy_ctx, "HOOD", method="woodie"))
+
+    values = result["values"]
+    assert len(values) > 0
+    assert {"PP", "R1", "S1", "R2", "S2"}.issubset(values[-1].keys())
+
+
+def test_pivot_points_demark_with_open_column(monkeypatch, dummy_ctx, ohlcv_data):
+    frame, metadata = ohlcv_data
+
+    async def fake_fetch(ctx, symbol, **kwargs):
+        return frame, metadata
+
+    monkeypatch.setattr(base, "fetch_price_frame", fake_fetch)
+
+    result = run_tool(overlays.pivot_points(dummy_ctx, "HOOD", method="demark"))
+
+    values = result["values"]
+    assert len(values) > 0
+    assert {"PP", "R1", "S1"}.issubset(values[-1].keys())
+
+
+def test_pivot_points_rejects_non_positive_lookback(dummy_ctx):
+    with pytest.raises(ValueError, match="lookback must be positive"):
+        run(overlays.pivot_points(dummy_ctx, "HOOD", lookback=0))
+
+
+def test_vwap_rejects_non_positive_length(monkeypatch, dummy_ctx, ohlcv_data):
+    frame, metadata = ohlcv_data
+
+    async def fake_fetch(ctx, symbol, **kwargs):
+        return frame, metadata
+
+    monkeypatch.setattr(overlays, "fetch_price_frame", fake_fetch)
+
+    with pytest.raises(ValueError, match="length must be positive"):
+        run(overlays.vwap(dummy_ctx, "HOOD", length=0))
+
+
+def test_vwap_raises_when_pandas_ta_returns_none(monkeypatch, dummy_ctx, ohlcv_data):
+    frame, metadata = ohlcv_data
+
+    async def fake_fetch(ctx, symbol, **kwargs):
+        return frame, metadata
+
+    monkeypatch.setattr(overlays, "fetch_price_frame", fake_fetch)
+    monkeypatch.setattr(
+        overlays,
+        "pandas_ta",
+        SimpleNamespace(
+            vwap=lambda *args, **kwargs: None,
+            pivot_points=None,
+            bbands=None,
+        ),
+    )
+
+    with pytest.raises(RuntimeError, match="returned no values"):
+        run(overlays.vwap(dummy_ctx, "HOOD"))
+
+
+def test_vwap_raises_when_result_all_nan(monkeypatch, dummy_ctx, ohlcv_data):
+    frame, metadata = ohlcv_data
+
+    async def fake_fetch(ctx, symbol, **kwargs):
+        return frame, metadata
+
+    monkeypatch.setattr(overlays, "fetch_price_frame", fake_fetch)
+    monkeypatch.setattr(
+        overlays,
+        "pandas_ta",
+        SimpleNamespace(
+            vwap=lambda high, low, close, volume, **kw: pd.Series(
+                [float("nan")] * len(close), index=close.index
+            ),
+            pivot_points=None,
+            bbands=None,
+        ),
+    )
+
+    with pytest.raises(ValueError, match="Not enough price history"):
+        run(overlays.vwap(dummy_ctx, "HOOD"))
+
+
+def test_bollinger_bands_rejects_length_lte_one(dummy_ctx):
+    with pytest.raises(ValueError, match="greater than 1"):
+        run(overlays.bollinger_bands(dummy_ctx, "HOOD", length=1))
+
+
+def test_bollinger_bands_rejects_non_positive_std_dev(dummy_ctx):
+    with pytest.raises(ValueError, match="std_dev must be positive"):
+        run(overlays.bollinger_bands(dummy_ctx, "HOOD", std_dev=0.0))
+
+
+# ---------------------------------------------------------------------------
+# trend.py — validation errors
+# ---------------------------------------------------------------------------
+
+
+def test_macd_rejects_non_positive_lengths(dummy_ctx):
+    with pytest.raises(ValueError, match="must be positive"):
+        run(trend.macd(dummy_ctx, "HOOD", fast_length=0, slow_length=26))
+
+
+def test_macd_rejects_fast_gte_slow(dummy_ctx):
+    with pytest.raises(ValueError, match="fast_length must be less"):
+        run(trend.macd(dummy_ctx, "HOOD", fast_length=26, slow_length=12))
+
+
+def test_atr_rejects_non_positive_length(dummy_ctx):
+    with pytest.raises(ValueError, match="length must be a positive integer"):
+        run(trend.atr(dummy_ctx, "HOOD", length=0))
+
+
+def test_adx_rejects_non_positive_length(dummy_ctx):
+    with pytest.raises(ValueError, match="length must be a positive integer"):
+        run(trend.adx(dummy_ctx, "HOOD", length=0))
+
+
+# ---------------------------------------------------------------------------
+# volatility.py — _volatility_regime branches
+# ---------------------------------------------------------------------------
+
+
+def test_volatility_regime_very_low():
+    assert volatility._volatility_regime(5.0) == "very_low"
+
+
+def test_volatility_regime_low():
+    assert volatility._volatility_regime(12.0) == "low"
+
+
+def test_volatility_regime_normal():
+    assert volatility._volatility_regime(17.0) == "normal"
+
+
+def test_volatility_regime_elevated():
+    assert volatility._volatility_regime(25.0) == "elevated"
+
+
+def test_volatility_regime_high():
+    assert volatility._volatility_regime(40.0) == "high"
+
+
+def test_volatility_regime_extreme():
+    assert volatility._volatility_regime(60.0) == "extreme"
+
+
+def test_compute_percentile_returns_50_for_empty_series():
+    assert volatility._compute_percentile(pd.Series([], dtype=float), 0.1) == 50.0
+
+
+# ---------------------------------------------------------------------------
+# volatility.py — historical_volatility validation
+# ---------------------------------------------------------------------------
+
+
+def test_historical_volatility_rejects_period_lte_one(dummy_ctx):
+    with pytest.raises(ValueError, match="period must be greater than 1"):
+        run(volatility.historical_volatility(dummy_ctx, "HOOD", period=1))
+
+
+def test_historical_volatility_rejects_non_positive_annualize_factor(dummy_ctx):
+    with pytest.raises(ValueError, match="annualize_factor must be positive"):
+        run(volatility.historical_volatility(dummy_ctx, "HOOD", annualize_factor=0))
+
+
+def test_historical_volatility_rejects_invalid_method(dummy_ctx):
+    with pytest.raises(ValueError, match="Invalid method"):
+        run(volatility.historical_volatility(dummy_ctx, "HOOD", method="bogus"))
+
+
+def test_historical_volatility_raises_on_empty_frame(monkeypatch, dummy_ctx):
+    async def fake_fetch(ctx, symbol, **kwargs):
+        meta = {
+            "symbol": symbol,
+            "interval": "1d",
+            "start": None,
+            "end": "2024-01-01T00:00:00+00:00",
+            "bars_requested": None,
+            "empty": True,
+            "candles_returned": 0,
+        }
+        return pd.DataFrame(), meta
+
+    monkeypatch.setattr(volatility, "fetch_price_frame", fake_fetch)
+
+    with pytest.raises(ValueError, match="no data"):
+        run(volatility.historical_volatility(dummy_ctx, "HOOD", period=5))
+
+
+def test_historical_volatility_parkinson_raises_on_insufficient_data(
+    monkeypatch, dummy_ctx, ohlcv_data
+):
+    frame, metadata = ohlcv_data
+
+    async def fake_fetch(ctx, symbol, **kwargs):
+        return frame.iloc[:1], metadata
+
+    monkeypatch.setattr(volatility, "fetch_price_frame", fake_fetch)
+
+    with pytest.raises(ValueError, match="Not enough high/low"):
+        run(
+            volatility.historical_volatility(
+                dummy_ctx, "HOOD", period=3, method="parkinson"
+            )
+        )
+
+
+def test_historical_volatility_log_returns_method(monkeypatch, dummy_ctx, price_data):
+    frame, metadata = price_data
+
+    async def fake_fetch(ctx, symbol, **kwargs):
+        return frame, metadata
+
+    monkeypatch.setattr(volatility, "fetch_price_frame", fake_fetch)
+
+    result = run_tool(
+        volatility.historical_volatility(
+            dummy_ctx, "HOOD", period=3, method="log_returns"
+        )
+    )
+
+    assert result["method"] == "log_returns"
+    assert result["daily_vol"] > 0
+    assert result["annualized_vol"] > 0
+
+
+def test_historical_volatility_close_to_close_raises_on_insufficient_returns(
+    monkeypatch, dummy_ctx, price_data
+):
+    frame, metadata = price_data
+
+    async def fake_fetch(ctx, symbol, **kwargs):
+        # Only 2 rows → 1 return value, not enough for period=3
+        return frame.iloc[:2], metadata
+
+    monkeypatch.setattr(volatility, "fetch_price_frame", fake_fetch)
+
+    with pytest.raises(ValueError):
+        run(
+            volatility.historical_volatility(
+                dummy_ctx, "HOOD", period=3, method="close_to_close"
+            )
+        )
+
+
+# ---------------------------------------------------------------------------
+# volatility.py — expected_move error paths
+# ---------------------------------------------------------------------------
+
+
+def test_expected_move_raises_on_non_positive_put_price(dummy_ctx):
+    with pytest.raises(ValueError, match="put_price must be a positive"):
+        run(
+            volatility.expected_move(
+                dummy_ctx,
+                "HOOD",
+                call_price=1.0,
+                put_price=-0.5,
+                underlying_price=100.0,
+            )
+        )
+
+
+def test_expected_move_raises_when_underlying_is_zero(monkeypatch, dummy_ctx):
+    async def fake_fetch(ctx, symbol, **kwargs):
+        index = pd.date_range("2024-01-01", periods=1, tz="UTC")
+        frame = pd.DataFrame({"close": [0.0]}, index=index)
+        meta = {
+            "symbol": symbol,
+            "interval": "1d",
+            "start": None,
+            "end": "2024-01-01T00:00:00+00:00",
+            "bars_requested": None,
+            "empty": False,
+            "candles_returned": 1,
+        }
+        return frame, meta
+
+    async def fake_call(func, *args, **kwargs):
+        # Return chain with no underlyingPrice so underlying falls back to price history
+        return {"callExpDateMap": {}, "putExpDateMap": {}}
+
+    monkeypatch.setattr(volatility, "call", fake_call)
+    monkeypatch.setattr(volatility, "fetch_price_frame", fake_fetch)
+
+    with pytest.raises(ValueError, match="underlying_price must be positive"):
+        run(volatility.expected_move(dummy_ctx, "HOOD"))
+
+
+def test_expected_move_raises_when_no_atm_contracts(monkeypatch, dummy_ctx):
+    async def fake_call(func, *args, **kwargs):
+        return {
+            "underlyingPrice": 100.0,
+            "callExpDateMap": {},
+            "putExpDateMap": {},
+        }
+
+    async def fail_fetch(*args, **kwargs):  # pragma: no cover
+        raise AssertionError("should not fetch price history")
+
+    monkeypatch.setattr(volatility, "call", fake_call)
+    monkeypatch.setattr(volatility, "fetch_price_frame", fail_fetch)
+
+    with pytest.raises(ValueError, match="Unable to locate at-the-money"):
+        run(volatility.expected_move(dummy_ctx, "HOOD"))
+
+
+def test_expected_move_raises_when_chain_response_bad_type(monkeypatch, dummy_ctx):
+    async def fake_call(func, *args, **kwargs):
+        return "not-a-mapping"
+
+    monkeypatch.setattr(volatility, "call", fake_call)
+
+    with pytest.raises(TypeError, match="Unexpected option chain response"):
+        run(volatility.expected_move(dummy_ctx, "HOOD"))
+
+
+def test_expected_move_selects_closer_strike_when_multiple(monkeypatch, dummy_ctx):
+    """_select_atm_contracts picks the strike nearest the underlying price."""
+    chain_payload = {
+        "underlyingPrice": 100.0,
+        "callExpDateMap": {
+            "2024-11-15:28": {
+                "99.0": [{"mark": 2.0}],
+                "110.0": [{"mark": 0.5}],
+            }
+        },
+        "putExpDateMap": {
+            "2024-11-15:28": {
+                "99.0": [{"mark": 1.8}],
+                "110.0": [{"mark": 0.4}],
+            }
+        },
+    }
+
+    async def fake_call(func, *args, **kwargs):
+        return chain_payload
+
+    async def fail_fetch(*args, **kwargs):  # pragma: no cover
+        raise AssertionError("should not fetch price history")
+
+    monkeypatch.setattr(volatility, "call", fake_call)
+    monkeypatch.setattr(volatility, "fetch_price_frame", fail_fetch)
+
+    result = run_tool(volatility.expected_move(dummy_ctx, "HOOD"))
+
+    # 99 is closer to 100 than 110, so mark=2.0 call and 1.8 put are selected
+    assert result["call_price"] == pytest.approx(2.0)
+    assert result["put_price"] == pytest.approx(1.8)
+
+
+def test_option_price_falls_back_to_last_price():
+    """_option_price uses last/lastPrice/closePrice when mark/bid+ask absent."""
+    contract = {"last": 1.75}
+    assert volatility._option_price(contract) == pytest.approx(1.75)
+
+
+def test_option_price_raises_when_no_price_available():
+    with pytest.raises(ValueError, match="missing price information"):
+        volatility._option_price({})
+
+
+def test_is_positive_number_returns_false_for_bad_value():
+    assert volatility._is_positive_number("not-a-number") is False
+    assert volatility._is_positive_number(None) is False
+    assert volatility._is_positive_number(-1.0) is False
+
+
+def test_expected_move_raises_when_atm_strike_has_no_matching_put(
+    monkeypatch, dummy_ctx
+):
+    """Calls exist but no matching put for any expiry key → ValueError."""
+    chain_payload = {
+        "underlyingPrice": 100.0,
+        "callExpDateMap": {
+            "2024-11-15:28": {
+                "100.0": [{"mark": 2.0}],
+            }
+        },
+        "putExpDateMap": {},  # no expiry key at all
+    }
+
+    async def fake_call(func, *args, **kwargs):
+        return chain_payload
+
+    async def fail_fetch(*args, **kwargs):  # pragma: no cover
+        raise AssertionError("should not fetch price history")
+
+    monkeypatch.setattr(volatility, "call", fake_call)
+    monkeypatch.setattr(volatility, "fetch_price_frame", fail_fetch)
+
+    with pytest.raises(ValueError, match="Unable to locate at-the-money"):
+        run(volatility.expected_move(dummy_ctx, "HOOD"))
