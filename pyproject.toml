@@ -49,7 +49,7 @@ addopts = "--cov=schwab_mcp --cov-report=term-missing"
 [tool.coverage.run]
 source = ["src/schwab_mcp"]
 branch = true
-omit = ["*/tests/*"]
+omit = ["*/tests/*", "*/tools/_protocols.py"]
 
 [tool.coverage.report]
 exclude_lines = [

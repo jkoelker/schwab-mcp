@@ -1,4 +1,5 @@
 import asyncio
+from contextlib import suppress
 from types import SimpleNamespace
 from typing import Any, Awaitable, TypeVar, cast
 
@@ -177,3 +178,114 @@ def test_discord_manager_requires_approvers() -> None:
     )
     with pytest.raises(ValueError):
         DiscordApprovalManager(settings)
+
+
+# ---------------------------------------------------------------------------
+# _wrap_with_approval: missing context-param guard
+# ---------------------------------------------------------------------------
+
+
+def test_wrap_with_approval_raises_when_no_context_param() -> None:
+    """Tools without a SchwabContext parameter are rejected at wrap time."""
+
+    async def no_ctx_tool(symbol: str) -> str:
+        return symbol
+
+    with pytest.raises(TypeError, match="must accept a SchwabContext parameter"):
+        _registration._wrap_with_approval(no_ctx_tool)
+
+
+# ---------------------------------------------------------------------------
+# _wrap_with_approval: context not supplied at call time
+# ---------------------------------------------------------------------------
+
+
+def test_wrap_with_approval_raises_when_context_not_provided() -> None:
+    """Calling a wrapped tool without passing the context raises RuntimeError."""
+
+    async def tool_with_ctx(ctx: SchwabContext, value: str) -> str:
+        return value
+
+    wrapped = _registration._wrap_with_approval(tool_with_ctx)
+
+    async def runner() -> None:
+        # Use bind_partial semantics: omit ctx entirely so it's not in bound.arguments.
+        await wrapped(value="hello")  # type: ignore[call-arg]
+
+    with pytest.raises(RuntimeError, match="missing SchwabContext"):
+        asyncio.run(runner())
+
+
+# ---------------------------------------------------------------------------
+# _wrap_with_approval: sync (non-awaitable) result after approval
+# ---------------------------------------------------------------------------
+
+
+def test_wrap_with_approval_handles_sync_result() -> None:
+    """A tool that returns synchronously (not awaitable) still works after approval."""
+
+    def sync_tool(ctx: SchwabContext, value: str) -> str:  # type: ignore[return-value]
+        return value.upper()
+
+    wrapped = _registration._wrap_with_approval(sync_tool)  # type: ignore[arg-type]
+    ctx, _, _, _ = make_ctx(ApprovalDecision.APPROVED)
+
+    result = await_result(wrapped(ctx, "spy"))
+    assert result == "SPY"
+
+
+# ---------------------------------------------------------------------------
+# _start_approval_keepalive: task runs iterations then cancels cleanly
+# ---------------------------------------------------------------------------
+
+
+def test_keepalive_task_sends_progress_and_cancels_cleanly(monkeypatch) -> None:
+    """The keepalive task emits progress pings and exits on cancellation."""
+    ctx, _, session, _ = make_ctx(
+        ApprovalDecision.APPROVED, progress_token="tok-keepalive"
+    )
+    monkeypatch.setattr(_registration, "_APPROVAL_PROGRESS_INTERVAL", 0.001)
+
+    async def runner() -> None:
+        task = _registration._start_approval_keepalive(ctx)
+        assert task is not None
+        # Let the keepalive fire at least once.
+        await asyncio.sleep(0.05)
+        task.cancel()
+        with suppress(asyncio.CancelledError):
+            await task
+        # At least one keepalive progress notification should have been emitted.
+        keepalive_msgs = [
+            p for p in session.progress if "elapsed" in (p.get("message") or "")
+        ]
+        assert len(keepalive_msgs) >= 1
+
+    asyncio.run(runner())
+
+
+def test_keepalive_not_started_without_progress_token() -> None:
+    """No keepalive task is created when the context has no progress token."""
+    ctx, _, _, _ = make_ctx(ApprovalDecision.APPROVED)  # no progress_token
+
+    async def runner() -> None:
+        task = _registration._start_approval_keepalive(ctx)
+        assert task is None
+
+    asyncio.run(runner())
+
+
+# ---------------------------------------------------------------------------
+# _has_progress_token: ValueError from request_context property
+# ---------------------------------------------------------------------------
+
+
+def test_has_progress_token_returns_false_on_value_error() -> None:
+    """_has_progress_token returns False when request_context raises ValueError."""
+
+    class _BadContext:
+        @property
+        def request_context(self) -> Any:
+            raise ValueError("not in a request")
+
+    bad_ctx = cast(SchwabContext, _BadContext())
+    assert _registration._has_progress_token(bad_ctx) is False
