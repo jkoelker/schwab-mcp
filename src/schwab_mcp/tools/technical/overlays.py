@@ -1,3 +1,5 @@
+"""Overlay indicator tools: VWAP, pivot points, Bollinger Bands."""
+
 from __future__ import annotations
 
 from collections.abc import Callable
@@ -5,6 +7,7 @@ from typing import Annotated, Any
 
 import pandas as pd
 from mcp.server.fastmcp import FastMCP
+
 from schwab_mcp.context import SchwabContext
 from schwab_mcp.tools._registration import register_tool
 from schwab_mcp.tools.utils import JSONType
@@ -35,16 +38,11 @@ __all__ = ["register"]
 _PIVOT_METHODS = ("standard", "fibonacci", "camarilla", "woodie", "demark")
 
 
-def _compute_pivot_points(
-    frame: pd.DataFrame, *, method: str, lookback: int | None
-) -> pd.DataFrame:
+def _compute_pivot_points(frame: pd.DataFrame, *, method: str, lookback: int | None) -> pd.DataFrame:
     """Compute floor-trader pivot levels from the prior period's H/L/C."""
     method = method.lower()
     if method not in _PIVOT_METHODS:
-        raise ValueError(
-            f"Unsupported pivot method '{method}'. "
-            f"Choose from: {', '.join(_PIVOT_METHODS)}."
-        )
+        raise ValueError(f"Unsupported pivot method '{method}'. Choose from: {', '.join(_PIVOT_METHODS)}.")
 
     window = lookback if lookback and lookback > 0 else 1
     high = frame["high"].rolling(window=window).max().shift(1)
@@ -91,9 +89,7 @@ def _compute_pivot_points(
         result["S2"] = pp - diff
     else:  # demark
         if "open" not in frame.columns:
-            raise ValueError(
-                "demark pivot method requires an 'open' column in price history."
-            )
+            raise ValueError("demark pivot method requires an 'open' column in price history.")
         open_ = frame["open"].shift(1)
         x = high + low + 2 * close  # close == open case
         x = x.mask(close < open_, high + 2 * low + close)
@@ -121,18 +117,14 @@ async def vwap(
 
     bars = compute_window(length, multiplier=3, min_padding=20) if length else None
 
-    frame, metadata = await fetch_price_frame(
-        ctx, symbol, interval=interval, start=start, end=end, bars=bars
-    )
+    frame, metadata = await fetch_price_frame(ctx, symbol, interval=interval, start=start, end=end, bars=bars)
 
     ensure_columns(frame, ("high", "low", "close", "volume"))
 
     volume = frame["volume"].astype(float)
     positive_volume_mask = volume.notna() & (volume > 0)
     if not positive_volume_mask.any():
-        raise ValueError(
-            "Price history includes no positive volume, so VWAP cannot be computed."
-        )
+        raise ValueError("Price history includes no positive volume, so VWAP cannot be computed.")
 
     frame = frame.loc[positive_volume_mask].copy()
 
@@ -189,9 +181,7 @@ async def pivot_points(
     return await compute_frame_indicator(
         ctx,
         symbol,
-        indicator_fn=lambda frame: _compute_pivot_points(
-            frame, method=method, lookback=lookback
-        ),
+        indicator_fn=lambda frame: _compute_pivot_points(frame, method=method, lookback=lookback),
         indicator_name="pivot_points",
         interval=interval,
         start=start,
@@ -245,6 +235,7 @@ def register(
     allow_write: bool,
     result_transform: Callable[[Any], Any] | None = None,
 ) -> None:
+    """Register overlay indicator tools with the MCP server."""
     _ = allow_write
     register_tool(server, vwap, result_transform=result_transform)
     register_tool(server, pivot_points, result_transform=result_transform)

@@ -1,9 +1,11 @@
+"""Shared helpers for technical indicator computation and price-frame fetching."""
+
 from __future__ import annotations
 
 import datetime as _dt
+from collections.abc import Callable, Iterable, Mapping
 from dataclasses import dataclass
-from collections.abc import Callable
-from typing import Annotated, Any, Final, Iterable, Mapping, TypeAlias, cast
+from typing import Annotated, Any, Final, TypeAlias, cast
 
 import pandas as pd
 
@@ -104,14 +106,10 @@ _INTERVAL_CONFIGS: dict[str, _IntervalConfig] = {
 
 def normalize_interval(value: str) -> str:
     """Return canonical short form (e.g., 1d, 15m) for the supplied interval."""
-
     normalized = value.strip().lower()
     if normalized in _INTERVAL_CONFIGS:
         return normalized
-    raise ValueError(
-        f"Unsupported interval '{value}'. "
-        f"Choose from: {', '.join(sorted(_INTERVAL_CONFIGS))}"
-    )
+    raise ValueError(f"Unsupported interval '{value}'. Choose from: {', '.join(sorted(_INTERVAL_CONFIGS))}")
 
 
 def _add_utc_timezone(value: _dt.datetime) -> _dt.datetime:
@@ -128,9 +126,7 @@ def _parse_timestamp(value: str | _dt.datetime | None) -> _dt.datetime | None:
     return _add_utc_timezone(_dt.datetime.fromisoformat(value))
 
 
-def _default_start(
-    *, end: _dt.datetime, interval: _IntervalConfig, bars: int | None
-) -> _dt.datetime | None:
+def _default_start(*, end: _dt.datetime, interval: _IntervalConfig, bars: int | None) -> _dt.datetime | None:
     if bars is None or bars <= 0:
         return None
     return end - (interval.bar_size * bars)
@@ -142,33 +138,25 @@ def _candles_to_dataframe(candles: Iterable[Mapping[str, Any]]) -> pd.DataFrame:
         return frame
 
     if "datetime" in frame.columns:
-        frame["datetime"] = pd.to_datetime(
-            frame["datetime"], unit="ms", utc=True, errors="coerce"
-        )
+        frame["datetime"] = pd.to_datetime(frame["datetime"], unit="ms", utc=True, errors="coerce")
         frame = frame.dropna(subset=["datetime"]).set_index("datetime")
 
-    numeric_columns = [
-        column
-        for column in ("open", "high", "low", "close", "volume")
-        if column in frame.columns
-    ]
+    numeric_columns = [column for column in ("open", "high", "low", "close", "volume") if column in frame.columns]
     if numeric_columns:
-        frame[numeric_columns] = frame[numeric_columns].apply(
-            pd.to_numeric, errors="coerce"
-        )
+        frame[numeric_columns] = frame[numeric_columns].apply(pd.to_numeric, errors="coerce")
 
     return frame.sort_index().dropna(how="all")
 
 
 def ensure_columns(frame: pd.DataFrame, columns: Iterable[str]) -> None:
+    """Raise ValueError if any of *columns* are absent from *frame*."""
     missing = [column for column in columns if column not in frame.columns]
     if missing:
-        raise ValueError(
-            "Price history missing required columns: " + ", ".join(sorted(missing))
-        )
+        raise ValueError("Price history missing required columns: " + ", ".join(sorted(missing)))
 
 
 def compute_window(length: int, *, multiplier: int = 3, min_padding: int = 20) -> int:
+    """Return the number of bars needed to warm up an indicator of the given *length*."""
     return max(length * multiplier, length + min_padding)
 
 
@@ -190,9 +178,8 @@ async def compute_series_indicator(
     required_columns: tuple[str, ...] = ("close",),
     extra_metadata: dict[str, Any] | None = None,
 ) -> JSONType:
-    frame, metadata = await fetch_price_frame(
-        ctx, symbol, interval=interval, start=start, end=end, bars=bars
-    )
+    """Fetch price history for *symbol* and compute a single-series indicator."""
+    frame, metadata = await fetch_price_frame(ctx, symbol, interval=interval, start=start, end=end, bars=bars)
 
     if required_columns:
         ensure_columns(frame, required_columns)
@@ -205,10 +192,7 @@ async def compute_series_indicator(
         raise RuntimeError(f"pandas_ta_classic.{indicator_name} returned no values.")
 
     if isinstance(result, pd.DataFrame):
-        raise TypeError(
-            f"Expected Series from {indicator_name}, got DataFrame. "
-            "Use compute_frame_indicator instead."
-        )
+        raise TypeError(f"Expected Series from {indicator_name}, got DataFrame. Use compute_frame_indicator instead.")
 
     result = result.dropna()
     if result.empty:
@@ -247,9 +231,8 @@ async def compute_frame_indicator(
     required_columns: tuple[str, ...] = ("close",),
     extra_metadata: dict[str, Any] | None = None,
 ) -> JSONType:
-    frame, metadata = await fetch_price_frame(
-        ctx, symbol, interval=interval, start=start, end=end, bars=bars
-    )
+    """Fetch price history for *symbol* and compute a multi-column indicator."""
+    frame, metadata = await fetch_price_frame(ctx, symbol, interval=interval, start=start, end=end, bars=bars)
 
     if required_columns:
         ensure_columns(frame, required_columns)
@@ -262,10 +245,7 @@ async def compute_frame_indicator(
         raise RuntimeError(f"pandas_ta_classic.{indicator_name} returned no values.")
 
     if isinstance(result, pd.Series):
-        raise TypeError(
-            f"Expected DataFrame from {indicator_name}, got Series. "
-            "Use compute_series_indicator instead."
-        )
+        raise TypeError(f"Expected DataFrame from {indicator_name}, got Series. Use compute_series_indicator instead.")
 
     result = result.dropna(how="all")
     if result.empty:
@@ -303,9 +283,7 @@ async def fetch_price_frame(
     config = _INTERVAL_CONFIGS[interval_key]
 
     end_dt = _parse_timestamp(end) or _dt.datetime.now(tz=_dt.timezone.utc)
-    start_dt = _parse_timestamp(start) or _default_start(
-        end=end_dt, interval=config, bars=bars
-    )
+    start_dt = _parse_timestamp(start) or _default_start(end=end_dt, interval=config, bars=bars)
 
     fetcher = getattr(ctx.price_history, config.method_name)
     response: JSONType = await call(
@@ -341,7 +319,6 @@ def series_to_json(
     value_key: str | None = None,
 ) -> list[dict[str, Any]]:
     """Convert a pandas Series indexed by timestamps into JSON serializable rows."""
-
     if series.empty:
         return []
 
@@ -358,13 +335,11 @@ def series_to_json(
     values = series.to_numpy()
 
     rows: list[dict[str, Any]] = []
-    for timestamp, value in zip(index, values):
+    for timestamp, value in zip(index, values, strict=True):
         if pd.isna(timestamp) or pd.isna(value):
             continue
 
-        rows.append(
-            {"timestamp": timestamp.isoformat(), value_key: round(float(value), 6)}
-        )
+        rows.append({"timestamp": timestamp.isoformat(), value_key: round(float(value), 6)})
 
     return rows
 
@@ -375,7 +350,6 @@ def frame_to_json(
     limit: int | None = None,
 ) -> list[dict[str, Any]]:
     """Convert a pandas DataFrame indexed by timestamps into JSON rows."""
-
     if frame.empty:
         return []
 
@@ -389,12 +363,8 @@ def frame_to_json(
 
     index = _normalize_index(numeric.index)
     rows: list[dict[str, Any]] = []
-    for timestamp, (_, row) in zip(index, numeric.iterrows()):
-        valid_items = {
-            str(column): round(float(value), 6)
-            for column, value in row.items()
-            if pd.notna(value)
-        }
+    for timestamp, (_, row) in zip(index, numeric.iterrows(), strict=True):
+        valid_items = {str(column): round(float(value), 6) for column, value in row.items() if pd.notna(value)}
         if not valid_items:
             continue
         rows.append({"timestamp": timestamp.isoformat(), **valid_items})

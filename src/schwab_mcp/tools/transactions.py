@@ -1,4 +1,5 @@
-#
+"""Transaction history tools for the Schwab MCP server."""
+
 from collections.abc import Callable
 from typing import Annotated, Any
 
@@ -11,9 +12,7 @@ from schwab_mcp.tools.utils import JSONType, call, parse_date
 
 async def get_transactions(
     ctx: SchwabContext,
-    account_hash: Annotated[
-        str, "Account hash for the Schwab account (from get_accounts)"
-    ],
+    account_hash: Annotated[str, "Account hash for the Schwab account (from get_accounts)"],
     start_date: Annotated[
         str | None,
         "Start date ('YYYY-MM-DD', max 60 days past, default 60 days ago)",
@@ -25,8 +24,7 @@ async def get_transactions(
     ] = None,
     symbol: Annotated[str | None, "Filter transactions by security symbol"] = None,
 ) -> JSONType:
-    """
-    Get transaction history (trades, deposits, dividends, etc.) for an account. Filter by date range (max 60 days past), type, symbol.
+    """Get transaction history (trades, deposits, dividends, etc.) for an account. Filter by date range (max 60 days past), type, symbol.
     Params: account_hash, start_date (YYYY-MM-DD), end_date (YYYY-MM-DD), transaction_type (list/str: TRADE/DIVIDEND_OR_INTEREST/etc.), symbol.
     Use tomorrow's date as end_date for today's transactions. See full type list in original docstring if needed.
     """
@@ -39,9 +37,7 @@ async def get_transactions(
     if transaction_type is not None:
         if isinstance(transaction_type, str):
             transaction_type = [t.strip() for t in transaction_type.split(",")]
-        transaction_type_enums = [
-            client.Transactions.TransactionType[t.upper()] for t in transaction_type
-        ]
+        transaction_type_enums = [client.Transactions.TransactionType[t.upper()] for t in transaction_type]
 
     # Corrected function name to client.get_transactions and keyword arg to transaction_types
     return await call(
@@ -59,8 +55,7 @@ async def get_transaction(
     account_hash: Annotated[str, "Account hash for the Schwab account"],
     transaction_id: Annotated[str, "Transaction ID (from get_transactions)"],
 ) -> JSONType:
-    """
-    Get detailed info for a specific transaction by ID.
+    """Get detailed info for a specific transaction by ID.
     Params: account_hash, transaction_id (from get_transactions).
     """
     client = ctx.transactions
@@ -79,6 +74,7 @@ def register(
     allow_write: bool,
     result_transform: Callable[[Any], Any] | None = None,
 ) -> None:
+    """Register transaction history tools with the MCP server."""
     _ = allow_write
     for func in _READ_ONLY_TOOLS:
         register_tool(server, func, result_transform=result_transform)

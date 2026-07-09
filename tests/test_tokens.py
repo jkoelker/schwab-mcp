@@ -114,9 +114,7 @@ class TestTokenWriter:
             (".yml", True),
         ],
     )
-    def test_format_matches_extension(
-        self, tmp_path, sample_token, extension, expect_yaml_marker
-    ):
+    def test_format_matches_extension(self, tmp_path, sample_token, extension, expect_yaml_marker):
         path = str(tmp_path / f"token{extension}")
         writer = tokens.token_writer(path)
 
@@ -299,9 +297,7 @@ class TestManager:
         ],
         ids=["json", "yaml", "yml", "uppercase-JSON-is-yaml"],
     )
-    def test_format_detection_by_extension(
-        self, tmp_path, sample_token, filename, expect_yaml
-    ):
+    def test_format_detection_by_extension(self, tmp_path, sample_token, filename, expect_yaml):
         path = str(tmp_path / filename)
         manager = tokens.Manager(path)
 
@@ -352,9 +348,7 @@ class TestLoadCredentials:
 
         result = tokens.load_credentials(path)
 
-        assert result == tokens.Credentials(
-            client_id="my-id", client_secret="my-secret"
-        )
+        assert result == tokens.Credentials(client_id="my-id", client_secret="my-secret")
 
     def test_returns_empty_credentials_for_non_dict_content(self, tmp_path):
         path = str(tmp_path / "credentials.yaml")
@@ -393,9 +387,7 @@ class TestLoadCredentials:
     def test_coerces_non_string_values_to_none(self, tmp_path):
         path = str(tmp_path / "credentials.yaml")
         with open(path, "w") as f:
-            yaml.safe_dump(
-                {"client_id": 12345, "client_secret": ["not", "a", "str"]}, f
-            )
+            yaml.safe_dump({"client_id": 12345, "client_secret": ["not", "a", "str"]}, f)
 
         result = tokens.load_credentials(path)
 

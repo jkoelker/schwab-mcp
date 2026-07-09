@@ -1,9 +1,10 @@
-#
+"""General-purpose Schwab tools: datetime, market hours, movers, and instruments."""
 
 import datetime
 from collections.abc import Callable
 from typing import Annotated, Any
 from zoneinfo import ZoneInfo
+
 from mcp.server.fastmcp import FastMCP
 
 from schwab_mcp.context import SchwabContext
@@ -12,9 +13,7 @@ from schwab_mcp.tools.utils import JSONType, call, parse_date
 
 
 async def get_datetime() -> str:
-    """
-    Get the current datetime in ISO format with Eastern Time offset and abbreviation.
-    """
+    """Get the current datetime in ISO format with Eastern Time offset and abbreviation."""
     eastern_now = datetime.datetime.now(tz=ZoneInfo("America/New_York"))
     return f"{eastern_now.isoformat()} {eastern_now.tzname()}"
 
@@ -30,9 +29,7 @@ async def get_market_hours(
         "Date ('YYYY-MM-DD', default today, max 1 year future)",
     ] = None,
 ) -> JSONType:
-    """
-    Get market hours for specified markets (EQUITY, OPTION, etc.) on a given date (YYYY-MM-DD, default today).
-    """
+    """Get market hours for specified markets (EQUITY, OPTION, etc.) on a given date (YYYY-MM-DD, default today)."""
     client = ctx.tools
 
     if isinstance(markets, str):
@@ -55,12 +52,9 @@ async def get_movers(
         str | None,
         "Sort criteria: VOLUME, TRADES, PERCENT_CHANGE_UP, PERCENT_CHANGE_DOWN",
     ] = None,
-    frequency: Annotated[
-        str | None, "Min % change threshold: ZERO, ONE, FIVE, TEN, THIRTY, SIXTY"
-    ] = None,
+    frequency: Annotated[str | None, "Min % change threshold: ZERO, ONE, FIVE, TEN, THIRTY, SIXTY"] = None,
 ) -> JSONType:
-    """
-    Get top 10 movers for an index/market (e.g., DJI, SPX, NASDAQ).
+    """Get top 10 movers for an index/market (e.g., DJI, SPX, NASDAQ).
     Params: index, sort (VOLUME/TRADES/PERCENT_CHANGE_UP/DOWN), frequency (min % change: ZERO/ONE/etc.).
     """
     client = ctx.tools
@@ -84,8 +78,7 @@ async def get_instruments(
         ),
     ] = "symbol-search",
 ) -> JSONType:
-    """
-    Search for instruments by symbol or description.
+    """Search for instruments by symbol or description.
     Params: symbol (search term), projection (SYMBOL_SEARCH/SYMBOL_REGEX/etc., default symbol-search).
     Examples: get_instruments("AAPL"), get_instruments("AAPL .*", "symbol-regex"), get_instruments("AAPL", "fundamental").
     """
@@ -135,6 +128,7 @@ def register(
     allow_write: bool,
     result_transform: Callable[[Any], Any] | None = None,
 ) -> None:
+    """Register general Schwab tools with the MCP server."""
     _ = allow_write
     for func in _READ_ONLY_TOOLS:
         register_tool(server, func, result_transform=result_transform)

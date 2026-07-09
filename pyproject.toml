@@ -60,6 +60,36 @@ exclude_lines = [
 ]
 show_missing = true
 
+[tool.ruff]
+line-length = 120
+target-version = "py310"
+
+[tool.ruff.lint]
+select = [
+    "F",      # Pyflakes
+    "E",      # pycodestyle (Error)
+    "I",      # isort
+    "D",      # pydocstyle
+    "UP",     # pyupgrade
+    "YTT",    # flake8-2020
+    "B",      # flake8-bugbear
+    "T10",    # flake8-debugger
+    "T20",    # flake8-print
+    "C4",     # flake8-comprehensions
+    "PERF",   # Perflint
+    "PIE",    # flake8-pie
+]
+ignore = ["D105", "D107", "D205", "D415", "E501", "B011", "B028", "B904", "PIE804"]
+isort = { known-first-party = ["schwab_mcp", "tests"], combine-as-imports = true }
+pydocstyle = { convention = "google" }
+
+[tool.ruff.lint.per-file-ignores]
+"tests/**/*.py" = ["D", "B", "C4", "T", "E721", "F811"]
+"src/schwab_mcp/auth.py" = ["T201"]
+
+[tool.ruff.format]
+quote-style = "double"
+
 [tool.pyright]
 include = ["src", "tests"]
 exclude = [

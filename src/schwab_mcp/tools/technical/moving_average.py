@@ -1,3 +1,5 @@
+"""Moving average indicator tools: SMA, EMA, WMA, and others."""
+
 from __future__ import annotations
 
 from collections.abc import Callable
@@ -5,6 +7,7 @@ from typing import Annotated, Any
 
 import pandas as pd
 from mcp.server.fastmcp import FastMCP
+
 from schwab_mcp.context import SchwabContext
 from schwab_mcp.tools._registration import register_tool
 from schwab_mcp.tools.utils import JSONType
@@ -68,5 +71,6 @@ def register(
     allow_write: bool,
     result_transform: Callable[[Any], Any] | None = None,
 ) -> None:
+    """Register moving average tools with the MCP server."""
     _ = allow_write
     register_tool(server, moving_average, result_transform=result_transform)

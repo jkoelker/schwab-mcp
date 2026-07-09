@@ -1,3 +1,5 @@
+"""Approval workflow backends for write-tool gating."""
+
 from __future__ import annotations
 
 from schwab_mcp.approvals.base import (

@@ -1,9 +1,10 @@
+"""Shared utilities: API call helper, error types, JSON type aliases, and data parsers."""
+
 from __future__ import annotations
 
 import datetime
 from collections.abc import Awaitable, Callable
 from typing import Any, TypeAlias
-
 
 JSONPrimitive = str | int | float | bool | None
 JSONType: TypeAlias = JSONPrimitive | dict[str, Any] | list[Any]
@@ -22,9 +23,7 @@ class SchwabAPIError(Exception):
         url: str,
         body: str,
     ) -> None:
-        super().__init__(
-            f"Schwab API request failed; status={status_code}; url={url}; body={body}"
-        )
+        super().__init__(f"Schwab API request failed; status={status_code}; url={url}; body={body}")
 
 
 def parse_date(value: str | datetime.date | None) -> datetime.date | None:
@@ -101,7 +100,6 @@ async def call(
     by returning ``(True, payload)``. Returning ``(False, _)`` delegates back to
     the default JSON parsing behavior.
     """
-
     response = await func(*args, **kwargs)
     try:
         response.raise_for_status()

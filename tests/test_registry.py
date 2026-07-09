@@ -1,23 +1,24 @@
 import asyncio
 import inspect
+from collections.abc import Callable
 from types import SimpleNamespace
-from typing import Annotated, Any, Callable, Union, cast
+from typing import Annotated, Any, cast
 
-from mcp.server.fastmcp import FastMCP, Context as MCPContext
+import pytest
+from mcp.server.fastmcp import Context as MCPContext, FastMCP
 from mcp.server.fastmcp.tools import Tool
 from mcp.types import ToolAnnotations
 from schwab.client import AsyncClient
 
-import pytest
 import schwab_mcp.tools as tools_module
+from schwab_mcp.approvals import ApprovalDecision, ApprovalManager, ApprovalRequest
+from schwab_mcp.context import SchwabContext, SchwabServerContext
 from schwab_mcp.tools import _registration
 from schwab_mcp.tools._registration import (
-    register_tool,
-    _is_context_annotation,
     _format_argument,
+    _is_context_annotation,
+    register_tool,
 )
-from schwab_mcp.context import SchwabContext, SchwabServerContext
-from schwab_mcp.approvals import ApprovalDecision, ApprovalManager, ApprovalRequest
 
 
 async def _dummy_tool(ctx: SchwabContext) -> str:  # noqa: ARG001
@@ -199,12 +200,12 @@ def test_is_context_annotation_annotated_type_returns_true() -> None:
 
 
 def test_is_context_annotation_union_containing_context_returns_true() -> None:
-    union = Union[SchwabContext, None]
+    union = SchwabContext | None
     assert _is_context_annotation(union) is True
 
 
 def test_is_context_annotation_union_without_context_returns_false() -> None:
-    union = Union[str, int]
+    union = str | int
     assert _is_context_annotation(union) is False
 
 

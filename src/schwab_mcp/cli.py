@@ -1,18 +1,19 @@
-import click
-import sys
-import anyio
+"""Click CLI commands for schwab-mcp: auth, server, save-credentials."""
+
 import os
+import sys
+
+import anyio
+import click
 from schwab.client import AsyncClient
 
-from schwab_mcp.server import SchwabMCPServer, send_error_response
-from schwab_mcp import auth as schwab_auth
-from schwab_mcp import tokens
+from schwab_mcp import auth as schwab_auth, tokens
 from schwab_mcp.approvals import (
     DiscordApprovalManager,
     DiscordApprovalSettings,
     NoOpApprovalManager,
 )
-
+from schwab_mcp.server import SchwabMCPServer, send_error_response
 
 APP_NAME = "schwab-mcp"
 TOKEN_MAX_AGE_SECONDS = schwab_auth.DEFAULT_MAX_TOKEN_AGE_SECONDS
@@ -21,7 +22,6 @@ TOKEN_MAX_AGE_SECONDS = schwab_auth.DEFAULT_MAX_TOKEN_AGE_SECONDS
 @click.group()
 def cli():
     """Schwab Model Context Protocol CLI."""
-    pass
 
 
 @cli.command("auth")
@@ -264,9 +264,7 @@ def server(
         if not approver_values:
             env_approvers = os.getenv("SCHWAB_MCP_DISCORD_APPROVERS")
             if env_approvers:
-                approver_values = tuple(
-                    value.strip() for value in env_approvers.split(",") if value.strip()
-                )
+                approver_values = tuple(value.strip() for value in env_approvers.split(",") if value.strip())
 
         discord_requested = any(
             (
@@ -314,9 +312,7 @@ def server(
             approval_manager = NoOpApprovalManager()
 
         if jesus_take_the_wheel and discord_token:
-            click.echo(
-                "Warning: --jesus-take-the-wheel bypasses Discord approvals.", err=True
-            )
+            click.echo("Warning: --jesus-take-the-wheel bypasses Discord approvals.", err=True)
 
         server = SchwabMCPServer(
             APP_NAME,
@@ -329,9 +325,7 @@ def server(
         anyio.run(server.run, backend="asyncio")
         return 0
     except Exception as e:
-        send_error_response(
-            f"Error running server: {str(e)}", code=500, details={"error": str(e)}
-        )
+        send_error_response(f"Error running server: {str(e)}", code=500, details={"error": str(e)})
         return 1
 
 

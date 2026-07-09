@@ -1,21 +1,24 @@
+"""Tool registration aggregator for all Schwab MCP tool modules."""
+
 from __future__ import annotations
 
 import logging
-
 from collections.abc import Callable
 from typing import Any
 
 from mcp.server.fastmcp import FastMCP
 from schwab.client import AsyncClient
 
-from schwab_mcp.tools import account as _account
-from schwab_mcp.tools import history as _history
-from schwab_mcp.tools import options as _options
-from schwab_mcp.tools import orders as _orders
-from schwab_mcp.tools import quotes as _quotes
-from schwab_mcp.tools import tools as _tools
-from schwab_mcp.tools import technical as _technical
-from schwab_mcp.tools import transactions as _txns
+from schwab_mcp.tools import (
+    account as _account,
+    history as _history,
+    options as _options,
+    orders as _orders,
+    quotes as _quotes,
+    technical as _technical,
+    tools as _tools,
+    transactions as _txns,
+)
 
 logger = logging.getLogger(__name__)
 

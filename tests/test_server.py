@@ -7,9 +7,10 @@ from typing import Any, cast
 
 import pytest
 from schwab.client import AsyncClient
+
+from schwab_mcp.approvals import ApprovalDecision, ApprovalManager, ApprovalRequest
 from schwab_mcp.context import SchwabServerContext
 from schwab_mcp.server import SchwabMCPServer, send_error_response
-from schwab_mcp.approvals import ApprovalDecision, ApprovalManager, ApprovalRequest
 
 
 class DummyApprovalManager(ApprovalManager):

@@ -1,3 +1,5 @@
+"""In-memory store for pending order previews awaiting placement confirmation."""
+
 from __future__ import annotations
 
 import copy
@@ -33,9 +35,7 @@ class PreviewStore:
     def _prune(self) -> None:
         """Remove all expired entries."""
         now = time.monotonic()
-        expired = [
-            k for k, v in self._entries.items() if v.created_at + self._ttl < now
-        ]
+        expired = [k for k, v in self._entries.items() if v.created_at + self._ttl < now]
         for k in expired:
             del self._entries[k]
 
@@ -77,9 +77,7 @@ class PreviewStore:
             self._entries.pop(preview_id, None)
             raise ValueError(f"Preview '{preview_id}' not found or expired.")
         if entry.account_hash != account_hash:
-            raise ValueError(
-                "Account hash mismatch: preview was created for a different account."
-            )
+            raise ValueError("Account hash mismatch: preview was created for a different account.")
         del self._entries[preview_id]
         return entry
 

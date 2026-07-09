@@ -1,9 +1,12 @@
+"""Optional technical analysis tools backed by pandas-ta-classic."""
+
 from __future__ import annotations
 
-import logging
 import importlib
+import logging
+from collections.abc import Callable
 from types import ModuleType
-from typing import TYPE_CHECKING, Any, Callable, cast
+from typing import TYPE_CHECKING, Any, cast
 
 if TYPE_CHECKING:
     from mcp.server.fastmcp import FastMCP
@@ -19,7 +22,7 @@ pandas_ta = cast(Any, _pandas_ta)
 
 
 def register(
-    server: "FastMCP",
+    server: FastMCP,
     *,
     allow_write: bool,
     result_transform: Callable[[Any], Any] | None = None,
@@ -28,26 +31,20 @@ def register(
     _ = allow_write
 
     if _pandas_ta is None:
-        logger.debug(
-            "Skipping technical analysis tools because pandas_ta_classic is not installed."
-        )
+        logger.debug("Skipping technical analysis tools because pandas_ta_classic is not installed.")
         return
 
     for module in _load_modules():
         register_fn = getattr(module, "register", None)
         if register_fn is None:
-            raise AttributeError(
-                f"Technical tool module {module.__name__} is missing register()"
-            )
+            raise AttributeError(f"Technical tool module {module.__name__} is missing register()")
         register_fn(
             server,
             allow_write=allow_write,
             result_transform=result_transform,
         )
 
-    logger.debug(
-        "Technical analysis tools registered from %s", ", ".join(_MODULE_PATHS)
-    )
+    logger.debug("Technical analysis tools registered from %s", ", ".join(_MODULE_PATHS))
 
 
 _MODULE_PATHS: tuple[str, ...] = (

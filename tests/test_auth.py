@@ -10,8 +10,7 @@ import httpx as _httpx
 import pytest
 from schwab import auth as schwab_auth
 
-from schwab_mcp import auth as mcp_auth
-from schwab_mcp import tokens
+from schwab_mcp import auth as mcp_auth, tokens
 
 # ---------------------------------------------------------------------------
 # Helpers / stubs
@@ -82,9 +81,7 @@ def test_easy_client_reuses_valid_token(mock_caf: Any, mock_login: Any) -> None:
 
 @patch("schwab_mcp.auth.client_from_login_flow")
 @patch("schwab_mcp.auth.auth.client_from_access_functions")
-def test_easy_client_falls_through_when_no_token(
-    mock_caf: Any, mock_login: Any
-) -> None:
+def test_easy_client_falls_through_when_no_token(mock_caf: Any, mock_login: Any) -> None:
     """When no token exists, easy_client delegates to client_from_login_flow."""
     dummy = _make_dummy_client()
     mock_login.return_value = dummy
@@ -128,9 +125,7 @@ def test_easy_client_rejects_stale_token(mock_caf: Any, mock_login: Any) -> None
 
 @patch("schwab_mcp.auth.client_from_login_flow")
 @patch("schwab_mcp.auth.auth.client_from_access_functions")
-def test_easy_client_max_token_age_none_skips_age_check(
-    mock_caf: Any, mock_login: Any
-) -> None:
+def test_easy_client_max_token_age_none_skips_age_check(mock_caf: Any, mock_login: Any) -> None:
     """max_token_age=None disables the age check; any token age is accepted."""
     ancient_client = _make_dummy_client(token_age=99_999_999.0)
     mock_caf.return_value = ancient_client
@@ -150,9 +145,7 @@ def test_easy_client_max_token_age_none_skips_age_check(
 
 @patch("schwab_mcp.auth.client_from_login_flow")
 @patch("schwab_mcp.auth.auth.client_from_access_functions")
-def test_easy_client_max_token_age_zero_skips_age_check(
-    mock_caf: Any, mock_login: Any
-) -> None:
+def test_easy_client_max_token_age_zero_skips_age_check(mock_caf: Any, mock_login: Any) -> None:
     """max_token_age=0 treats effective age as 0 (no age check), not as 'disable'."""
     # When effective_max_token_age == 0, the condition `> 0` is False → no eviction.
     any_age_client = _make_dummy_client(token_age=50_000.0)

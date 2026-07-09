@@ -119,9 +119,7 @@ class TestOrderResponseFactory:
         account_hash = "my_account"
         response = order_response_factory(account_hash=account_hash)
 
-        expected_url = (
-            f"https://api.schwabapi.com/trader/v1/accounts/{account_hash}/orders"
-        )
+        expected_url = f"https://api.schwabapi.com/trader/v1/accounts/{account_hash}/orders"
         assert response.url == expected_url
 
     def test_order_response_factory_has_raise_for_status(self, order_response_factory):
@@ -130,9 +128,7 @@ class TestOrderResponseFactory:
         assert hasattr(response, "raise_for_status")
         assert callable(response.raise_for_status)
 
-    def test_order_response_factory_raise_for_status_succeeds(
-        self, order_response_factory
-    ):
+    def test_order_response_factory_raise_for_status_succeeds(self, order_response_factory):
         """Verify raise_for_status() doesn't raise for 201 status."""
         response = order_response_factory()
         # Should not raise
@@ -148,24 +144,18 @@ class TestOrderResponseFactory:
 class TestPlaceOrderClientFactory:
     """Tests for place_order_client_factory fixture."""
 
-    def test_place_order_client_factory_creates_client(
-        self, place_order_client_factory
-    ):
+    def test_place_order_client_factory_creates_client(self, place_order_client_factory):
         """Verify place_order_client_factory creates a client object."""
         client = place_order_client_factory()
         assert client is not None
 
-    def test_place_order_client_factory_client_has_place_order_method(
-        self, place_order_client_factory
-    ):
+    def test_place_order_client_factory_client_has_place_order_method(self, place_order_client_factory):
         """Verify client has place_order method."""
         client = place_order_client_factory()
         assert hasattr(client, "place_order")
         assert callable(client.place_order)
 
-    def test_place_order_client_factory_captures_place_order_call(
-        self, place_order_client_factory
-    ):
+    def test_place_order_client_factory_captures_place_order_call(self, place_order_client_factory):
         """Verify client captures place_order() calls."""
         client = place_order_client_factory()
 
@@ -178,9 +168,7 @@ class TestPlaceOrderClientFactory:
         assert "args" in client.captured
         assert "kwargs" in client.captured
 
-    def test_place_order_client_factory_captures_positional_args(
-        self, place_order_client_factory
-    ):
+    def test_place_order_client_factory_captures_positional_args(self, place_order_client_factory):
         """Verify client captures positional arguments to place_order()."""
         client = place_order_client_factory()
 
@@ -191,24 +179,18 @@ class TestPlaceOrderClientFactory:
 
         assert client.captured["args"] == ("account123", {"symbol": "AAPL"})
 
-    def test_place_order_client_factory_captures_keyword_args(
-        self, place_order_client_factory
-    ):
+    def test_place_order_client_factory_captures_keyword_args(self, place_order_client_factory):
         """Verify client captures keyword arguments to place_order()."""
         client = place_order_client_factory()
 
         async def run_test() -> None:
-            await client.place_order(
-                "account123", {"symbol": "AAPL"}, session="EXTENDED", duration="GTC"
-            )
+            await client.place_order("account123", {"symbol": "AAPL"}, session="EXTENDED", duration="GTC")
 
         asyncio.run(run_test())
 
         assert client.captured["kwargs"] == {"session": "EXTENDED", "duration": "GTC"}
 
-    def test_place_order_client_factory_returns_response(
-        self, place_order_client_factory
-    ):
+    def test_place_order_client_factory_returns_response(self, place_order_client_factory):
         """Verify client.place_order() returns a response object."""
         client = place_order_client_factory()
 
@@ -221,9 +203,7 @@ class TestPlaceOrderClientFactory:
         assert hasattr(response, "status_code")
         assert response.status_code == 201
 
-    def test_place_order_client_factory_response_has_location_header(
-        self, place_order_client_factory
-    ):
+    def test_place_order_client_factory_response_has_location_header(self, place_order_client_factory):
         """Verify client.place_order() response has Location header."""
         client = place_order_client_factory()
 

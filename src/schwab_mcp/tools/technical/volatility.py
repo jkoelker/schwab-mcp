@@ -1,12 +1,16 @@
+"""Volatility indicator tools: expected move, historical volatility."""
+
 from __future__ import annotations
 
 import datetime as _dt
 import math
-from typing import Annotated, Any, Callable, Mapping, cast
+from collections.abc import Callable, Mapping
+from typing import Annotated, Any, cast
 
 import numpy as np
 import pandas as pd
 from mcp.server.fastmcp import FastMCP
+
 from schwab_mcp.context import SchwabContext
 from schwab_mcp.tools._registration import register_tool
 from schwab_mcp.tools.utils import JSONType, call
@@ -76,7 +80,6 @@ async def historical_volatility(
     ] = "close_to_close",
 ) -> JSONType:
     """Compute historical volatility statistics for Schwab price history."""
-
     if period <= 1:
         raise ValueError("period must be greater than 1")
     if annualize_factor <= 0:
@@ -85,16 +88,10 @@ async def historical_volatility(
     method_key = method.strip().lower()
     valid_methods = {"close_to_close", "log_returns", "parkinson"}
     if method_key not in valid_methods:
-        raise ValueError(
-            "Invalid method. Choose from close_to_close, log_returns, or parkinson."
-        )
+        raise ValueError("Invalid method. Choose from close_to_close, log_returns, or parkinson.")
 
     required_points = period + 1 if method_key != "parkinson" else period
-    window = (
-        bars
-        if bars is not None
-        else compute_window(period, multiplier=2, min_padding=10)
-    )
+    window = bars if bars is not None else compute_window(period, multiplier=2, min_padding=10)
     window = max(window, required_points)
 
     frame, metadata = await fetch_price_frame(
@@ -113,9 +110,7 @@ async def historical_volatility(
         ensure_columns(frame, ("high", "low"))
         working = frame[["high", "low"]].dropna()
         if len(working) < required_points:
-            raise ValueError(
-                "Not enough high/low data to compute Parkinson volatility for the requested period."
-            )
+            raise ValueError("Not enough high/low data to compute Parkinson volatility for the requested period.")
 
         hl_ratio = np.log(working["high"] / working["low"])
         hl_ratio_sq = hl_ratio.pow(2)
@@ -126,9 +121,7 @@ async def historical_volatility(
         ensure_columns(frame, ("close",))
         closes = frame["close"].dropna()
         if len(closes) < required_points:
-            raise ValueError(
-                "Not enough closing prices to compute historical volatility for the requested period."
-            )
+            raise ValueError("Not enough closing prices to compute historical volatility for the requested period.")
 
         if method_key == "log_returns":
             returns = np.log(closes / closes.shift(1))
@@ -137,18 +130,14 @@ async def historical_volatility(
 
         returns = returns.dropna()
         if len(returns) < period:
-            raise ValueError(
-                "Not enough return values to compute historical volatility for the requested period."
-            )
+            raise ValueError("Not enough return values to compute historical volatility for the requested period.")
 
         vol_series = returns.rolling(window=period, min_periods=period).std()
         vol_series = cast(pd.Series, vol_series)
 
     vol_series = vol_series.dropna()
     if vol_series.empty:
-        raise ValueError(
-            "Unable to compute historical volatility with the provided inputs."
-        )
+        raise ValueError("Unable to compute historical volatility with the provided inputs.")
 
     daily_vol = float(vol_series.iloc[-1])
     daily_vol_pct = daily_vol * 100.0
@@ -203,7 +192,6 @@ async def expected_move(
     ] = 0.85,
 ) -> JSONType:
     """Calculate the option-priced ±1 standard deviation move."""
-
     chain: Mapping[str, Any] | None = None
     metadata: dict[str, Any] | None = None
 
@@ -233,9 +221,7 @@ async def expected_move(
         )
 
         if frame.empty or "close" not in frame.columns:
-            raise ValueError(
-                "Unable to determine the underlying price from price history."
-            )
+            raise ValueError("Unable to determine the underlying price from price history.")
 
         underlying = float(frame["close"].iloc[-1])
 
@@ -301,6 +287,7 @@ def register(
     allow_write: bool,
     result_transform: Callable[[Any], Any] | None = None,
 ) -> None:
+    """Register volatility indicator tools with the MCP server."""
     _ = allow_write
     register_tool(server, expected_move, result_transform=result_transform)
     register_tool(server, historical_volatility, result_transform=result_transform)
@@ -330,9 +317,7 @@ def _select_atm_contracts(
     call_map = chain.get("callExpDateMap") or {}
     put_map = chain.get("putExpDateMap") or {}
 
-    best: tuple[float, _dt.date, float, Mapping[str, Any], Mapping[str, Any]] | None = (
-        None
-    )
+    best: tuple[float, _dt.date, float, Mapping[str, Any], Mapping[str, Any]] | None = None
 
     for exp_key, strikes in call_map.items():
         exp_date = _parse_expiration(exp_key)
@@ -355,9 +340,7 @@ def _select_atm_contracts(
     return best[3], best[4]
 
 
-def _get_contract(
-    exp_map: Mapping[str, Any], exp_key: str, strike_key: str
-) -> Mapping[str, Any] | None:
+def _get_contract(exp_map: Mapping[str, Any], exp_key: str, strike_key: str) -> Mapping[str, Any] | None:
     strikes = exp_map.get(exp_key)
     if not strikes:
         return None

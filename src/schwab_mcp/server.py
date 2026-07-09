@@ -1,21 +1,22 @@
+"""FastMCP server setup and lifecycle management for schwab-mcp."""
+
 from __future__ import annotations
 
 import logging
 import sys
-from collections.abc import AsyncGenerator
-from contextlib import asynccontextmanager
-from typing import Any, AsyncContextManager, Callable, Optional
+from collections.abc import AsyncGenerator, Callable
+from contextlib import AbstractAsyncContextManager, asynccontextmanager
+from typing import Any
 
 import mcp.types as types
 from mcp.server.fastmcp import FastMCP
 from schwab.client import AsyncClient
 
+from schwab_mcp.approvals import ApprovalManager
+from schwab_mcp.context import SchwabServerContext
+from schwab_mcp.resources import register_resources
 from schwab_mcp.tools import register_tools
 from schwab_mcp.tools.utils import strip_noise
-from schwab_mcp.resources import register_resources
-from schwab_mcp.context import SchwabServerContext
-from schwab_mcp.approvals import ApprovalManager
-
 
 logger = logging.getLogger(__name__)
 
@@ -23,7 +24,7 @@ logger = logging.getLogger(__name__)
 def _client_lifespan(
     client: AsyncClient,
     approval_manager: ApprovalManager,
-) -> Callable[[FastMCP], AsyncContextManager[SchwabServerContext]]:
+) -> Callable[[FastMCP], AbstractAsyncContextManager[SchwabServerContext]]:
     """Create a FastMCP lifespan context that exposes the Schwab async client."""
 
     @asynccontextmanager
@@ -40,9 +41,7 @@ def _client_lifespan(
             try:
                 await client.close_async_session()
             except Exception:
-                logger.exception(
-                    "Failed to close Schwab async client session during shutdown."
-                )
+                logger.exception("Failed to close Schwab async client session during shutdown.")
 
     return lifespan
 
@@ -65,8 +64,7 @@ class SchwabMCPServer:
                 from toon import encode as toon_encode
             except ImportError as exc:  # pragma: no cover - import-time failure
                 raise RuntimeError(
-                    "python-toon is required for Toon output. "
-                    "Re-run with --json or install the dependency."
+                    "python-toon is required for Toon output. Re-run with --json or install the dependency."
                 ) from exc
 
             def _toon_transform(payload: Any) -> str:
@@ -102,11 +100,8 @@ class SchwabMCPServer:
         await self._server.run_stdio_async()
 
 
-def send_error_response(
-    error_message: str, code: int = 401, details: Optional[dict] = None
-) -> None:
-    """
-    Send a proper MCP error response to stdout and exit.
+def send_error_response(error_message: str, code: int = 401, details: dict | None = None) -> None:
+    """Send a proper MCP error response to stdout and exit.
 
     This function can be used before the server is started to return
     error responses in the proper MCP format.

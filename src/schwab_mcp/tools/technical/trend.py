@@ -1,9 +1,12 @@
+"""Trend indicator tools: MACD, ATR, ADX."""
+
 from __future__ import annotations
 
 from collections.abc import Callable
 from typing import Annotated, Any
 
 from mcp.server.fastmcp import FastMCP
+
 from schwab_mcp.context import SchwabContext
 from schwab_mcp.tools._registration import register_tool
 from schwab_mcp.tools.utils import JSONType
@@ -136,6 +139,7 @@ def register(
     allow_write: bool,
     result_transform: Callable[[Any], Any] | None = None,
 ) -> None:
+    """Register trend indicator tools with the MCP server."""
     _ = allow_write
     register_tool(server, macd, result_transform=result_transform)
     register_tool(server, atr, result_transform=result_transform)
