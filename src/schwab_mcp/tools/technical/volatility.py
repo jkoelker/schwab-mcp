@@ -123,10 +123,7 @@ async def historical_volatility(
         if len(closes) < required_points:
             raise ValueError("Not enough closing prices to compute historical volatility for the requested period.")
 
-        if method_key == "log_returns":
-            returns = np.log(closes / closes.shift(1))
-        else:
-            returns = closes.pct_change()
+        returns = np.log(closes / closes.shift(1)) if method_key == "log_returns" else closes.pct_change()
 
         returns = returns.dropna()
         if len(returns) < period:

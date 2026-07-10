@@ -1469,7 +1469,7 @@ class TestPruneOrderTypeGuards:
         }
         result = orders._prune_order(order)
         assert isinstance(result, dict)
-        assert "legs" not in result.keys()
+        assert "legs" not in result
 
     def test_child_order_strategies_as_dict_not_processed(self):
         """childOrderStrategies that is a dict must not add childOrderStrategies key."""
@@ -1480,7 +1480,7 @@ class TestPruneOrderTypeGuards:
         }
         result = orders._prune_order(order)
         assert isinstance(result, dict)
-        assert "childOrderStrategies" not in result.keys()
+        assert "childOrderStrategies" not in result
 
     def test_empty_order_leg_collection_list_omits_legs_key(self):
         """An empty orderLegCollection list must not add a legs key."""
@@ -1491,7 +1491,7 @@ class TestPruneOrderTypeGuards:
         }
         result = orders._prune_order(order)
         assert isinstance(result, dict)
-        assert "legs" not in result.keys()
+        assert "legs" not in result
 
     def test_all_non_dict_legs_omits_legs_key(self):
         """When all legs are non-dict, the resulting summary is empty, so legs key is omitted."""
@@ -1502,7 +1502,7 @@ class TestPruneOrderTypeGuards:
         }
         result = orders._prune_order(order)
         assert isinstance(result, dict)
-        assert "legs" not in result.keys()
+        assert "legs" not in result
 
     def test_non_dict_order_passes_through(self):
         """Non-dict input to _prune_order must be returned unchanged."""
