@@ -52,6 +52,10 @@ Start the MCP server to expose the tools to your MCP client.
 # Basic Read-Only Mode (Safest)
 schwab-mcp server --client-id YOUR_KEY --client-secret YOUR_SECRET
 
+# Streamable HTTP (for reverse proxies / remote MCP connectors)
+schwab-mcp server --client-id YOUR_KEY --client-secret YOUR_SECRET \
+  --http --host 127.0.0.1 --port 8000
+
 # With Trading Enabled (Requires Discord Approval)
 schwab-mcp server \
   --client-id YOUR_KEY \
@@ -60,6 +64,10 @@ schwab-mcp server \
   --discord-channel-id CHANNEL_ID \
   --discord-approver YOUR_USER_ID
 ```
+
+Default transport is **stdio** (Claude Desktop and most local MCP clients).
+Use `--http` for FastMCP streamable-http when fronting the server with a
+gateway or remote connector (MCP endpoint is `/mcp` on the bound host:port).
 
 > **Note**: For trading capabilities, you must set up a Discord bot for approvals. See [Discord Setup Guide](docs/discord-setup.md).
 
@@ -73,6 +81,9 @@ You can configure the server using CLI flags or Environment Variables.
 | `--client-secret` | `SCHWAB_CLIENT_SECRET` | **Required**. Schwab App Secret. |
 | `--callback-url` | `SCHWAB_CALLBACK_URL` | Redirect URL (default: `https://127.0.0.1:8182`). |
 | `--token-path` | N/A | Path to save/load token (default: `~/.local/share/...`). |
+| `--http` | N/A | Use streamable-http transport instead of stdio. |
+| `--host` | `MCP_HOST` | Bind address when using `--http` (default: `127.0.0.1`). |
+| `--port` | `MCP_PORT` | Bind port when using `--http` (default: `8000`). |
 | `--jesus-take-the-wheel`| N/A | **DANGER**. Bypasses Discord approval for trades. |
 | `--no-technical-tools` | N/A | Disables technical analysis tools (SMA, RSI, etc.). |
 | `--json` | N/A | Returns JSON instead of formatted text (useful for some agents). Null/empty fields are stripped to reduce token usage. |
