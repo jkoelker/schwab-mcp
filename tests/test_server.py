@@ -228,6 +228,31 @@ async def test_server_run_calls_run_stdio_async(monkeypatch) -> None:
     assert called.get("run") is True
 
 
+@pytest.mark.anyio
+async def test_server_run_http_calls_streamable_http(monkeypatch) -> None:
+    """--http path must set host/port and use run_streamable_http_async."""
+    called: dict[str, bool] = {}
+
+    dummy_client = DummyAsyncClient()
+    client = cast(AsyncClient, dummy_client)
+    approval_manager = DummyApprovalManager()
+    server = SchwabMCPServer(
+        "schwab-mcp",
+        client,
+        approval_manager=approval_manager,
+        allow_write=False,
+    )
+
+    async def fake_run_streamable_http_async() -> None:
+        called["http"] = True
+
+    monkeypatch.setattr(server._server, "run_streamable_http_async", fake_run_streamable_http_async)
+    await server.run(transport="http", host="127.0.0.1", port=3473)
+    assert called.get("http") is True
+    assert server._server.settings.host == "127.0.0.1"
+    assert server._server.settings.port == 3473
+
+
 def test_send_error_response_defaults_details_to_empty_dict(monkeypatch) -> None:
     """send_error_response without details= uses an empty dict, not None."""
     buf = io.StringIO()
