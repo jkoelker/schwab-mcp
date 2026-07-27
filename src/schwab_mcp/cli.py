@@ -185,6 +185,29 @@ def auth(
     is_flag=True,
     help="Return JSON payloads from tools instead of Toon-encoded strings.",
 )
+@click.option(
+    "--http",
+    "use_http",
+    default=False,
+    is_flag=True,
+    help="Use streamable-http transport (binds to --host/--port) instead of stdio.",
+)
+@click.option(
+    "--host",
+    type=str,
+    default="127.0.0.1",
+    envvar="MCP_HOST",
+    show_default=True,
+    help="Host interface to bind when using --http (use 0.0.0.0 for gateway).",
+)
+@click.option(
+    "--port",
+    type=int,
+    default=8000,
+    envvar="MCP_PORT",
+    show_default=True,
+    help="TCP port when using --http transport.",
+)
 def server(
     token_path: str,
     client_id: str | None,
@@ -198,6 +221,9 @@ def server(
     discord_timeout: int,
     no_technical_tools: bool,
     json_output: bool,
+    use_http: bool,
+    host: str,
+    port: int,
 ) -> int:
     """Run the Schwab MCP server."""
     creds = tokens.load_credentials(tokens.credentials_path(APP_NAME))
@@ -322,7 +348,8 @@ def server(
             enable_technical_tools=not no_technical_tools,
             use_json=json_output,
         )
-        anyio.run(server.run, backend="asyncio")
+        transport = "streamable-http" if use_http else "stdio"
+        anyio.run(server.run, transport, host, port, backend="asyncio")
         return 0
     except Exception as e:
         send_error_response(f"Error running server: {str(e)}", code=500, details={"error": str(e)})

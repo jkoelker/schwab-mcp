@@ -95,9 +95,23 @@ class SchwabMCPServer:
         )
         register_resources(self._server)
 
-    async def run(self) -> None:
-        """Run the server using FastMCP's stdio transport."""
-        await self._server.run_stdio_async()
+    async def run(
+        self,
+        transport: str = "stdio",
+        host: str = "127.0.0.1",
+        port: int = 8000,
+    ) -> None:
+        """Run the server over stdio (default) or streamable-http for gateway use."""
+        resolved = transport.strip().lower()
+        if resolved in ("http", "streamable_http", "streamable-http"):
+            self._server.settings.host = host
+            self._server.settings.port = port
+            await self._server.run_streamable_http_async()
+            return
+        if resolved == "stdio":
+            await self._server.run_stdio_async()
+            return
+        raise ValueError(f"Unknown transport {transport!r}; use stdio or streamable-http (or http)")
 
 
 def send_error_response(error_message: str, code: int = 401, details: dict | None = None) -> None:

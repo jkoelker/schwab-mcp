@@ -77,7 +77,11 @@ def _patch_common(monkeypatch, captured: dict[str, Any]) -> None:
     monkeypatch.setattr(
         cli.anyio,
         "run",
-        lambda func, backend="asyncio": captured.setdefault("anyio_backend", backend),
+        lambda func, *args, backend="asyncio", **kwargs: (
+            captured.setdefault("anyio_backend", backend),
+            captured.setdefault("anyio_args", args),
+            captured.setdefault("anyio_kwargs", kwargs),
+        ),
     )
 
 
@@ -463,7 +467,7 @@ def test_server_exits_when_server_run_raises(monkeypatch):
 
     monkeypatch.setattr(cli.schwab_auth, "easy_client", fake_easy_client)
 
-    def fake_run(func, backend="asyncio"):
+    def fake_run(func, *args, backend="asyncio", **kwargs):
         raise RuntimeError("server exploded during run")
 
     monkeypatch.setattr(cli.anyio, "run", fake_run)
