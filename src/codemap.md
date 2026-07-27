@@ -21,7 +21,7 @@
 3. `schwab-mcp server` resolves credentials, creates an async Schwab client through `auth.easy_client(interactive=False, asyncio=True)`, checks token age, chooses an approval manager, and instantiates `SchwabMCPServer`.
 4. `SchwabMCPServer` creates `FastMCP`, registers tool modules through `tools.register_tools()`, registers static resources through `resources.register_resources()`, and runs stdio transport.
 5. During FastMCP lifespan startup, `server._client_lifespan()` starts the approval manager and yields `SchwabServerContext`; tool calls receive `SchwabContext`, which exposes the raw client, typed client facades, approvals, and preview store.
-6. On shutdown, the lifespan finalizer stops the approval manager and closes the Schwab async HTTP session.
+6. On shutdown, the lifespan finalizer stops the approval manager. The process-scoped Schwab async client is left open (streamable-HTTP may exit lifespan per session).
 
 ## Integration
 
