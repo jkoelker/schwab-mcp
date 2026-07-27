@@ -29,6 +29,10 @@ def _client_lifespan(
 
     @asynccontextmanager
     async def lifespan(_: FastMCP) -> AsyncGenerator[SchwabServerContext, None]:
+        # Streamable-HTTP may enter/exit this lifespan per MCP session. The
+        # AsyncClient is process-scoped (created once in CLI); closing it here
+        # kills every subsequent session ("Cannot send a request, as the client
+        # has been closed"). Leave session teardown to process exit.
         await approval_manager.start()
         context = SchwabServerContext(client=client, approval_manager=approval_manager)
         try:
@@ -38,10 +42,6 @@ def _client_lifespan(
                 await approval_manager.stop()
             except Exception:
                 logger.exception("Failed to shut down approval manager cleanly.")
-            try:
-                await client.close_async_session()
-            except Exception:
-                logger.exception("Failed to close Schwab async client session during shutdown.")
 
     return lifespan
 
