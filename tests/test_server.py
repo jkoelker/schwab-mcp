@@ -60,44 +60,43 @@ def test_server_configures_client_lifespan() -> None:
             assert approval_manager.started is True
 
     asyncio.run(runner())
-    assert dummy_client.closed is True
-    assert dummy_client.calls == 1
+    # Process-scoped AsyncClient must outlive FastMCP lifespan teardown
+    # (streamable-HTTP may exit lifespan per MCP session).
+    assert dummy_client.closed is False
+    assert dummy_client.calls == 0
     assert approval_manager.stopped is True
 
 
-def test_server_logs_errors_when_closing_client(caplog) -> None:
-    class FailingClient:
-        def __init__(self) -> None:
-            self.calls = 0
-
-        async def close_async_session(self) -> None:
-            self.calls += 1
-            raise RuntimeError("boom")
-
-    failing_client = FailingClient()
-    client = cast(AsyncClient, failing_client)
+def test_lifespan_keeps_shared_client_open_across_sessions() -> None:
+    """Streamable-HTTP can enter/exit lifespan per session; client stays open."""
+    dummy_client = DummyAsyncClient()
+    client = cast(AsyncClient, dummy_client)
     approval_manager = DummyApprovalManager()
     server = SchwabMCPServer(
         "schwab-mcp",
         client,
         approval_manager=approval_manager,
-        allow_write=True,
+        allow_write=False,
     )
 
     lifespan_factory = server._server.settings.lifespan
     assert callable(lifespan_factory)
 
     async def runner() -> None:
-        async with lifespan_factory(server._server):
-            pass
+        for _ in range(2):
+            approval_manager.started = False
+            approval_manager.stopped = False
+            async with lifespan_factory(server._server) as context:
+                assert context.client is client
+                assert dummy_client.closed is False
+                assert approval_manager.started is True
+            assert dummy_client.closed is False
+            assert dummy_client.calls == 0
+            assert approval_manager.stopped is True
 
-    with caplog.at_level(logging.ERROR):
-        asyncio.run(runner())
-
-    assert failing_client.calls == 1
-    assert "Failed to close Schwab async client session during shutdown." in caplog.text
-    assert approval_manager.started is True
-    assert approval_manager.stopped is True
+    asyncio.run(runner())
+    assert dummy_client.closed is False
+    assert dummy_client.calls == 0
 
 
 def test_lifespan_logs_error_when_approval_manager_stop_raises(caplog) -> None:
@@ -136,8 +135,9 @@ def test_lifespan_logs_error_when_approval_manager_stop_raises(caplog) -> None:
 
     assert failing_approval.started is True
     assert "Failed to shut down approval manager cleanly." in caplog.text
-    # Client session close still runs after approval manager failure
-    assert dummy_client.closed is True
+    # Shared client must not be closed even when approval manager stop fails
+    assert dummy_client.closed is False
+    assert dummy_client.calls == 0
 
 
 def test_toon_transform_returns_string_payload_unchanged(monkeypatch) -> None:
