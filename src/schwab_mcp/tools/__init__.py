@@ -6,7 +6,7 @@ import logging
 from collections.abc import Callable
 from typing import Any
 
-from mcp.server.fastmcp import FastMCP
+from mcp.server.mcpserver import MCPServer
 from schwab.client import AsyncClient
 
 from schwab_mcp.tools import (
@@ -34,14 +34,14 @@ _TOOL_MODULES = (
 
 
 def register_tools(
-    server: FastMCP,
+    server: MCPServer,
     client: AsyncClient,
     *,
     allow_write: bool,
     enable_technical: bool = True,
     result_transform: Callable[[Any], Any] | None = None,
 ) -> None:
-    """Register all Schwab tools with the provided FastMCP server."""
+    """Register all Schwab tools with the provided MCPServer server."""
     _ = client
 
     modules = _TOOL_MODULES

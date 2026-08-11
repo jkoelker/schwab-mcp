@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from typing import Any
 
-from mcp.server.fastmcp import FastMCP
+from mcp.server.mcpserver import MCPServer
 
 ORDER_STATUSES: dict[str, Any] = {
     "statuses": {
@@ -232,7 +232,7 @@ TRADING_SESSIONS: dict[str, Any] = {
 }
 
 
-def register_resources(server: FastMCP) -> None:
+def register_resources(server: MCPServer) -> None:
     """Register all static reference resources with the MCP server."""
 
     @server.resource("schwab://reference/order-statuses")

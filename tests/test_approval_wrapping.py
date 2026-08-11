@@ -5,7 +5,7 @@ from types import SimpleNamespace
 from typing import Any, TypeVar, cast
 
 import pytest
-from mcp.server.fastmcp import Context as MCPContext
+from mcp.server.mcpserver import Context as MCPContext
 from schwab.client import AsyncClient
 
 from schwab_mcp.approvals import (
@@ -37,17 +37,14 @@ class DummySession:
     async def send_log_message(self, **payload: Any) -> None:
         self.messages.append(payload)
 
-    async def send_progress_notification(
+    async def report_progress(
         self,
-        *,
-        progress_token: str,
         progress: float,
-        total: float | None,
-        message: str | None,
+        total: float | None = None,
+        message: str | None = None,
     ) -> None:
         self.progress.append(
             {
-                "progress_token": progress_token,
                 "progress": progress,
                 "total": total,
                 "message": message,
@@ -66,7 +63,9 @@ def make_ctx(
         approval_manager=approval_manager,
     )
     session = DummySession()
-    meta = SimpleNamespace(progressToken=progress_token, client_id="client-123") if progress_token else None
+    meta: dict[str, Any] | None = (
+        {"progress_token": progress_token, "client_id": "client-123"} if progress_token else None
+    )
     request_context = SimpleNamespace(
         lifespan_context=lifespan_context,
         request_id="req-123",
@@ -75,7 +74,7 @@ def make_ctx(
     )
     ctx = SchwabContext.model_construct(
         _request_context=cast(Any, request_context),
-        _fastmcp=None,
+        _mcp_server=None,
     )
     return ctx, approval_manager, session, request_context
 
@@ -141,7 +140,7 @@ def test_write_tool_accepts_base_context() -> None:
     _, approval_manager, session, request_context = make_ctx(ApprovalDecision.APPROVED)
     base_ctx = MCPContext.model_construct(
         _request_context=cast(Any, request_context),
-        _fastmcp=None,
+        _mcp_server=None,
     )
     tool = wrapped_tool()
 

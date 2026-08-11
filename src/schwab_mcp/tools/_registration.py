@@ -11,7 +11,7 @@ from collections.abc import Awaitable, Callable
 from contextlib import suppress
 from typing import Annotated, Any, Union, cast, get_args, get_origin, get_type_hints
 
-from mcp.server.fastmcp import Context as MCPContext, FastMCP
+from mcp.server.mcpserver import Context as MCPContext, MCPServer
 from mcp.types import ToolAnnotations
 
 from schwab_mcp.approvals import ApprovalDecision, ApprovalRequest
@@ -89,7 +89,7 @@ def _ensure_schwab_context(func: ToolFn) -> ToolFn:
             if isinstance(value, MCPContext):
                 bound.arguments[name] = SchwabContext.model_construct(
                     _request_context=value.request_context,
-                    _fastmcp=getattr(value, "_fastmcp", None),
+                    _mcp_server=getattr(value, "_mcp_server", None),
                 )
             else:
                 raise TypeError(f"Argument '{name}' must be an MCP context, got {type(value)!r}")
@@ -165,7 +165,7 @@ def _wrap_with_approval(func: ToolFn) -> ToolFn:
             if isinstance(value, MCPContext):
                 converted = SchwabContext.model_construct(
                     _request_context=value.request_context,
-                    _fastmcp=getattr(value, "_fastmcp", None),
+                    _mcp_server=getattr(value, "_mcp_server", None),
                 )
                 bound.arguments[name] = converted
                 context = converted
@@ -262,10 +262,10 @@ async def _report_approval_completion(context: SchwabContext, decision: Approval
 
 def _has_progress_token(context: SchwabContext) -> bool:
     try:
-        progress_token = getattr(context.request_context.meta, "progressToken", None)
+        meta = context.request_context.meta
     except ValueError:
         return False
-    return bool(progress_token)
+    return bool(meta.get("progress_token")) if meta else False
 
 
 def _wrap_result_transform(func: ToolFn, transform: Callable[[Any], Any]) -> ToolFn:
@@ -289,14 +289,14 @@ def _wrap_result_transform(func: ToolFn, transform: Callable[[Any], Any]) -> Too
 
 
 def register_tool(
-    server: FastMCP,
+    server: MCPServer,
     func: ToolFn,
     *,
     write: bool = False,
     annotations: ToolAnnotations | None = None,
     result_transform: Callable[[Any], Any] | None = None,
 ) -> None:
-    """Register a Schwab tool using FastMCP's decorator plumbing."""
+    """Register a Schwab tool using MCPServer's decorator plumbing."""
     func = _ensure_schwab_context(func)
     if write:
         func = _wrap_with_approval(func)
@@ -307,19 +307,19 @@ def register_tool(
     if tool_annotations is None:
         if write:
             tool_annotations = ToolAnnotations(
-                readOnlyHint=False,
-                destructiveHint=True,
+                read_only_hint=False,
+                destructive_hint=True,
             )
         else:
             tool_annotations = ToolAnnotations(
-                readOnlyHint=True,
+                read_only_hint=True,
             )
     else:
         update: dict[str, Any] = {}
-        if tool_annotations.readOnlyHint is None:
-            update["readOnlyHint"] = not write
-        if write and tool_annotations.destructiveHint is None:
-            update["destructiveHint"] = True
+        if tool_annotations.read_only_hint is None:
+            update["read_only_hint"] = not write
+        if write and tool_annotations.destructive_hint is None:
+            update["destructive_hint"] = True
         if update:
             tool_annotations = tool_annotations.model_copy(update=update)
 

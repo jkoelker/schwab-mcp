@@ -6,7 +6,7 @@ from collections.abc import Callable
 from typing import Annotated, Any
 
 import pandas as pd
-from mcp.server.fastmcp import FastMCP
+from mcp.server.mcpserver import MCPServer
 
 from schwab_mcp.context import SchwabContext
 from schwab_mcp.tools._registration import register_tool
@@ -230,7 +230,7 @@ async def bollinger_bands(
 
 
 def register(
-    server: FastMCP,
+    server: MCPServer,
     *,
     allow_write: bool,
     result_transform: Callable[[Any], Any] | None = None,

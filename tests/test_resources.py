@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from mcp.server.fastmcp import FastMCP
+from mcp.server.mcpserver import MCPServer
 
 from schwab_mcp.resources import (
     OPTION_SYMBOLS,
@@ -49,7 +49,7 @@ class TestRegisterResources:
     def test_registers_static_resources(self):
         import asyncio
 
-        server = FastMCP(name="test")
+        server = MCPServer(name="test")
         register_resources(server)
 
         resources = asyncio.run(server.list_resources())

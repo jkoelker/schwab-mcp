@@ -36,7 +36,7 @@ def make_ctx(client: Any) -> SchwabContext:
     )
     return SchwabContext.model_construct(
         _request_context=cast(Any, request_context),
-        _fastmcp=None,
+        _mcp_server=None,
     )
 
 

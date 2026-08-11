@@ -1,4 +1,4 @@
-"""FastMCP server setup and lifecycle management for schwab-mcp."""
+"""MCPServer server setup and lifecycle management for schwab-mcp."""
 
 from __future__ import annotations
 
@@ -9,7 +9,7 @@ from contextlib import AbstractAsyncContextManager, asynccontextmanager
 from typing import Any
 
 import mcp.types as types
-from mcp.server.fastmcp import FastMCP
+from mcp.server.mcpserver import MCPServer
 from schwab.client import AsyncClient
 
 from schwab_mcp.approvals import ApprovalManager
@@ -24,11 +24,11 @@ logger = logging.getLogger(__name__)
 def _client_lifespan(
     client: AsyncClient,
     approval_manager: ApprovalManager,
-) -> Callable[[FastMCP], AbstractAsyncContextManager[SchwabServerContext]]:
-    """Create a FastMCP lifespan context that exposes the Schwab async client."""
+) -> Callable[[MCPServer], AbstractAsyncContextManager[SchwabServerContext]]:
+    """Create an MCPServer lifespan context that exposes the Schwab async client."""
 
     @asynccontextmanager
-    async def lifespan(_: FastMCP) -> AsyncGenerator[SchwabServerContext, None]:
+    async def lifespan(_: MCPServer) -> AsyncGenerator[SchwabServerContext, None]:
         # Streamable-HTTP may enter/exit this lifespan per MCP session. The
         # AsyncClient is process-scoped (created once in CLI); closing it here
         # kills every subsequent session ("Cannot send a request, as the client
@@ -47,7 +47,7 @@ def _client_lifespan(
 
 
 class SchwabMCPServer:
-    """Schwab Model Context Protocol server backed by FastMCP."""
+    """Schwab Model Context Protocol server backed by MCPServer."""
 
     def __init__(
         self,
@@ -82,7 +82,7 @@ class SchwabMCPServer:
 
             result_transform = _json_strip_transform
 
-        self._server = FastMCP(
+        self._server = MCPServer(
             name=name,
             lifespan=_client_lifespan(client, approval_manager),
         )
@@ -104,9 +104,7 @@ class SchwabMCPServer:
         """Run the server over stdio (default) or streamable-http for gateway use."""
         resolved = transport.strip().lower()
         if resolved in ("http", "streamable_http", "streamable-http"):
-            self._server.settings.host = host
-            self._server.settings.port = port
-            await self._server.run_streamable_http_async()
+            await self._server.run_streamable_http_async(host=host, port=port)
             return
         if resolved == "stdio":
             await self._server.run_stdio_async()
