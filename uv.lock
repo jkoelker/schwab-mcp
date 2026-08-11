@@ -2498,7 +2498,7 @@ requires-dist = [
     { name = "click", specifier = ">=8.3.0" },
     { name = "discord-py", specifier = ">=2.4.0" },
     { name = "httpx", specifier = ">=0.27.2" },
-    { name = "mcp", specifier = ">=1.17.0" },
+    { name = "mcp", specifier = ">=1.17.0,<2" },
     { name = "platformdirs", specifier = ">=4.5.0" },
     { name = "python-toon", specifier = ">=0.1.2" },
     { name = "pyyaml", specifier = ">=6.0.3" },
@@ -2508,7 +2508,7 @@ requires-dist = [
 
 [package.metadata.requires-dev]
 dev = [
-    { name = "mcp", extras = ["cli"], specifier = ">=1.17.0" },
+    { name = "mcp", extras = ["cli"], specifier = ">=1.17.0,<2" },
     { name = "pyright", specifier = ">=1.1.407" },
     { name = "pytest", specifier = ">=8.4.2" },
     { name = "pytest-cov", specifier = ">=6.0.0" },
