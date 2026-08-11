@@ -1,11 +1,11 @@
-"""FastMCP context types that expose the Schwab client and supporting services."""
+"""MCPServer context types that expose the Schwab client and supporting services."""
 
 from __future__ import annotations
 
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Any, cast
 
-from mcp.server.fastmcp import Context as MCPContext
+from mcp.server.mcpserver import Context as MCPContext
 from schwab.client import AsyncClient
 
 from schwab_mcp.approvals import ApprovalManager
@@ -29,7 +29,7 @@ else:  # pragma: no cover - runtime only
 
 @dataclass(slots=True)
 class SchwabServerContext:
-    """Typed application context shared via FastMCP lifespan."""
+    """Typed application context shared via MCPServer lifespan."""
 
     client: AsyncClient
     approval_manager: ApprovalManager
@@ -52,8 +52,8 @@ class SchwabServerContext:
         self.transactions = cast(TransactionsClient, self.client)
 
 
-class SchwabContext(MCPContext[Any, SchwabServerContext, Any]):
-    """FastMCP context with typed accessors for Schwab APIs."""
+class SchwabContext(MCPContext[SchwabServerContext, Any]):
+    """MCPServer context with typed accessors for Schwab APIs."""
 
     @property
     def schwab(self) -> SchwabServerContext:
@@ -62,6 +62,17 @@ class SchwabContext(MCPContext[Any, SchwabServerContext, Any]):
         if context is None:
             raise RuntimeError("Schwab context is unavailable outside a request")
         return context
+
+    @property
+    def client_id(self) -> str | None:
+        """Return the client ID if available in request metadata."""
+        try:
+            meta = self.request_context.meta
+        except ValueError:
+            return None
+        if meta is None:
+            return None
+        return meta.get("client_id")
 
     @property
     def client(self) -> AsyncClient:

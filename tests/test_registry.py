@@ -5,8 +5,8 @@ from types import SimpleNamespace
 from typing import Annotated, Any, cast
 
 import pytest
-from mcp.server.fastmcp import Context as MCPContext, FastMCP
-from mcp.server.fastmcp.tools import Tool
+from mcp.server.mcpserver import Context as MCPContext, MCPServer
+from mcp.server.mcpserver.tools import Tool
 from mcp.types import ToolAnnotations
 from schwab.client import AsyncClient
 
@@ -26,37 +26,37 @@ async def _dummy_tool(ctx: SchwabContext) -> str:  # noqa: ARG001
     return "ok"
 
 
-def _registered_tools(server: FastMCP) -> list[Tool]:
+def _registered_tools(server: MCPServer) -> list[Tool]:
     manager = getattr(server, "_tool_manager")
     return cast(list[Tool], manager.list_tools())
 
 
-def _tool_by_name(server: FastMCP, name: str) -> Tool:
+def _tool_by_name(server: MCPServer, name: str) -> Tool:
     tools = {tool.name: tool for tool in _registered_tools(server)}
     return tools[name]
 
 
 def test_register_tool_sets_readonly_annotations() -> None:
-    server = FastMCP(name="readonly")
+    server = MCPServer(name="readonly")
     register_tool(server, _dummy_tool)
 
     tool = _tool_by_name(server, "_dummy_tool")
     annotations = tool.annotations
     assert isinstance(annotations, ToolAnnotations)
-    assert annotations.readOnlyHint is True
-    assert annotations.destructiveHint is None
+    assert annotations.read_only_hint is True
+    assert annotations.destructive_hint is None
     assert tool.description == (_dummy_tool.__doc__ or "")
 
 
 def test_register_tool_sets_write_annotations() -> None:
-    server = FastMCP(name="write")
+    server = MCPServer(name="write")
     register_tool(server, _dummy_tool, write=True)
 
     tool = _tool_by_name(server, "_dummy_tool")
     annotations = tool.annotations
     assert isinstance(annotations, ToolAnnotations)
-    assert annotations.readOnlyHint is False
-    assert annotations.destructiveHint is True
+    assert annotations.read_only_hint is False
+    assert annotations.destructive_hint is True
     assert tool.description == (_dummy_tool.__doc__ or "")
 
 
@@ -81,7 +81,7 @@ def test_register_tools_always_registers_write_tools(monkeypatch) -> None:
     dummy_module = SimpleNamespace(register=register_module)
     monkeypatch.setattr(tools_module, "_TOOL_MODULES", (dummy_module,))
 
-    read_only_server = FastMCP(name="read-only")
+    read_only_server = MCPServer(name="read-only")
     tools_module.register_tools(
         read_only_server,
         cast(AsyncClient, object()),
@@ -91,9 +91,9 @@ def test_register_tools_always_registers_write_tools(monkeypatch) -> None:
     read_only_tools = {tool.name: tool for tool in _registered_tools(read_only_server)}
     assert {"read_tool", "write_tool"} == set(read_only_tools)
     assert read_only_tools["write_tool"].annotations is not None
-    assert read_only_tools["write_tool"].annotations.readOnlyHint is False
+    assert read_only_tools["write_tool"].annotations.read_only_hint is False
 
-    write_server = FastMCP(name="read-write")
+    write_server = MCPServer(name="read-write")
     tools_module.register_tools(
         write_server,
         cast(AsyncClient, object()),
@@ -104,12 +104,12 @@ def test_register_tools_always_registers_write_tools(monkeypatch) -> None:
     assert {"read_tool", "write_tool"} == set(write_tools)
     write_annotations = write_tools["write_tool"].annotations
     assert write_annotations is not None
-    assert write_annotations.readOnlyHint is False
-    assert write_annotations.destructiveHint is True
+    assert write_annotations.read_only_hint is False
+    assert write_annotations.destructive_hint is True
 
 
 def test_register_tool_applies_result_transform() -> None:
-    server = FastMCP(name="transform")
+    server = MCPServer(name="transform")
 
     async def sample_tool() -> dict[str, str]:
         return {"ok": "yes"}
@@ -133,7 +133,7 @@ def test_register_tool_applies_result_transform() -> None:
 
 def test_result_transform_handles_sync_tool() -> None:
     """_wrap_result_transform works when the wrapped function returns synchronously."""
-    server = FastMCP(name="sync-transform")
+    server = MCPServer(name="sync-transform")
 
     def sync_tool() -> str:  # type: ignore[return-value]
         return "raw"
@@ -149,7 +149,7 @@ def test_result_transform_handles_sync_tool() -> None:
 
 
 def test_result_transform_preserves_strings() -> None:
-    server = FastMCP(name="string-transform")
+    server = MCPServer(name="string-transform")
 
     async def sample_tool() -> str:
         return "already-string"
@@ -272,7 +272,7 @@ def test_ensure_schwab_context_converts_mcp_context() -> None:
 
     base_ctx = MCPContext.model_construct(
         _request_context=cast(Any, request_context),
-        _fastmcp=None,
+        _mcp_server=None,
     )
 
     async def runner() -> str:
@@ -308,7 +308,7 @@ def test_ensure_schwab_context_handles_sync_result() -> None:
     request_context = _make_request_context()
     ctx = SchwabContext.model_construct(
         _request_context=cast(Any, request_context),
-        _fastmcp=None,
+        _mcp_server=None,
     )
 
     async def runner() -> Any:
@@ -329,38 +329,38 @@ async def _noop_tool(ctx: SchwabContext) -> str:  # noqa: ARG001
 
 
 def test_register_tool_fills_readonly_hint_when_missing() -> None:
-    """readOnlyHint=None in caller-supplied annotations is filled based on write flag."""
-    server = FastMCP(name="hint-test")
-    partial_annotations = ToolAnnotations(readOnlyHint=None, destructiveHint=None)
+    """read_only_hint=None in caller-supplied annotations is filled based on write flag."""
+    server = MCPServer(name="hint-test")
+    partial_annotations = ToolAnnotations(read_only_hint=None, destructive_hint=None)
     register_tool(server, _noop_tool, annotations=partial_annotations)
 
     tool = _tool_by_name(server, "_noop_tool")
     assert tool.annotations is not None
-    assert tool.annotations.readOnlyHint is True  # non-write tool → True
+    assert tool.annotations.read_only_hint is True  # non-write tool → True
 
 
 def test_register_tool_fills_destructive_hint_for_write_tools() -> None:
-    """destructiveHint=None is filled to True for write tools."""
-    server = FastMCP(name="destructive-test")
-    partial_annotations = ToolAnnotations(readOnlyHint=False, destructiveHint=None)
+    """destructive_hint=None is filled to True for write tools."""
+    server = MCPServer(name="destructive-test")
+    partial_annotations = ToolAnnotations(read_only_hint=False, destructive_hint=None)
     register_tool(server, _noop_tool, write=True, annotations=partial_annotations)
 
     tool = _tool_by_name(server, "_noop_tool")
     assert tool.annotations is not None
-    assert tool.annotations.readOnlyHint is False
-    assert tool.annotations.destructiveHint is True
+    assert tool.annotations.read_only_hint is False
+    assert tool.annotations.destructive_hint is True
 
 
 def test_register_tool_preserves_explicit_annotation_values() -> None:
     """Explicitly set annotation values are not overwritten."""
-    server = FastMCP(name="explicit-test")
-    explicit_annotations = ToolAnnotations(readOnlyHint=True, destructiveHint=False)
+    server = MCPServer(name="explicit-test")
+    explicit_annotations = ToolAnnotations(read_only_hint=True, destructive_hint=False)
     register_tool(server, _noop_tool, write=True, annotations=explicit_annotations)
 
     tool = _tool_by_name(server, "_noop_tool")
     assert tool.annotations is not None
-    assert tool.annotations.readOnlyHint is True
-    assert tool.annotations.destructiveHint is False
+    assert tool.annotations.read_only_hint is True
+    assert tool.annotations.destructive_hint is False
 
 
 # ---------------------------------------------------------------------------
@@ -381,7 +381,7 @@ def test_wrapped_tool_resolves_forward_ref_annotations() -> None:
 
     annotated_tool.__module__ = __name__
 
-    server = FastMCP(name="fwd-ref")
+    server = MCPServer(name="fwd-ref")
     register_tool(server, annotated_tool, result_transform=lambda v: v)
 
     tool = _tool_by_name(server, "annotated_tool")
@@ -389,7 +389,7 @@ def test_wrapped_tool_resolves_forward_ref_annotations() -> None:
     request_context = _make_request_context()
     ctx = SchwabContext.model_construct(
         _request_context=cast(Any, request_context),
-        _fastmcp=None,
+        _mcp_server=None,
     )
 
     result = asyncio.run(tool.fn(ctx))

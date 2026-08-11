@@ -5,7 +5,7 @@ from collections.abc import Callable
 from dataclasses import dataclass
 from typing import Annotated, Any, cast
 
-from mcp.server.fastmcp import FastMCP
+from mcp.server.mcpserver import MCPServer
 from mcp.types import ToolAnnotations
 from schwab.orders.common import Duration, first_triggers_second as trigger_builder, one_cancels_other as oco_builder
 from schwab.orders.generic import OrderBuilder
@@ -309,7 +309,7 @@ class _OrderDescInputRequired(TypedDict):
 class _OrderDescInput(_OrderDescInputRequired, total=False):
     """TypedDict used as the MCP tool parameter type for order leg dicts.
 
-    FastMCP generates the JSON schema for tool inputs from this TypedDict.
+    MCPServer generates the JSON schema for tool inputs from this TypedDict.
     Raw dicts received from MCP clients are validated and converted to
     ``OrderDesc`` dataclass instances via ``OrderDesc.from_dict()`` before
     any internal processing occurs.
@@ -1290,7 +1290,7 @@ _WRITE_TOOLS = (cancel_order,)  # keeps automatic argument-dump approval
 
 
 def register(
-    server: FastMCP,
+    server: MCPServer,
     *,
     allow_write: bool,
     result_transform: Callable[[Any], Any] | None = None,
@@ -1312,6 +1312,6 @@ def register(
         server,
         place_previewed_order,
         write=False,
-        annotations=ToolAnnotations(readOnlyHint=False, destructiveHint=True),
+        annotations=ToolAnnotations(read_only_hint=False, destructive_hint=True),
         result_transform=result_transform,
     )

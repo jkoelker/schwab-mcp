@@ -60,7 +60,7 @@ def test_server_configures_client_lifespan() -> None:
             assert approval_manager.started is True
 
     asyncio.run(runner())
-    # Process-scoped AsyncClient must outlive FastMCP lifespan teardown
+    # Process-scoped AsyncClient must outlive MCPServer lifespan teardown
     # (streamable-HTTP may exit lifespan per MCP session).
     assert dummy_client.closed is False
     assert dummy_client.calls == 0
@@ -207,7 +207,7 @@ def test_json_strip_transform_returns_string_payload_unchanged(monkeypatch) -> N
 
 @pytest.mark.anyio
 async def test_server_run_calls_run_stdio_async(monkeypatch) -> None:
-    """server.run() must delegate to FastMCP's run_stdio_async."""
+    """server.run() must delegate to MCPServer's run_stdio_async."""
     called: dict[str, bool] = {}
 
     dummy_client = DummyAsyncClient()
@@ -230,8 +230,8 @@ async def test_server_run_calls_run_stdio_async(monkeypatch) -> None:
 
 @pytest.mark.anyio
 async def test_server_run_http_calls_streamable_http(monkeypatch) -> None:
-    """--http path must set host/port and use run_streamable_http_async."""
-    called: dict[str, bool] = {}
+    """--http path must pass host/port to run_streamable_http_async."""
+    called: dict[str, Any] = {}
 
     dummy_client = DummyAsyncClient()
     client = cast(AsyncClient, dummy_client)
@@ -243,14 +243,15 @@ async def test_server_run_http_calls_streamable_http(monkeypatch) -> None:
         allow_write=False,
     )
 
-    async def fake_run_streamable_http_async() -> None:
+    async def fake_run_streamable_http_async(**kwargs: Any) -> None:
         called["http"] = True
+        called["kwargs"] = kwargs
 
     monkeypatch.setattr(server._server, "run_streamable_http_async", fake_run_streamable_http_async)
     await server.run(transport="http", host="127.0.0.1", port=3473)
     assert called.get("http") is True
-    assert server._server.settings.host == "127.0.0.1"
-    assert server._server.settings.port == 3473
+    assert called["kwargs"]["host"] == "127.0.0.1"
+    assert called["kwargs"]["port"] == 3473
 
 
 def test_send_error_response_defaults_details_to_empty_dict(monkeypatch) -> None:

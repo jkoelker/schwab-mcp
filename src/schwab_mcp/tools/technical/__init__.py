@@ -9,7 +9,7 @@ from types import ModuleType
 from typing import TYPE_CHECKING, Any, cast
 
 if TYPE_CHECKING:
-    from mcp.server.fastmcp import FastMCP
+    from mcp.server.mcpserver import MCPServer
 
 logger = logging.getLogger(__name__)
 
@@ -22,7 +22,7 @@ pandas_ta = cast(Any, _pandas_ta)
 
 
 def register(
-    server: FastMCP,
+    server: MCPServer,
     *,
     allow_write: bool,
     result_transform: Callable[[Any], Any] | None = None,
