@@ -13,7 +13,15 @@ class DummyOptionsClient:
         Strategy = Enum("Strategy", "SINGLE ANALYTICAL VERTICAL")
         StrikeRange = Enum(
             "StrikeRange",
-            "IN_THE_MONEY NEAR_THE_MONEY OUT_OF_THE_MONEY STRIKES_ABOVE_MARKET STRIKES_BELOW_MARKET STRIKES_NEAR_MARKET ALL",
+            {
+                "IN_THE_MONEY": "ITM",
+                "NEAR_THE_MONEY": "NTM",
+                "OUT_OF_THE_MONEY": "OTM",
+                "STRIKES_ABOVE_MARKET": "SAK",
+                "STRIKES_BELOW_MARKET": "SBK",
+                "STRIKES_NEAR_MARKET": "SNK",
+                "ALL": "ALL",
+            },
         )
         ExpirationMonth = Enum("ExpirationMonth", "JAN FEB MAR")
         Type = Enum("Type", "STANDARD NON_STANDARD ALL")
@@ -78,6 +86,30 @@ def test_get_advanced_option_chain_parses_and_maps_parameters(monkeypatch, fake_
     assert kwargs["days_to_expiration"] == 30
     assert kwargs["exp_month"] is client.Options.ExpirationMonth.JAN
     assert kwargs["option_type"] is client.Options.Type.STANDARD
+
+
+def test_get_advanced_option_chain_accepts_schwab_strike_range_value(monkeypatch, fake_call_factory):
+    captured, fake_call = fake_call_factory()
+    monkeypatch.setattr(options, "call", fake_call)
+
+    client = DummyOptionsClient()
+    run(options.get_advanced_option_chain(make_ctx(client), "SPY", strike_range="OTM"))
+
+    assert captured["kwargs"]["strike_range"] is client.Options.StrikeRange.OUT_OF_THE_MONEY
+
+
+def test_get_advanced_option_chain_rejects_invalid_strike_range():
+    client = DummyOptionsClient()
+
+    try:
+        run(options.get_advanced_option_chain(make_ctx(client), "SPY", strike_range="invalid"))
+    except ValueError as exc:
+        assert str(exc) == (
+            "Invalid strike_range: invalid. Must be one of: IN_THE_MONEY, NEAR_THE_MONEY, "
+            "OUT_OF_THE_MONEY, STRIKES_ABOVE_MARKET, STRIKES_BELOW_MARKET, STRIKES_NEAR_MARKET, ALL"
+        )
+    else:
+        raise AssertionError("expected invalid strike_range to raise ValueError")
 
 
 # ---------------------------------------------------------------------------

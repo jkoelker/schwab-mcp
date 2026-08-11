@@ -84,6 +84,22 @@ def _normalize_expiration_window(
     return from_date, to_date
 
 
+def _parse_strike_range(client: Any, strike_range: str | None) -> Any:
+    if strike_range is None:
+        return None
+
+    enum_type = client.Options.StrikeRange
+    normalized = strike_range.upper()
+    try:
+        return enum_type[normalized]
+    except KeyError:
+        try:
+            return enum_type(normalized)
+        except ValueError as exc:
+            choices = ", ".join(member.name for member in enum_type)
+            raise ValueError(f"Invalid strike_range: {strike_range}. Must be one of: {choices}") from exc
+
+
 async def get_option_chain(
     ctx: SchwabContext,
     symbol: Annotated[str, "Symbol of the underlying security (e.g., 'AAPL', 'SPY')"],
@@ -150,7 +166,9 @@ async def get_advanced_option_chain(
     strike: Annotated[float | None, "Only return options with the given strike"] = None,
     strike_range: Annotated[
         str | None,
-        "Filter strikes: IN_THE_MONEY, NEAR_THE_MONEY, OUT_OF_THE_MONEY, STRIKES_ABOVE_MARKET, STRIKES_BELOW_MARKET, STRIKES_NEAR_MARKET, ALL (default)",
+        "Filter strikes by enum name or Schwab value: IN_THE_MONEY/ITM, "
+        "NEAR_THE_MONEY/NTM, OUT_OF_THE_MONEY/OTM, STRIKES_ABOVE_MARKET/SAK, "
+        "STRIKES_BELOW_MARKET/SBK, STRIKES_NEAR_MARKET/SNK, ALL",
     ] = None,
     from_date: Annotated[
         str | datetime.date | None,
@@ -172,7 +190,7 @@ async def get_advanced_option_chain(
     ] = False,
 ) -> JSONType:
     """Returns advanced option chain data with strategies, filters, and theoretical calculations. Use for complex analysis.
-    Params: symbol, contract_type, strike_count, include_quotes, strategy (SINGLE/ANALYTICAL/etc.), interval, strike, strike_range (ITM/NTM/etc.), from/to_date, volatility/underlying_price/interest_rate/days_to_expiration (for ANALYTICAL), exp_month, option_type (STANDARD/NON_STANDARD/ALL).
+    Params: symbol, contract_type, strike_count, include_quotes, strategy (SINGLE/ANALYTICAL/etc.), interval, strike, strike_range (enum name or ITM/NTM/etc.), from/to_date, volatility/underlying_price/interest_rate/days_to_expiration (for ANALYTICAL), exp_month, option_type (STANDARD/NON_STANDARD/ALL).
     Limit data returned using strike_count and date parameters. When both dates are omitted the tool defaults to the next 60 calendar days to avoid oversized responses.
     By default returns compact per-contract fields only; pass verbose=True for the full raw payload.
     """
@@ -194,7 +212,7 @@ async def get_advanced_option_chain(
         strategy=client.Options.Strategy[strategy.upper()] if strategy else None,
         interval=interval,
         strike=strike,
-        strike_range=client.Options.StrikeRange[strike_range.upper()] if strike_range else None,
+        strike_range=_parse_strike_range(client, strike_range),
         from_date=from_date_obj,
         to_date=to_date_obj,
         volatility=volatility,
