@@ -1,39 +1,144 @@
 import datetime
-from enum import Enum
 from typing import Any
 
+import pytest
 from conftest import make_ctx, run
+from jsonschema import Draft202012Validator, FormatChecker
+from jsonschema.exceptions import ValidationError as JSONSchemaValidationError
+from mcp.server.mcpserver import MCPServer
+from schwab.client import AsyncClient
 
 from schwab_mcp.tools import options
 
 
 class DummyOptionsClient:
-    class Options:
-        ContractType = Enum("ContractType", "CALL PUT ALL")
-        Strategy = Enum("Strategy", "SINGLE ANALYTICAL VERTICAL")
-        StrikeRange = Enum(
-            "StrikeRange",
-            {
-                "IN_THE_MONEY": "ITM",
-                "NEAR_THE_MONEY": "NTM",
-                "OUT_OF_THE_MONEY": "OTM",
-                "STRIKES_ABOVE_MARKET": "SAK",
-                "STRIKES_BELOW_MARKET": "SBK",
-                "STRIKES_NEAR_MARKET": "SNK",
-                "ALL": "ALL",
-            },
-        )
-        ExpirationMonth = Enum("ExpirationMonth", "JAN FEB MAR")
-        Type = Enum("Type", "STANDARD NON_STANDARD ALL")
+    """Provide option endpoint stubs using the installed Schwab SDK enums."""
+
+    Options = AsyncClient.Options
 
     async def get_option_chain(self, *args, **kwargs):
+        """Return no payload for a stubbed option-chain request."""
         return None
 
     async def get_option_expiration_chain(self, *args, **kwargs):
+        """Return no payload for a stubbed expiration request."""
         return None
 
 
+def _enum_schema_choices(enum_type: Any) -> tuple[str, ...]:
+    """Return the SDK enum member names advertised by the option tools."""
+    return tuple(member.name for member in enum_type)
+
+
+@pytest.mark.parametrize(
+    ("tool_names", "parameter", "choices"),
+    (
+        (
+            ("get_option_chain", "get_advanced_option_chain"),
+            "contract_type",
+            _enum_schema_choices(AsyncClient.Options.ContractType),
+        ),
+        (
+            ("get_advanced_option_chain",),
+            "strategy",
+            _enum_schema_choices(AsyncClient.Options.Strategy),
+        ),
+        (
+            ("get_advanced_option_chain",),
+            "strike_range",
+            _enum_schema_choices(AsyncClient.Options.StrikeRange),
+        ),
+        (
+            ("get_advanced_option_chain",),
+            "exp_month",
+            _enum_schema_choices(AsyncClient.Options.ExpirationMonth),
+        ),
+        (
+            ("get_advanced_option_chain",),
+            "option_type",
+            _enum_schema_choices(AsyncClient.Options.Type),
+        ),
+    ),
+)
+def test_registered_option_enum_schema(
+    tool_names: tuple[str, ...],
+    parameter: str,
+    choices: tuple[str, ...],
+) -> None:
+    """Expose only advertised enum choices and reject invalid MCP inputs."""
+    server = MCPServer(name="options-enum-schema")
+    options.register(server, allow_write=False)
+    registered_tools = {tool.name: tool for tool in run(server.list_tools())}
+
+    for tool_name in tool_names:
+        tool = registered_tools[tool_name]
+        branches = tool.input_schema["properties"][parameter]["anyOf"]
+        enum_branches = [branch for branch in branches if "enum" in branch]
+        assert enum_branches == [{"enum": list(choices), "type": "string"}]
+        assert all("enum" in branch or branch.get("type") == "null" for branch in branches)
+
+        validator = Draft202012Validator(tool.input_schema, format_checker=FormatChecker())
+        validator.validate({"symbol": "SPY", parameter: choices[0]})
+        with pytest.raises(JSONSchemaValidationError):
+            validator.validate({"symbol": "SPY", parameter: "invalid"})
+
+
+def test_registered_option_tools_expose_parameter_schemas():
+    """Expose enum choices, ISO date branches, and narrowing guidance in MCP schemas."""
+    server = MCPServer(name="options-schema")
+    options.register(server, allow_write=False)
+
+    registered_tools = {tool.name: tool for tool in run(server.list_tools())}
+    assert set(registered_tools) == {
+        "get_option_chain",
+        "get_advanced_option_chain",
+        "get_option_expiration_chain",
+    }
+
+    standard_tool = registered_tools["get_option_chain"]
+    advanced_tool = registered_tools["get_advanced_option_chain"]
+    expiration_tool = registered_tools["get_option_expiration_chain"]
+    standard_schema = standard_tool.input_schema
+    advanced_schema = advanced_tool.input_schema
+    expiration_schema = expiration_tool.input_schema
+
+    for schema in (standard_schema, advanced_schema, expiration_schema):
+        assert all("description" in property_schema for property_schema in schema["properties"].values())
+
+    for schema in (standard_schema, advanced_schema):
+        assert "include_underlying_quote" in schema["properties"]
+        assert "include_quotes" not in schema["properties"]
+        for parameter in ("from_date", "to_date"):
+            date_branches = [
+                branch
+                for branch in schema["properties"][parameter]["anyOf"]
+                if branch.get("type") == "string" and branch.get("format") == "date"
+            ]
+            assert date_branches == [{"format": "date", "type": "string"}]
+            assert all(
+                branch == {"format": "date", "type": "string"} or branch == {"type": "null"}
+                for branch in schema["properties"][parameter]["anyOf"]
+            )
+
+    assert standard_tool.description == options.get_option_chain.__doc__
+    assert advanced_tool.description == options.get_advanced_option_chain.__doc__
+    assert expiration_tool.description == options.get_option_expiration_chain.__doc__
+
+    for tool in (standard_tool, advanced_tool):
+        validator = Draft202012Validator(tool.input_schema, format_checker=FormatChecker())
+        validator.validate(
+            {
+                "symbol": "SPY",
+                "from_date": "2024-05-01",
+                "to_date": "2024-06-01",
+            }
+        )
+        with pytest.raises(JSONSchemaValidationError):
+            validator.validate({"symbol": "SPY", "from_date": "2024-99-99"})
+
+
 def test_get_advanced_option_chain_parses_and_maps_parameters(monkeypatch, fake_call_factory):
+    """Map advertised uppercase option filters to the matching SDK enums."""
     captured, fake_call = fake_call_factory()
 
     monkeypatch.setattr(options, "call", fake_call)
@@ -44,21 +149,21 @@ def test_get_advanced_option_chain_parses_and_maps_parameters(monkeypatch, fake_
         options.get_advanced_option_chain(
             ctx,
             "SPY",
-            contract_type="put",
+            contract_type="PUT",
             strike_count=10,
-            include_quotes=True,
-            strategy="vertical",
+            include_underlying_quote=True,
+            strategy="VERTICAL",
             interval="2",
             strike=420.0,
-            strike_range="near_the_money",
-            from_date="2024-05-01",
-            to_date="2024-06-01",
+            strike_range="NEAR_THE_MONEY",
+            from_date=datetime.date(2024, 5, 1),
+            to_date=datetime.date(2024, 6, 1),
             volatility=0.25,
             underlying_price=415.5,
             interest_rate=0.03,
             days_to_expiration=30,
-            exp_month="jan",
-            option_type="standard",
+            exp_month="JANUARY",
+            option_type="STANDARD",
         )
     )
 
@@ -84,32 +189,19 @@ def test_get_advanced_option_chain_parses_and_maps_parameters(monkeypatch, fake_
     assert kwargs["underlying_price"] == 415.5
     assert kwargs["interest_rate"] == 0.03
     assert kwargs["days_to_expiration"] == 30
-    assert kwargs["exp_month"] is client.Options.ExpirationMonth.JAN
+    assert kwargs["exp_month"] is client.Options.ExpirationMonth.JANUARY
     assert kwargs["option_type"] is client.Options.Type.STANDARD
 
 
-def test_get_advanced_option_chain_accepts_schwab_strike_range_value(monkeypatch, fake_call_factory):
-    captured, fake_call = fake_call_factory()
-    monkeypatch.setattr(options, "call", fake_call)
+def test_parse_strike_range_rejects_invalid_input():
+    """Raise an actionable error when a strike-range value is invalid."""
+    with pytest.raises(ValueError) as exc_info:
+        options._parse_strike_range(DummyOptionsClient(), "invalid")
 
-    client = DummyOptionsClient()
-    run(options.get_advanced_option_chain(make_ctx(client), "SPY", strike_range="OTM"))
-
-    assert captured["kwargs"]["strike_range"] is client.Options.StrikeRange.OUT_OF_THE_MONEY
-
-
-def test_get_advanced_option_chain_rejects_invalid_strike_range():
-    client = DummyOptionsClient()
-
-    try:
-        run(options.get_advanced_option_chain(make_ctx(client), "SPY", strike_range="invalid"))
-    except ValueError as exc:
-        assert str(exc) == (
-            "Invalid strike_range: invalid. Must be one of: IN_THE_MONEY, NEAR_THE_MONEY, "
-            "OUT_OF_THE_MONEY, STRIKES_ABOVE_MARKET, STRIKES_BELOW_MARKET, STRIKES_NEAR_MARKET, ALL"
-        )
-    else:
-        raise AssertionError("expected invalid strike_range to raise ValueError")
+    assert str(exc_info.value) == (
+        "Invalid strike_range: invalid. Must be one of: IN_THE_MONEY, NEAR_THE_MONEY, "
+        "OUT_OF_THE_MONEY, STRIKES_ABOVE_MARKET, STRIKES_BELOW_MARKET, STRIKES_NEAR_MARKET, ALL"
+    )
 
 
 # ---------------------------------------------------------------------------
