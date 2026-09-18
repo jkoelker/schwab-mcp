@@ -204,7 +204,7 @@ def _wrap_with_approval(func: ToolFn) -> ToolFn:
             if decision is ApprovalDecision.DENIED
             else f"Approval request for tool '{func.__name__}' expired."
         )
-        await context.warning(message)
+        logger.warning(message)
 
         if decision is ApprovalDecision.DENIED:
             raise PermissionError(message)

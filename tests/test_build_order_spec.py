@@ -6,6 +6,7 @@ from schwab_mcp.tools.orders import (
     _build_equity_order_spec,
     _build_option_order_spec,
     _build_trailing_stop_order_spec,
+    _format_order_price,
 )
 
 
@@ -36,6 +37,7 @@ class TestBuildEquityOrderSpec:
         ["BUY", "SELL"],
     )
     def test_limit_order_valid(self, symbol, quantity, instruction):
+        """Build a limit order with a float price."""
         result = _build_equity_order_spec(symbol, quantity, instruction, "LIMIT", price=150.00)
         spec = cast(dict[str, Any], result.build())
 
@@ -48,6 +50,7 @@ class TestBuildEquityOrderSpec:
         ["BUY", "SELL"],
     )
     def test_stop_order_valid(self, symbol, quantity, instruction):
+        """Build a stop order with a float stop price."""
         result = _build_equity_order_spec(symbol, quantity, instruction, "STOP", stop_price=145.00)
         spec = cast(dict[str, Any], result.build())
 
@@ -60,7 +63,15 @@ class TestBuildEquityOrderSpec:
         ["BUY", "SELL"],
     )
     def test_stop_limit_order_valid(self, symbol, quantity, instruction):
-        result = _build_equity_order_spec(symbol, quantity, instruction, "STOP_LIMIT", price=150.00, stop_price=145.00)
+        """Build a stop-limit order with float prices."""
+        result = _build_equity_order_spec(
+            symbol,
+            quantity,
+            instruction,
+            "STOP_LIMIT",
+            price=150.00,
+            stop_price=145.00,
+        )
         spec = cast(dict[str, Any], result.build())
 
         assert spec["orderType"] == "STOP_LIMIT"
@@ -90,6 +101,7 @@ class TestBuildEquityOrderSpec:
         ],
     )
     def test_price_validation_errors(self, symbol, quantity, order_type, price, stop_price, expected_error):
+        """Reject prices that do not match the selected equity order type."""
         with pytest.raises(ValueError, match=expected_error):
             _build_equity_order_spec(symbol, quantity, "BUY", order_type, price=price, stop_price=stop_price)
 
@@ -102,6 +114,7 @@ class TestBuildEquityOrderSpec:
         ["MARKET", "LIMIT", "STOP", "STOP_LIMIT"],
     )
     def test_invalid_instruction(self, symbol, quantity, order_type):
+        """Reject an unsupported equity instruction after price validation."""
         price = 100.0 if order_type in ("LIMIT", "STOP_LIMIT") else None
         stop_price = 95.0 if order_type in ("STOP", "STOP_LIMIT") else None
 
@@ -143,6 +156,7 @@ class TestBuildOptionOrderSpec:
         ["BUY_TO_OPEN", "SELL_TO_OPEN", "BUY_TO_CLOSE", "SELL_TO_CLOSE"],
     )
     def test_limit_order_valid(self, symbol, quantity, instruction):
+        """Build an option limit order with a float price."""
         result = _build_option_order_spec(symbol, quantity, instruction, "LIMIT", price=2.50)
         spec = cast(dict[str, Any], result.build())
 
@@ -151,6 +165,7 @@ class TestBuildOptionOrderSpec:
         assert spec["orderLegCollection"][0]["instruction"] == instruction
 
     def test_case_insensitive(self, symbol, quantity):
+        """Normalize option order instruction and type case."""
         result = _build_option_order_spec(symbol, quantity, "buy_to_open", "limit", price=2.50)
         spec = cast(dict[str, Any], result.build())
 
@@ -158,6 +173,7 @@ class TestBuildOptionOrderSpec:
         assert spec["orderLegCollection"][0]["instruction"] == "BUY_TO_OPEN"
 
     def test_market_order_with_price_raises(self, symbol, quantity):
+        """Reject a price on a market option order."""
         with pytest.raises(ValueError, match="MARKET orders should not include a price parameter"):
             _build_option_order_spec(symbol, quantity, "BUY_TO_OPEN", "MARKET", price=2.50)
 
@@ -174,10 +190,25 @@ class TestBuildOptionOrderSpec:
         ["MARKET", "LIMIT"],
     )
     def test_invalid_instruction(self, symbol, quantity, order_type):
+        """Reject an unsupported option instruction after price validation."""
         price = 2.50 if order_type == "LIMIT" else None
 
         with pytest.raises(ValueError, match=f"Invalid instruction for {order_type} option order"):
             _build_option_order_spec(symbol, quantity, "BUY", order_type, price=price)
+
+    @pytest.mark.parametrize(
+        ("price", "expected"),
+        [
+            (19.9999999, "19.99"),
+            (20.00000001, "20.00"),
+            (1.99999, "1.99"),
+            (0.12121, "0.1212"),
+            (-12.129, "-12.12"),
+        ],
+    )
+    def test_format_order_price_preserves_truncation(self, price, expected):
+        """Match schwab-py's historical truncation for critical float values."""
+        assert _format_order_price(price) == expected
 
 
 class TestBuildTrailingStopOrderSpec:

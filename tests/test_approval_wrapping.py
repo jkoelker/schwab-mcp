@@ -112,7 +112,8 @@ def test_write_tool_runs_when_approved() -> None:
     assert session.messages == []
 
 
-def test_write_tool_denied_raises_permission_error() -> None:
+def test_write_tool_denied_raises_permission_error(caplog: pytest.LogCaptureFixture) -> None:
+    """Log the denial message and raise a permission error."""
     ctx, approval_manager, session, _ = make_ctx(ApprovalDecision.DENIED)
     tool = wrapped_tool()
 
@@ -120,11 +121,14 @@ def test_write_tool_denied_raises_permission_error() -> None:
         await_result(tool(ctx, "spy"))
 
     assert len(approval_manager.requests) == 1
-    assert len(session.messages) == 1
-    assert session.messages[0]["level"] == "warning"
+    assert session.messages == []
+    assert [record.getMessage() for record in caplog.records] == [
+        "Write operation for tool 'sample_write_tool' denied by reviewer."
+    ]
 
 
-def test_write_tool_timeout_raises_timeout_error() -> None:
+def test_write_tool_timeout_raises_timeout_error(caplog: pytest.LogCaptureFixture) -> None:
+    """Log the expiration message and raise a timeout error."""
     ctx, approval_manager, session, _ = make_ctx(ApprovalDecision.EXPIRED)
     tool = wrapped_tool()
 
@@ -132,8 +136,10 @@ def test_write_tool_timeout_raises_timeout_error() -> None:
         await_result(tool(ctx, "spy"))
 
     assert len(approval_manager.requests) == 1
-    assert len(session.messages) == 1
-    assert session.messages[0]["level"] == "warning"
+    assert session.messages == []
+    assert [record.getMessage() for record in caplog.records] == [
+        "Approval request for tool 'sample_write_tool' expired."
+    ]
 
 
 def test_write_tool_accepts_base_context() -> None:

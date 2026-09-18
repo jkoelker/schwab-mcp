@@ -1,5 +1,6 @@
 """Order placement, management, and preview tools for the Schwab MCP server."""
 
+import logging
 import uuid
 from collections.abc import Callable
 from dataclasses import dataclass
@@ -40,6 +41,8 @@ from schwab_mcp.tools.order_helpers import (
     option_sell_to_open_market,
 )
 from schwab_mcp.tools.utils import JSONType, ResponseHandler, SchwabAPIError, call, parse_date
+
+logger = logging.getLogger(__name__)
 
 _COMPACT_ORDER_TOP_FIELDS = frozenset(
     {
@@ -166,6 +169,23 @@ _EQUITY_INSTRUCTIONS = frozenset({"BUY", "SELL"})
 _TRAILING_STOP_LINK_TYPES = frozenset({"VALUE", "PERCENT"})
 
 
+def _format_order_price(price: float) -> str:
+    """Format a float using schwab-py's historical truncation semantics.
+
+    Args:
+        price: The order price supplied as a float.
+
+    Returns:
+        A decimal string truncated to four places below one or two places
+        otherwise, matching schwab-py's former float handling without emitting
+        its deprecation warning.
+    """
+    decimal_places = 4 if abs(price) < 1 and price != 0.0 else 2
+    scale = 10**decimal_places
+    truncated = float(int(price * scale)) / scale
+    return f"{truncated:.{decimal_places}f}"
+
+
 def _build_equity_order_spec(
     symbol: str,
     quantity: int,
@@ -189,9 +209,9 @@ def _build_equity_order_spec(
 
     args: list[Any] = [symbol, quantity]
     if needs_stop_price:
-        args.append(stop_price)
+        args.append(_format_order_price(cast(float, stop_price)))
     if needs_price:
-        args.append(price)
+        args.append(_format_order_price(cast(float, price)))
     return builder_func(*args)
 
 
@@ -294,7 +314,7 @@ def _build_option_order_spec(
     else:
         if price is None:
             raise ValueError("LIMIT orders require a price parameter")
-        return limit_builder(symbol, quantity, price)
+        return limit_builder(symbol, quantity, _format_order_price(price))
 
 
 class _OrderDescInputRequired(TypedDict):
@@ -650,7 +670,7 @@ def _prepare_option_combo_order(
         builder = builder.set_complex_order_strategy_type(complex_order_strategy_type.upper())
     builder = builder.set_order_type(order_type.upper())
     if price is not None:
-        builder = builder.set_price(price)
+        builder = builder.set_price(_format_order_price(price))
     for leg in legs:
         builder = builder.add_option_leg(leg["instruction"], leg["symbol"], leg["quantity"])
     return cast(dict[str, Any], builder.build())
@@ -1267,7 +1287,7 @@ async def place_previewed_order(
         if decision is ApprovalDecision.DENIED
         else "Approval request for order placement expired."
     )
-    await ctx.warning(message)
+    logger.warning(message)
     if decision is ApprovalDecision.DENIED:
         raise PermissionError(message)
     raise TimeoutError(message)
