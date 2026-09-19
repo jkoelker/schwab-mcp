@@ -8,6 +8,7 @@ from mcp.server.mcpserver import MCPServer
 from pydantic import Field
 
 from schwab_mcp.context import SchwabContext
+from schwab_mcp.tools._protocols import OptionsClient
 from schwab_mcp.tools._registration import register_tool
 from schwab_mcp.tools.utils import JSONType, call, parse_date
 
@@ -110,7 +111,7 @@ def _parse_strike_range(client: Any, strike_range: str | None) -> Any:
 
 
 async def _get_option_chain(
-    client: Any,
+    client: OptionsClient,
     symbol: str,
     *,
     contract_type: Any,
