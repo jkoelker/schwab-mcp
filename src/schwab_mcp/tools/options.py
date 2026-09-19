@@ -2,9 +2,10 @@
 
 import datetime
 from collections.abc import Callable
-from typing import Annotated, Any
+from typing import Annotated, Any, Literal
 
 from mcp.server.mcpserver import MCPServer
+from pydantic import Field
 
 from schwab_mcp.context import SchwabContext
 from schwab_mcp.tools._registration import register_tool
@@ -85,47 +86,74 @@ def _normalize_expiration_window(
 
 
 def _parse_strike_range(client: Any, strike_range: str | None) -> Any:
+    """Map a descriptive strike-range name to the client's option enum.
+
+    Args:
+        client: Schwab client facade exposing option enums.
+        strike_range: SDK strike-range member name, or None.
+
+    Returns:
+        The matching SDK enum member, or None when no range is provided.
+
+    Raises:
+        ValueError: If ``strike_range`` is not a valid member name.
+    """
     if strike_range is None:
         return None
 
     enum_type = client.Options.StrikeRange
-    normalized = strike_range.upper()
     try:
-        return enum_type[normalized]
-    except KeyError:
-        try:
-            return enum_type(normalized)
-        except ValueError as exc:
-            choices = ", ".join(member.name for member in enum_type)
-            raise ValueError(f"Invalid strike_range: {strike_range}. Must be one of: {choices}") from exc
+        return enum_type[strike_range]
+    except KeyError as exc:
+        choices = ", ".join(member.name for member in enum_type)
+        raise ValueError(f"Invalid strike_range: {strike_range}. Must be one of: {choices}") from exc
 
 
 async def get_option_chain(
     ctx: SchwabContext,
-    symbol: Annotated[str, "Symbol of the underlying security (e.g., 'AAPL', 'SPY')"],
-    contract_type: Annotated[str | None, "Type of option contracts: CALL, PUT, or ALL (default)"] = None,
+    symbol: Annotated[str, Field(description="Underlying symbol, such as AAPL or SPY.")],
+    contract_type: Annotated[
+        Literal["CALL", "PUT", "ALL"] | None,
+        Field(description="Option contract type: CALL, PUT, or ALL (default: ALL)."),
+    ] = None,
     strike_count: Annotated[
         int,
-        "Number of strikes above/below the at-the-money price (default: 25)",
+        Field(description="Strikes above and below the at-the-money price (default: 25)."),
     ] = 25,
-    include_quotes: Annotated[bool | None, "Include underlying and option market quotes"] = None,
+    include_underlying_quote: Annotated[
+        bool | None,
+        Field(description="Include the underlying security quote only (default: omitted)."),
+    ] = None,
     from_date: Annotated[
-        str | datetime.date | None,
-        "Start date for option expiration ('YYYY-MM-DD' or datetime.date)",
+        datetime.date | None,
+        Field(
+            description=(
+                "First expiration date in YYYY-MM-DD format. Defaults to today when both dates are omitted. "
+                "If to_date is omitted, the window ends 60 days later."
+            )
+        ),
     ] = None,
     to_date: Annotated[
-        str | datetime.date | None,
-        "End date for option expiration ('YYYY-MM-DD' or datetime.date)",
+        datetime.date | None,
+        Field(
+            description=(
+                "Last expiration date in YYYY-MM-DD format. Defaults to today plus 60 days when both are omitted. "
+                "If from_date is omitted, the window starts today or this date if earlier."
+            )
+        ),
     ] = None,
     verbose: Annotated[
         bool,
-        "Return all raw contract fields instead of the compact default. Compact mode keeps price/greeks/liquidity fields only.",
+        Field(description="Return full contract fields instead of the compact default (default: false)."),
     ] = False,
 ) -> JSONType:
-    """Returns option chain data (strikes, expirations, prices) for a symbol. Use for standard chains.
-    Params: symbol, contract_type (CALL/PUT/ALL), strike_count (default 25), include_quotes (bool), from_date (YYYY-MM-DD), to_date (YYYY-MM-DD).
-    Limit data returned using strike_count and date parameters. When both dates are omitted the tool defaults to the next 60 calendar days to avoid oversized responses.
-    By default returns compact per-contract fields only; pass verbose=True for the full raw payload.
+    """Return standard option chain data for a symbol.
+
+    Use ``get_option_expiration_chain`` first to discover available expirations,
+    then narrow this retrieval with expiration dates and ``strike_count``.
+    When both dates are omitted, the window defaults to today through the next
+    60 calendar days. ``verbose=True`` returns full contract fields instead of
+    the compact default.
     """
     client = ctx.options
 
@@ -137,9 +165,9 @@ async def get_option_chain(
     result = await call(
         client.get_option_chain,
         symbol,
-        contract_type=client.Options.ContractType[contract_type.upper()] if contract_type else None,
+        contract_type=client.Options.ContractType[contract_type] if contract_type else None,
         strike_count=strike_count,
-        include_underlying_quote=include_quotes,
+        include_underlying_quote=include_underlying_quote,
         from_date=from_date_obj,
         to_date=to_date_obj,
     )
@@ -148,68 +176,138 @@ async def get_option_chain(
 
 async def get_advanced_option_chain(
     ctx: SchwabContext,
-    symbol: Annotated[str, "Symbol of the underlying security"],
-    contract_type: Annotated[str | None, "Type of contracts: CALL, PUT, or ALL (default)"] = None,
+    symbol: Annotated[str, Field(description="Underlying symbol, such as AAPL or SPY.")],
+    contract_type: Annotated[
+        Literal["CALL", "PUT", "ALL"] | None,
+        Field(description="Option contract type: CALL, PUT, or ALL (default: ALL)."),
+    ] = None,
     strike_count: Annotated[
         int,
-        "Number of strikes above/below the at-the-money price (default: 25)",
+        Field(description="Strikes above and below the at-the-money price (default: 25)."),
     ] = 25,
-    include_quotes: Annotated[bool | None, "Include quotes for the options"] = None,
+    include_underlying_quote: Annotated[
+        bool | None,
+        Field(description="Include the underlying security quote only (default: omitted)."),
+    ] = None,
     strategy: Annotated[
-        str | None,
-        (
-            "Option strategy: SINGLE (default), ANALYTICAL, COVERED, VERTICAL, CALENDAR, STRANGLE, STRADDLE, "
-            "BUTTERFLY, CONDOR, DIAGONAL, COLLAR, ROLL"
+        Literal[
+            "SINGLE",
+            "ANALYTICAL",
+            "COVERED",
+            "VERTICAL",
+            "CALENDAR",
+            "STRANGLE",
+            "STRADDLE",
+            "BUTTERFLY",
+            "CONDOR",
+            "DIAGONAL",
+            "COLLAR",
+            "ROLL",
+        ]
+        | None,
+        Field(
+            description=(
+                "Option strategy: SINGLE, ANALYTICAL, COVERED, VERTICAL, CALENDAR, STRANGLE, STRADDLE, "
+                "BUTTERFLY, CONDOR, DIAGONAL, COLLAR, or ROLL (default: SINGLE)."
+            )
         ),
     ] = None,
-    interval: Annotated[str | None, "Strike interval for spread strategy chains"] = None,
-    strike: Annotated[float | None, "Only return options with the given strike"] = None,
+    interval: Annotated[str | None, Field(description="Strike interval for spread strategy chains.")] = None,
+    strike: Annotated[float | None, Field(description="Return options only at this strike price.")] = None,
     strike_range: Annotated[
-        str | None,
-        "Filter strikes by enum name or Schwab value: IN_THE_MONEY/ITM, "
-        "NEAR_THE_MONEY/NTM, OUT_OF_THE_MONEY/OTM, STRIKES_ABOVE_MARKET/SAK, "
-        "STRIKES_BELOW_MARKET/SBK, STRIKES_NEAR_MARKET/SNK, ALL",
+        Literal[
+            "IN_THE_MONEY",
+            "NEAR_THE_MONEY",
+            "OUT_OF_THE_MONEY",
+            "STRIKES_ABOVE_MARKET",
+            "STRIKES_BELOW_MARKET",
+            "STRIKES_NEAR_MARKET",
+            "ALL",
+        ]
+        | None,
+        Field(
+            description=(
+                "Strike range: IN_THE_MONEY, NEAR_THE_MONEY, OUT_OF_THE_MONEY, "
+                "STRIKES_ABOVE_MARKET, STRIKES_BELOW_MARKET, STRIKES_NEAR_MARKET, or ALL."
+            )
+        ),
     ] = None,
     from_date: Annotated[
-        str | datetime.date | None,
-        "Start date for options ('YYYY-MM-DD' or datetime.date)",
+        datetime.date | None,
+        Field(
+            description=(
+                "First expiration date in YYYY-MM-DD format. Defaults to today when both dates are omitted. "
+                "If to_date is omitted, the window ends 60 days later."
+            )
+        ),
     ] = None,
     to_date: Annotated[
-        str | datetime.date | None,
-        "End date for options ('YYYY-MM-DD' or datetime.date)",
+        datetime.date | None,
+        Field(
+            description=(
+                "Last expiration date in YYYY-MM-DD format. Defaults to today plus 60 days when both are omitted. "
+                "If from_date is omitted, the window starts today or this date if earlier."
+            )
+        ),
     ] = None,
-    volatility: Annotated[float | None, "Volatility for ANALYTICAL strategy"] = None,
-    underlying_price: Annotated[float | None, "Underlying price for ANALYTICAL strategy"] = None,
-    interest_rate: Annotated[float | None, "Interest rate for ANALYTICAL strategy"] = None,
-    days_to_expiration: Annotated[int | None, "Days to expiration for ANALYTICAL strategy"] = None,
-    exp_month: Annotated[str | None, "Expiration month (e.g., JAN) for ANALYTICAL strategy"] = None,
-    option_type: Annotated[str | None, "Filter option type: STANDARD, NON_STANDARD, ALL (default)"] = None,
+    volatility: Annotated[float | None, Field(description="Volatility for the ANALYTICAL strategy.")] = None,
+    underlying_price: Annotated[
+        float | None, Field(description="Underlying price for the ANALYTICAL strategy.")
+    ] = None,
+    interest_rate: Annotated[float | None, Field(description="Interest rate for the ANALYTICAL strategy.")] = None,
+    days_to_expiration: Annotated[
+        int | None, Field(description="Days to expiration for the ANALYTICAL strategy.")
+    ] = None,
+    exp_month: Annotated[
+        Literal[
+            "JANUARY",
+            "FEBRUARY",
+            "MARCH",
+            "APRIL",
+            "MAY",
+            "JUNE",
+            "JULY",
+            "AUGUST",
+            "SEPTEMBER",
+            "OCTOBER",
+            "NOVEMBER",
+            "DECEMBER",
+            "ALL",
+        ]
+        | None,
+        Field(description="Expiration month for ANALYTICAL: JANUARY through DECEMBER or ALL (default: ALL)."),
+    ] = None,
+    option_type: Annotated[
+        Literal["STANDARD", "NON_STANDARD", "ALL"] | None,
+        Field(description="Option type filter: STANDARD, NON_STANDARD, or ALL (default: ALL)."),
+    ] = None,
     verbose: Annotated[
         bool,
-        "Return all raw contract fields instead of the compact default. Compact mode keeps price/greeks/liquidity fields only.",
+        Field(description="Return full contract fields instead of the compact default (default: false)."),
     ] = False,
 ) -> JSONType:
-    """Returns advanced option chain data with strategies, filters, and theoretical calculations. Use for complex analysis.
-    Params: symbol, contract_type, strike_count, include_quotes, strategy (SINGLE/ANALYTICAL/etc.), interval, strike, strike_range (enum name or ITM/NTM/etc.), from/to_date, volatility/underlying_price/interest_rate/days_to_expiration (for ANALYTICAL), exp_month, option_type (STANDARD/NON_STANDARD/ALL).
-    Limit data returned using strike_count and date parameters. When both dates are omitted the tool defaults to the next 60 calendar days to avoid oversized responses.
-    By default returns compact per-contract fields only; pass verbose=True for the full raw payload.
+    """Return advanced option chain data for strategies and analytical filters.
+
+    Use ``get_option_expiration_chain`` first to discover available expirations,
+    then narrow this retrieval with dates, strike filters, and strategy inputs.
+    When both dates are omitted, the window defaults to today through the next
+    60 calendar days. ``verbose=True`` returns full contract fields instead of
+    the compact default.
     """
     client = ctx.options
 
-    from_date_obj = parse_date(from_date)
-    to_date_obj = parse_date(to_date)
     from_date_obj, to_date_obj = _normalize_expiration_window(
-        from_date_obj,
-        to_date_obj,
+        parse_date(from_date),
+        parse_date(to_date),
     )
 
     result = await call(
         client.get_option_chain,
         symbol,
-        contract_type=client.Options.ContractType[contract_type.upper()] if contract_type else None,
+        contract_type=client.Options.ContractType[contract_type] if contract_type else None,
         strike_count=strike_count,
-        include_underlying_quote=include_quotes,
-        strategy=client.Options.Strategy[strategy.upper()] if strategy else None,
+        include_underlying_quote=include_underlying_quote,
+        strategy=client.Options.Strategy[strategy] if strategy else None,
         interval=interval,
         strike=strike,
         strike_range=_parse_strike_range(client, strike_range),
@@ -219,17 +317,21 @@ async def get_advanced_option_chain(
         underlying_price=underlying_price,
         interest_rate=interest_rate,
         days_to_expiration=days_to_expiration,
-        exp_month=client.Options.ExpirationMonth[exp_month.upper()] if exp_month else None,
-        option_type=client.Options.Type[option_type.upper()] if option_type else None,
+        exp_month=client.Options.ExpirationMonth[exp_month] if exp_month else None,
+        option_type=client.Options.Type[option_type] if option_type else None,
     )
     return result if verbose else _prune_option_chain(result)
 
 
 async def get_option_expiration_chain(
     ctx: SchwabContext,
-    symbol: Annotated[str, "Symbol of the underlying security"],
+    symbol: Annotated[str, Field(description="Underlying symbol, such as AAPL or SPY.")],
 ) -> JSONType:
-    """Returns available option expiration dates for a symbol, without contract details. Lightweight call to find available cycles. Param: symbol."""
+    """Return available option expiration dates without contract details.
+
+    Use this lightweight discovery call before retrieving a narrowed option
+    chain with ``get_option_chain`` or ``get_advanced_option_chain``.
+    """
     client = ctx.options
     return await call(client.get_option_expiration_chain, symbol)
 
