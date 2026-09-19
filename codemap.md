@@ -57,7 +57,8 @@ approval infrastructure for write operations.
    call through `SchwabContext`.
 5. Read tools call Schwab endpoints through typed facades and shared response
    parsing. Write tools either require generic approval wrapping or use the
-   preview-then-place workflow for exact-spec order placement.
+   preview-then-place or preview-then-replace workflow for exact-spec order
+   writes.
 
 ## Integration Points
 
