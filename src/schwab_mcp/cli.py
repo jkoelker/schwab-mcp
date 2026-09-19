@@ -2,6 +2,8 @@
 
 import os
 import sys
+from collections.abc import Callable
+from typing import Any
 
 import anyio
 import click
@@ -19,48 +21,58 @@ APP_NAME = "schwab-mcp"
 TOKEN_MAX_AGE_SECONDS = schwab_auth.DEFAULT_MAX_TOKEN_AGE_SECONDS
 
 
+def _common_options(token_path_help: str) -> Callable[[Callable[..., Any]], Callable[..., Any]]:
+    """Add options shared by the authentication and server commands."""
+
+    def apply(function: Callable[..., Any]) -> Callable[..., Any]:
+        """Apply the shared options to a Click command function."""
+        function = click.option(
+            "--base-url",
+            type=str,
+            envvar="SCHWAB_BASE_URL",
+            default="https://api.schwabapi.com",
+            help="Schwab API base URL",
+        )(function)
+        function = click.option(
+            "--callback-url",
+            type=str,
+            envvar="SCHWAB_CALLBACK_URL",
+            default="https://127.0.0.1:8182",
+            help="Schwab callback URL",
+        )(function)
+        function = click.option(
+            "--client-secret",
+            type=str,
+            required=False,
+            default=None,
+            envvar="SCHWAB_CLIENT_SECRET",
+            help="Schwab Client Secret",
+        )(function)
+        function = click.option(
+            "--client-id",
+            type=str,
+            required=False,
+            default=None,
+            envvar="SCHWAB_CLIENT_ID",
+            help="Schwab Client ID",
+        )(function)
+        return click.option(
+            "--token-path",
+            type=str,
+            default=tokens.token_path(APP_NAME),
+            help=token_path_help,
+        )(function)
+
+    return apply
+
+
 @click.group()
 def cli():
     """Schwab Model Context Protocol CLI."""
 
 
 @cli.command("auth")
-@click.option(
-    "--token-path",
-    type=str,
-    default=tokens.token_path(APP_NAME),
-    help="Path to save Schwab token file",
-)
-@click.option(
-    "--client-id",
-    type=str,
-    required=False,
-    default=None,
-    envvar="SCHWAB_CLIENT_ID",
-    help="Schwab Client ID",
-)
-@click.option(
-    "--client-secret",
-    type=str,
-    required=False,
-    default=None,
-    envvar="SCHWAB_CLIENT_SECRET",
-    help="Schwab Client Secret",
-)
-@click.option(
-    "--callback-url",
-    type=str,
-    envvar="SCHWAB_CALLBACK_URL",
-    default="https://127.0.0.1:8182",
-    help="Schwab callback URL",
-)
-@click.option(
-    "--base-url",
-    type=str,
-    envvar="SCHWAB_BASE_URL",
-    default="https://api.schwabapi.com",
-    help="Schwab API base URL",
-)
+@_common_options("Path to save Schwab token file")
 def auth(
     token_path: str,
     client_id: str | None,
@@ -104,42 +116,7 @@ def auth(
 
 
 @cli.command("server")
-@click.option(
-    "--token-path",
-    type=str,
-    default=tokens.token_path(APP_NAME),
-    help="Path to Schwab token file",
-)
-@click.option(
-    "--client-id",
-    type=str,
-    required=False,
-    default=None,
-    envvar="SCHWAB_CLIENT_ID",
-    help="Schwab Client ID",
-)
-@click.option(
-    "--client-secret",
-    type=str,
-    required=False,
-    default=None,
-    envvar="SCHWAB_CLIENT_SECRET",
-    help="Schwab Client Secret",
-)
-@click.option(
-    "--callback-url",
-    type=str,
-    envvar="SCHWAB_CALLBACK_URL",
-    default="https://127.0.0.1:8182",
-    help="Schwab callback URL",
-)
-@click.option(
-    "--base-url",
-    type=str,
-    envvar="SCHWAB_BASE_URL",
-    default="https://api.schwabapi.com",
-    help="Schwab API base URL",
-)
+@_common_options("Path to Schwab token file")
 @click.option(
     "--jesus-take-the-wheel",
     default=False,
