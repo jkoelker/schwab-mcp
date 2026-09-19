@@ -3,6 +3,7 @@ from __future__ import annotations
 from enum import Enum
 from types import SimpleNamespace
 from typing import Any
+from unittest.mock import AsyncMock
 
 from conftest import make_ctx, run
 
@@ -88,6 +89,12 @@ _SAMPLE_IDENTITY_MAP: dict[str, account.AccountIdentity] = {
 }
 
 
+def _run_identity_map(monkeypatch: Any, numbers_payload: Any, prefs_payload: Any) -> dict[str, account.AccountIdentity]:
+    """Run identity-map construction with two mocked API responses."""
+    monkeypatch.setattr(account, "call", AsyncMock(side_effect=[numbers_payload, prefs_payload]))
+    return run(account._get_identity_map(make_ctx(DummyAccountClient())))
+
+
 # ---------------------------------------------------------------------------
 # Tests for _get_identity_map
 # ---------------------------------------------------------------------------
@@ -95,6 +102,7 @@ _SAMPLE_IDENTITY_MAP: dict[str, account.AccountIdentity] = {
 
 class TestGetIdentityMap:
     def test_builds_map_from_numbers_and_prefs(self, monkeypatch):
+        """Build an identity map from account numbers and preferences."""
         numbers_payload = [{"accountNumber": "123", "hashValue": "hash_abc"}]
         prefs_payload = {
             "accounts": [
@@ -105,82 +113,49 @@ class TestGetIdentityMap:
                 }
             ]
         }
-        call_returns = iter([numbers_payload, prefs_payload])
-
-        async def fake_call(func, *args, **kwargs):
-            return next(call_returns)
-
-        monkeypatch.setattr(account, "call", fake_call)
-        client = DummyAccountClient()
-        ctx = make_ctx(client)
-        result = run(account._get_identity_map(ctx))
+        result = _run_identity_map(monkeypatch, numbers_payload, prefs_payload)
 
         assert result == {
             "123": account.AccountIdentity(account_hash="hash_abc", nickname="My Margin", is_default=True)
         }
 
     def test_missing_nickname_yields_none(self, monkeypatch):
+        """Use a null nickname when preferences omit the account."""
         numbers_payload = [{"accountNumber": "456", "hashValue": "hash_def"}]
         prefs_payload = {"accounts": []}  # no entry for 456
-        call_returns = iter([numbers_payload, prefs_payload])
-
-        async def fake_call(func, *args, **kwargs):
-            return next(call_returns)
-
-        monkeypatch.setattr(account, "call", fake_call)
-        client = DummyAccountClient()
-        ctx = make_ctx(client)
-        result = run(account._get_identity_map(ctx))
+        result = _run_identity_map(monkeypatch, numbers_payload, prefs_payload)
 
         assert result == {"456": account.AccountIdentity(account_hash="hash_def", nickname=None, is_default=False)}
 
     def test_empty_payloads_yield_empty_map(self, monkeypatch):
-        async def fake_call(func, *args, **kwargs):
-            return None
-
-        monkeypatch.setattr(account, "call", fake_call)
-        client = DummyAccountClient()
-        ctx = make_ctx(client)
-        result = run(account._get_identity_map(ctx))
+        """Return an empty map when both upstream payloads are empty."""
+        result = _run_identity_map(monkeypatch, None, None)
 
         assert result == {}
 
     def test_malformed_numbers_entry_skipped(self, monkeypatch):
+        """Skip malformed account-number entries without losing valid ones."""
         numbers_payload = [
             {"accountNumber": "123"},  # missing hashValue
             "not-a-dict",
             {"accountNumber": "456", "hashValue": "hash_def"},
         ]
         prefs_payload = {}
-        call_returns = iter([numbers_payload, prefs_payload])
-
-        async def fake_call(func, *args, **kwargs):
-            return next(call_returns)
-
-        monkeypatch.setattr(account, "call", fake_call)
-        client = DummyAccountClient()
-        ctx = make_ctx(client)
-        result = run(account._get_identity_map(ctx))
+        result = _run_identity_map(monkeypatch, numbers_payload, prefs_payload)
 
         assert "123" not in result  # missing hashValue skipped
         assert result["456"].account_hash == "hash_def"
 
     def test_non_string_nickname_normalized_to_none(self, monkeypatch):
+        """Normalize a non-string preference nickname to null."""
         numbers_payload = [{"accountNumber": "123", "hashValue": "hash_abc"}]
         prefs_payload = {"accounts": [{"accountNumber": "123", "nickName": 12345}]}
-        call_returns = iter([numbers_payload, prefs_payload])
-
-        async def fake_call(func, *args, **kwargs):
-            return next(call_returns)
-
-        monkeypatch.setattr(account, "call", fake_call)
-        client = DummyAccountClient()
-        ctx = make_ctx(client)
-        result = run(account._get_identity_map(ctx))
+        result = _run_identity_map(monkeypatch, numbers_payload, prefs_payload)
 
         assert result["123"].nickname is None
 
     def test_identity_map_defaults_false_when_primary_account_missing_or_false(self, monkeypatch):
+        """Keep the default flag false when primaryAccount is absent or false."""
         numbers_payload = [
             {"accountNumber": "123", "hashValue": "hash_abc"},
             {"accountNumber": "456", "hashValue": "hash_def"},
@@ -195,15 +170,7 @@ class TestGetIdentityMap:
                 },
             ]
         }
-        call_returns = iter([numbers_payload, prefs_payload])
-
-        async def fake_call(func, *args, **kwargs):
-            return next(call_returns)
-
-        monkeypatch.setattr(account, "call", fake_call)
-        client = DummyAccountClient()
-        ctx = make_ctx(client)
-        result = run(account._get_identity_map(ctx))
+        result = _run_identity_map(monkeypatch, numbers_payload, prefs_payload)
 
         assert result["123"].is_default is False
         assert result["456"].is_default is False

@@ -1,8 +1,5 @@
 from __future__ import annotations
 
-from typing import Any
-
-from click.testing import CliRunner
 from schwab.client import AsyncClient
 
 from schwab_mcp import cli
@@ -12,14 +9,6 @@ from schwab_mcp.approvals import (
     ApprovalRequest,
     NoOpApprovalManager,
 )
-
-
-class FakeAsyncClient:
-    def token_age(self) -> int:
-        return 0
-
-    async def close_async_session(self) -> None:
-        return None
 
 
 class DummyDiscordApprovalManager(ApprovalManager):
@@ -42,55 +31,10 @@ class DummyDiscordApprovalManager(ApprovalManager):
         return frozenset(int(value) for value in users)
 
 
-def _patch_common(monkeypatch, captured: dict[str, Any]) -> None:
-    monkeypatch.setattr(cli, "AsyncClient", FakeAsyncClient)
-
-    def fake_easy_client(**_kwargs):
-        captured["easy_client_called"] = True
-        captured["easy_client_kwargs"] = _kwargs
-        return FakeAsyncClient()
-
-    monkeypatch.setattr(cli.schwab_auth, "easy_client", fake_easy_client)
-
-    class FakeServer:
-        def __init__(
-            self,
-            name,
-            client,
-            approval_manager,
-            *,
-            allow_write,
-            enable_technical_tools=True,
-            use_json=False,
-        ):
-            captured["server_name"] = name
-            captured["server_client"] = client
-            captured["approval_manager"] = approval_manager
-            captured["allow_write"] = allow_write
-            captured["enable_technical_tools"] = enable_technical_tools
-            captured["use_json"] = use_json
-
-        async def run(self):
-            captured["run_called"] = True
-
-    monkeypatch.setattr(cli, "SchwabMCPServer", FakeServer)
-    monkeypatch.setattr(
-        cli.anyio,
-        "run",
-        lambda func, *args, backend="asyncio", **kwargs: (
-            captured.setdefault("anyio_backend", backend),
-            captured.setdefault("anyio_args", args),
-            captured.setdefault("anyio_kwargs", kwargs),
-        ),
-    )
-
-
-def test_server_defaults_to_read_only(monkeypatch):
-    captured: dict[str, Any] = {}
-    _patch_common(monkeypatch, captured)
-
-    runner = CliRunner()
-    result = runner.invoke(
+def test_server_defaults_to_read_only(cli_server_capture, cli_runner):
+    """Start the server in read-only mode by default."""
+    captured = cli_server_capture
+    result = cli_runner.invoke(
         cli.cli,
         [
             "server",
@@ -109,12 +53,10 @@ def test_server_defaults_to_read_only(monkeypatch):
     assert captured["use_json"] is False
 
 
-def test_server_enables_write_mode_when_flag_set(monkeypatch):
-    captured: dict[str, Any] = {}
-    _patch_common(monkeypatch, captured)
-
-    runner = CliRunner()
-    result = runner.invoke(
+def test_server_enables_write_mode_when_flag_set(cli_server_capture, cli_runner):
+    """Enable write mode when the bypass flag is supplied."""
+    captured = cli_server_capture
+    result = cli_runner.invoke(
         cli.cli,
         [
             "server",
@@ -134,13 +76,12 @@ def test_server_enables_write_mode_when_flag_set(monkeypatch):
     assert captured["use_json"] is False
 
 
-def test_server_enables_write_mode_with_discord(monkeypatch):
-    captured: dict[str, Any] = {}
-    _patch_common(monkeypatch, captured)
+def test_server_enables_write_mode_with_discord(monkeypatch, cli_server_capture, cli_runner):
+    """Enable write mode when Discord approval is configured."""
+    captured = cli_server_capture
     monkeypatch.setattr(cli, "DiscordApprovalManager", DummyDiscordApprovalManager)
 
-    runner = CliRunner()
-    result = runner.invoke(
+    result = cli_runner.invoke(
         cli.cli,
         [
             "server",
@@ -165,12 +106,10 @@ def test_server_enables_write_mode_with_discord(monkeypatch):
     assert captured["use_json"] is False
 
 
-def test_server_json_flag_enables_json_output(monkeypatch):
-    captured: dict[str, Any] = {}
-    _patch_common(monkeypatch, captured)
-
-    runner = CliRunner()
-    result = runner.invoke(
+def test_server_json_flag_enables_json_output(cli_server_capture, cli_runner):
+    """Pass the JSON output flag to the MCP server."""
+    captured = cli_server_capture
+    result = cli_runner.invoke(
         cli.cli,
         [
             "server",
@@ -192,18 +131,11 @@ def test_server_json_flag_enables_json_output(monkeypatch):
 # ---------------------------------------------------------------------------
 
 
-def test_server_exits_with_error_when_credentials_missing(monkeypatch, tmp_path):
+def test_server_exits_with_error_when_credentials_missing(cli_runner, cli_credentials_file):
     """server command calls send_error_response and exits 1 when creds are absent."""
-
-    creds_path = tmp_path / "nonexistent.yaml"
-    monkeypatch.setattr(cli.tokens, "credentials_path", lambda app: str(creds_path))
-    monkeypatch.delenv("SCHWAB_CLIENT_ID", raising=False)
-    monkeypatch.delenv("SCHWAB_CLIENT_SECRET", raising=False)
-
-    runner = CliRunner()
-    result = runner.invoke(
+    result = cli_runner.invoke(
         cli.cli,
-        ["server", "--token-path", str(tmp_path / "token.yaml")],
+        ["server", "--token-path", str(cli_credentials_file.with_name("token.yaml"))],
     )
 
     assert result.exit_code == 1
@@ -214,17 +146,17 @@ def test_server_exits_with_error_when_credentials_missing(monkeypatch, tmp_path)
 # ---------------------------------------------------------------------------
 
 
-def test_server_exits_when_easy_client_raises(monkeypatch):
+def test_server_exits_when_easy_client_raises(monkeypatch, cli_async_client_type, cli_runner):
     """When easy_client raises, server sends a 500 error response and exits 1."""
-    monkeypatch.setattr(cli, "AsyncClient", FakeAsyncClient)
+    monkeypatch.setattr(cli, "AsyncClient", cli_async_client_type)
 
     def boom_easy_client(**_kwargs):
+        """Raise the client initialization failure used by this test."""
         raise RuntimeError("auth exploded")
 
     monkeypatch.setattr(cli.schwab_auth, "easy_client", boom_easy_client)
 
-    runner = CliRunner()
-    result = runner.invoke(
+    result = cli_runner.invoke(
         cli.cli,
         [
             "server",
@@ -239,7 +171,7 @@ def test_server_exits_when_easy_client_raises(monkeypatch):
     assert "auth exploded" in result.output
 
 
-def test_server_exits_when_client_is_not_async(monkeypatch):
+def test_server_exits_when_client_is_not_async(monkeypatch, cli_runner):
     """When easy_client returns a non-AsyncClient, server sends a 500 error and exits 1."""
 
     class SyncClient:
@@ -250,12 +182,12 @@ def test_server_exits_when_client_is_not_async(monkeypatch):
     monkeypatch.setattr(cli, "AsyncClient", AsyncClient)
 
     def sync_easy_client(**_kwargs):
+        """Return a synchronous client to exercise the type guard."""
         return SyncClient()
 
     monkeypatch.setattr(cli.schwab_auth, "easy_client", sync_easy_client)
 
-    runner = CliRunner()
-    result = runner.invoke(
+    result = cli_runner.invoke(
         cli.cli,
         [
             "server",
@@ -275,22 +207,25 @@ def test_server_exits_when_client_is_not_async(monkeypatch):
 # ---------------------------------------------------------------------------
 
 
-def test_server_exits_when_token_is_too_old(monkeypatch):
+def test_server_exits_when_token_is_too_old(monkeypatch, cli_async_client_type, cli_runner):
     """When the token is older than the max age, server sends a 401 error and exits 1."""
 
-    class StaleAsyncClient(FakeAsyncClient):
+    class StaleAsyncClient(cli_async_client_type):
+        """Fake async client with an expired token."""
+
         def token_age(self) -> int:
+            """Return a token age beyond the configured maximum."""
             return cli.TOKEN_MAX_AGE_SECONDS + 1  # expired
 
     monkeypatch.setattr(cli, "AsyncClient", StaleAsyncClient)
 
     def fake_easy_client(**_kwargs):
+        """Return a client with an expired token."""
         return StaleAsyncClient()
 
     monkeypatch.setattr(cli.schwab_auth, "easy_client", fake_easy_client)
 
-    runner = CliRunner()
-    result = runner.invoke(
+    result = cli_runner.invoke(
         cli.cli,
         ["server", "--client-id", "client", "--client-secret", "secret"],
     )
@@ -304,15 +239,13 @@ def test_server_exits_when_token_is_too_old(monkeypatch):
 # ---------------------------------------------------------------------------
 
 
-def test_server_reads_approvers_from_env_var(monkeypatch):
+def test_server_reads_approvers_from_env_var(monkeypatch, cli_server_capture, cli_runner):
     """SCHWAB_MCP_DISCORD_APPROVERS env var is parsed as a comma-separated list."""
-    captured: dict[str, Any] = {}
-    _patch_common(monkeypatch, captured)
+    captured = cli_server_capture
     monkeypatch.setattr(cli, "DiscordApprovalManager", DummyDiscordApprovalManager)
     monkeypatch.setenv("SCHWAB_MCP_DISCORD_APPROVERS", "111, 222, 333")
 
-    runner = CliRunner()
-    result = runner.invoke(
+    result = cli_runner.invoke(
         cli.cli,
         [
             "server",
@@ -340,13 +273,9 @@ def test_server_reads_approvers_from_env_var(monkeypatch):
 # ---------------------------------------------------------------------------
 
 
-def test_server_exits_when_discord_token_missing(monkeypatch):
+def test_server_exits_when_discord_token_missing(monkeypatch, cli_server_capture, cli_runner):
     """Discord channel provided but no token → error exit."""
-    captured: dict[str, Any] = {}
-    _patch_common(monkeypatch, captured)
-
-    runner = CliRunner()
-    result = runner.invoke(
+    result = cli_runner.invoke(
         cli.cli,
         [
             "server",
@@ -365,13 +294,9 @@ def test_server_exits_when_discord_token_missing(monkeypatch):
     assert "Discord approval configuration is required" in result.output
 
 
-def test_server_exits_when_discord_channel_missing(monkeypatch):
+def test_server_exits_when_discord_channel_missing(monkeypatch, cli_server_capture, cli_runner):
     """Discord token provided but no channel ID → error exit."""
-    captured: dict[str, Any] = {}
-    _patch_common(monkeypatch, captured)
-
-    runner = CliRunner()
-    result = runner.invoke(
+    result = cli_runner.invoke(
         cli.cli,
         [
             "server",
@@ -395,14 +320,11 @@ def test_server_exits_when_discord_channel_missing(monkeypatch):
 # ---------------------------------------------------------------------------
 
 
-def test_server_exits_when_approver_list_empty(monkeypatch):
+def test_server_exits_when_approver_list_empty(monkeypatch, cli_server_capture, cli_runner):
     """Discord token + channel but empty approver list → error exit."""
-    captured: dict[str, Any] = {}
-    _patch_common(monkeypatch, captured)
     monkeypatch.setattr(cli, "DiscordApprovalManager", DummyDiscordApprovalManager)
 
-    runner = CliRunner()
-    result = runner.invoke(
+    result = cli_runner.invoke(
         cli.cli,
         [
             "server",
@@ -427,13 +349,13 @@ def test_server_exits_when_approver_list_empty(monkeypatch):
 # ---------------------------------------------------------------------------
 
 
-def test_server_warns_when_jesus_flag_and_discord_token_both_set(monkeypatch):
+def test_server_warns_when_jesus_flag_and_discord_token_both_set(
+    monkeypatch,
+    cli_server_capture,
+    cli_runner,
+):
     """--jesus-take-the-wheel with a Discord token emits a bypass warning."""
-    captured: dict[str, Any] = {}
-    _patch_common(monkeypatch, captured)
-
-    runner = CliRunner()
-    result = runner.invoke(
+    result = cli_runner.invoke(
         cli.cli,
         [
             "server",
@@ -458,22 +380,16 @@ def test_server_warns_when_jesus_flag_and_discord_token_both_set(monkeypatch):
 # ---------------------------------------------------------------------------
 
 
-def test_server_exits_when_server_run_raises(monkeypatch):
+def test_server_exits_when_server_run_raises(monkeypatch, cli_server_capture, cli_runner):
     """When SchwabMCPServer.run() raises, CLI sends a 500 error response and exits 1."""
-    monkeypatch.setattr(cli, "AsyncClient", FakeAsyncClient)
-
-    def fake_easy_client(**_kwargs):
-        return FakeAsyncClient()
-
-    monkeypatch.setattr(cli.schwab_auth, "easy_client", fake_easy_client)
 
     def fake_run(func, *args, backend="asyncio", **kwargs):
+        """Raise the server runtime failure used by this test."""
         raise RuntimeError("server exploded during run")
 
     monkeypatch.setattr(cli.anyio, "run", fake_run)
 
-    runner = CliRunner()
-    result = runner.invoke(
+    result = cli_runner.invoke(
         cli.cli,
         ["server", "--client-id", "client", "--client-secret", "secret"],
     )
