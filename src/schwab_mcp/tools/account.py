@@ -133,6 +133,28 @@ async def _get_identity_map(ctx: SchwabContext) -> dict[str, AccountIdentity]:
     }
 
 
+async def _get_account_response(
+    ctx: SchwabContext,
+    *,
+    account_hash: str | None = None,
+    include_positions: bool,
+    verbose: bool,
+) -> JSONType:
+    """Fetch, shape, and enrich an account endpoint response."""
+    identity_map = await _get_identity_map(ctx)
+    kwargs: dict[str, Any] = {}
+    if include_positions:
+        kwargs["fields"] = [ctx.accounts.Account.Fields.POSITIONS]
+
+    if account_hash is None:
+        result = await call(ctx.accounts.get_accounts, **kwargs)
+    else:
+        result = await call(ctx.accounts.get_account, account_hash, **kwargs)
+
+    payload = result if verbose else _prune_account_response(result)
+    return _enrich_with_identity(payload, identity_map, fallback_hash=account_hash)
+
+
 def _enrich_with_identity(
     payload: JSONType,
     identity_map: dict[str, AccountIdentity],
@@ -181,13 +203,11 @@ async def get_accounts(
     Includes each account's accountHash (required for account-specific calls like get_account, orders, transactions), nickname, and isDefault (the account marked as primary in Schwab user preferences).
     By default returns compact fields only (account type/number, equity/buyingPower/cashBalance/cashAvailableForTrading/liquidationValue from currentBalances; initialBalances and projectedBalances are dropped; positions if included are reduced to symbol, net quantity (positive=long/negative=short), marketValue, averagePrice, unrealizedPL); pass verbose=True for the full raw payload (positions unpruned if include_positions=True).
     """
-    identity_map = await _get_identity_map(ctx)
-    kwargs: dict[str, Any] = {}
-    if include_positions:
-        kwargs["fields"] = [ctx.accounts.Account.Fields.POSITIONS]
-    result = await call(ctx.accounts.get_accounts, **kwargs)
-    pruned = result if verbose else _prune_account_response(result)
-    return _enrich_with_identity(pruned, identity_map)
+    return await _get_account_response(
+        ctx,
+        include_positions=include_positions,
+        verbose=verbose,
+    )
 
 
 async def get_account(
@@ -206,13 +226,12 @@ async def get_account(
     Includes the account's accountHash, nickname, and isDefault for self-describing output.
     By default returns compact fields only (account type/number, equity/buyingPower/cashBalance/cashAvailableForTrading/liquidationValue from currentBalances; initialBalances and projectedBalances are dropped; positions if included are reduced to symbol, net quantity (positive=long/negative=short), marketValue, averagePrice, unrealizedPL); pass verbose=True for the full raw payload (positions unpruned if include_positions=True).
     """
-    identity_map = await _get_identity_map(ctx)
-    kwargs: dict[str, Any] = {}
-    if include_positions:
-        kwargs["fields"] = [ctx.accounts.Account.Fields.POSITIONS]
-    result = await call(ctx.accounts.get_account, account_hash, **kwargs)
-    pruned = result if verbose else _prune_account_response(result)
-    return _enrich_with_identity(pruned, identity_map, fallback_hash=account_hash)
+    return await _get_account_response(
+        ctx,
+        account_hash=account_hash,
+        include_positions=include_positions,
+        verbose=verbose,
+    )
 
 
 _READ_ONLY_TOOLS = (
