@@ -1599,6 +1599,21 @@ class TestPreviewEquityOrder:
         assert entry.tool_name == "preview_equity_order"
         assert entry.order_spec["orderType"] == "LIMIT"
 
+    def test_failed_preview_is_not_cached(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        """A failed preview API call must not leave an executable cache entry."""
+        client = DummyPreviewClient()
+        ctx = make_ctx(client)
+
+        async def fake_call(*args: Any, **kwargs: Any) -> Any:
+            raise RuntimeError("preview failed")
+
+        monkeypatch.setattr(orders, "call", fake_call)
+
+        with pytest.raises(RuntimeError, match="preview failed"):
+            run(orders.preview_equity_order(ctx, "acc123", "AAPL", 100, "BUY", "LIMIT", price=150.0))
+
+        assert ctx.previews._entries == {}
+
     def test_rejects_invalid_order_type(self):
         client = DummyPreviewClient()
         ctx = make_ctx(client)
