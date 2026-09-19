@@ -680,7 +680,7 @@ class TestPlacePreviewedOrder:
         assert result == {"location": "https://api.schwabapi.com/orders/123"}
         assert len(calls) == 1
 
-    def test_denied_raises_permission_error(self, monkeypatch, account_hash, order_spec):
+    def test_denied_raises_permission_error(self, monkeypatch, account_hash, order_spec, caplog):
         """DENIED decision raises PermissionError."""
         from schwab_mcp.approvals import ApprovalDecision
         from schwab_mcp.tools import orders as orders_mod
@@ -697,7 +697,9 @@ class TestPlacePreviewedOrder:
         with pytest.raises(PermissionError, match="denied"):
             run(orders.place_previewed_order(ctx, account_hash, preview_id))
 
-    def test_expired_raises_timeout_error(self, monkeypatch, account_hash, order_spec):
+        assert [record.getMessage() for record in caplog.records] == ["Order placement denied by reviewer."]
+
+    def test_expired_raises_timeout_error(self, monkeypatch, account_hash, order_spec, caplog):
         """EXPIRED decision raises TimeoutError."""
         from schwab_mcp.approvals import ApprovalDecision
         from schwab_mcp.tools import orders as orders_mod
@@ -713,6 +715,8 @@ class TestPlacePreviewedOrder:
 
         with pytest.raises(TimeoutError, match="expired"):
             run(orders.place_previewed_order(ctx, account_hash, preview_id))
+
+        assert [record.getMessage() for record in caplog.records] == ["Approval request for order placement expired."]
 
     def test_pop_before_approval_denied_consumes_entry(self, monkeypatch, account_hash, order_spec):
         """After a DENIED decision the entry is consumed; a second call raises ValueError."""
