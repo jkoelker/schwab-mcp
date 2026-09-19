@@ -164,6 +164,88 @@ IndicatorFn = Callable[[pd.DataFrame], pd.Series | pd.DataFrame | None]
 _IndicatorOutput: TypeAlias = Literal["series", "frame"]
 
 
+def _validate_indicator_input(
+    frame: pd.DataFrame,
+    required_columns: tuple[str, ...],
+) -> None:
+    """Validate the price data required by an indicator calculation."""
+    if required_columns:
+        ensure_columns(frame, required_columns)
+    if frame.empty:
+        raise ValueError("No price data returned for the requested inputs.")
+
+
+def _require_indicator_result(
+    result: pd.Series | pd.DataFrame | None,
+    indicator_name: str,
+) -> pd.Series | pd.DataFrame:
+    """Return an indicator result or raise when the calculation returned nothing."""
+    if result is None:
+        raise RuntimeError(f"pandas_ta_classic.{indicator_name} returned no values.")
+    return result
+
+
+def _serialize_series_result(
+    result: pd.Series | pd.DataFrame,
+    indicator_name: str,
+    limit: int,
+    value_key: str | None,
+) -> list[dict[str, Any]]:
+    """Validate and serialize a single-series indicator result."""
+    if isinstance(result, pd.DataFrame):
+        raise TypeError(f"Expected Series from {indicator_name}, got DataFrame. Use compute_frame_indicator instead.")
+    result = result.dropna()
+    if result.empty:
+        raise ValueError(f"Not enough price history to compute {indicator_name}.")
+    return series_to_json(result, limit=limit, value_key=value_key)
+
+
+def _serialize_frame_result(
+    result: pd.Series | pd.DataFrame,
+    indicator_name: str,
+    limit: int,
+) -> list[dict[str, Any]]:
+    """Validate and serialize a multi-column indicator result."""
+    if isinstance(result, pd.Series):
+        raise TypeError(f"Expected DataFrame from {indicator_name}, got Series. Use compute_series_indicator instead.")
+    result = result.dropna(how="all")
+    if result.empty:
+        raise ValueError(f"Not enough price history to compute {indicator_name}.")
+    return frame_to_json(result, limit=limit)
+
+
+def _serialize_indicator_result(
+    result: pd.Series | pd.DataFrame,
+    indicator_name: str,
+    output: _IndicatorOutput,
+    limit: int,
+    value_key: str | None,
+) -> list[dict[str, Any]]:
+    """Serialize an indicator result according to its declared output type."""
+    if output == "series":
+        return _serialize_series_result(result, indicator_name, limit, value_key)
+    return _serialize_frame_result(result, indicator_name, limit)
+
+
+def _build_indicator_response(
+    metadata: Mapping[str, Any],
+    values: list[dict[str, Any]],
+    extra_metadata: dict[str, Any] | None,
+) -> JSONType:
+    """Build the common response payload for an indicator calculation."""
+    response: dict[str, Any] = {
+        "symbol": metadata["symbol"],
+        "interval": metadata["interval"],
+        "start": metadata["start"],
+        "end": metadata["end"],
+        "values": values,
+        "candles": metadata["candles_returned"],
+    }
+    if extra_metadata:
+        response.update(extra_metadata)
+    return response
+
+
 async def _compute_indicator(
     ctx: SchwabContext,
     symbol: str,
@@ -182,48 +264,11 @@ async def _compute_indicator(
 ) -> JSONType:
     """Fetch price history, compute an indicator, and serialize its values."""
     frame, metadata = await fetch_price_frame(ctx, symbol, interval=interval, start=start, end=end, bars=bars)
-
-    if required_columns:
-        ensure_columns(frame, required_columns)
-
-    if frame.empty:
-        raise ValueError("No price data returned for the requested inputs.")
-
-    result = indicator_fn(frame)
-    if result is None:
-        raise RuntimeError(f"pandas_ta_classic.{indicator_name} returned no values.")
-
+    _validate_indicator_input(frame, required_columns)
+    result = _require_indicator_result(indicator_fn(frame), indicator_name)
     limit = points if points is not None else DEFAULT_POINTS
-    if output == "series":
-        if isinstance(result, pd.DataFrame):
-            raise TypeError(
-                f"Expected Series from {indicator_name}, got DataFrame. Use compute_frame_indicator instead."
-            )
-        result = result.dropna()
-        if result.empty:
-            raise ValueError(f"Not enough price history to compute {indicator_name}.")
-        values = series_to_json(result, limit=limit, value_key=value_key)
-    else:
-        if isinstance(result, pd.Series):
-            raise TypeError(
-                f"Expected DataFrame from {indicator_name}, got Series. Use compute_series_indicator instead."
-            )
-        result = result.dropna(how="all")
-        if result.empty:
-            raise ValueError(f"Not enough price history to compute {indicator_name}.")
-        values = frame_to_json(result, limit=limit)
-
-    response: dict[str, Any] = {
-        "symbol": metadata["symbol"],
-        "interval": metadata["interval"],
-        "start": metadata["start"],
-        "end": metadata["end"],
-        "values": values,
-        "candles": metadata["candles_returned"],
-    }
-    if extra_metadata:
-        response.update(extra_metadata)
-    return response
+    values = _serialize_indicator_result(result, indicator_name, output, limit, value_key)
+    return _build_indicator_response(metadata, values, extra_metadata)
 
 
 async def compute_series_indicator(
