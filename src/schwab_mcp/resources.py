@@ -46,7 +46,12 @@ ORDER_TYPES: dict[str, Any] = {
         "All order placement is two-step: call the matching preview_* tool "
         "(e.g. preview_equity_order) to get a preview_id and Schwab's "
         "projected order details, then call place_previewed_order("
-        "account_hash, preview_id) to execute that exact order."
+        "account_hash, preview_id) to execute that exact order. To replace "
+        "an existing order, call preview_replacement_order(account_hash, "
+        "order_id, replacement_order) and then replace_previewed_order("
+        "account_hash, preview_id). Replacement previews are bound to their "
+        "target order and only accept one complete single-leg equity, option, "
+        "or equity trailing-stop description."
     ),
     "equity_orders": {
         "MARKET": {
@@ -107,6 +112,16 @@ ORDER_TYPES: dict[str, Any] = {
             ],
             "price_required": True,
         },
+    },
+    "replacement_orders": {
+        "SINGLE": {
+            "description": "Replace one existing pending order with a new single order specification",
+            "preview_tool": "preview_replacement_order",
+            "execute_tool": "replace_previewed_order",
+            "supported_assets": ["EQUITY", "OPTION"],
+            "supports_trailing_stop": True,
+            "supports_composites": False,
+        }
     },
     "complex_orders": {
         "OCO": {
