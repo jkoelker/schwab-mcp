@@ -704,6 +704,23 @@ def _preview_action(account_hash: str, preview_id: str) -> str:
     )
 
 
+async def _finalize_preview(
+    ctx: SchwabContext,
+    account_hash: str,
+    order_spec: dict[str, Any],
+    tool_name: str,
+    summary: str,
+) -> dict[str, Any]:
+    """Preview, cache, and envelope an order preview result."""
+    preview = await call(ctx.orders.preview_order, account_hash=account_hash, order_spec=order_spec)
+    preview_id = ctx.previews.put(account_hash, order_spec, tool_name, summary)
+    return {
+        "preview_id": preview_id,
+        "preview": preview,
+        "action": _preview_action(account_hash, preview_id),
+    }
+
+
 async def get_order(
     ctx: SchwabContext,
     account_hash: Annotated[str, "Account hash for the Schwab account"],
@@ -921,14 +938,8 @@ async def preview_equity_order(
     order_spec_dict = _prepare_equity_order(
         symbol, quantity, instruction, order_type, price, stop_price, session, duration
     )
-    preview = await call(ctx.orders.preview_order, account_hash=account_hash, order_spec=order_spec_dict)
     summary = _order_summary_equity(instruction, quantity, symbol, order_type, price, stop_price)
-    preview_id = ctx.previews.put(account_hash, order_spec_dict, "preview_equity_order", summary)
-    return {
-        "preview_id": preview_id,
-        "preview": preview,
-        "action": _preview_action(account_hash, preview_id),
-    }
+    return await _finalize_preview(ctx, account_hash, order_spec_dict, "preview_equity_order", summary)
 
 
 async def preview_option_order(
@@ -954,14 +965,8 @@ async def preview_option_order(
     exact order. Params: same as this order shape's fields below.
     """
     order_spec_dict = _prepare_option_order(symbol, quantity, instruction, order_type, price, session, duration)
-    preview = await call(ctx.orders.preview_order, account_hash=account_hash, order_spec=order_spec_dict)
     summary = _order_summary_equity(instruction, quantity, symbol, order_type, price)
-    preview_id = ctx.previews.put(account_hash, order_spec_dict, "preview_option_order", summary)
-    return {
-        "preview_id": preview_id,
-        "preview": preview,
-        "action": _preview_action(account_hash, preview_id),
-    }
+    return await _finalize_preview(ctx, account_hash, order_spec_dict, "preview_option_order", summary)
 
 
 async def preview_equity_trailing_stop_order(
@@ -992,15 +997,15 @@ async def preview_equity_trailing_stop_order(
     order_spec_dict = _prepare_trailing_stop_order(
         symbol, quantity, instruction, trail_offset, trail_type, session, duration
     )
-    preview = await call(ctx.orders.preview_order, account_hash=account_hash, order_spec=order_spec_dict)
     eff_trail_type = (trail_type or "VALUE").upper()
     summary = f"{instruction.upper()} {quantity} {symbol} TRAILING_STOP offset={trail_offset} {eff_trail_type}"
-    preview_id = ctx.previews.put(account_hash, order_spec_dict, "preview_equity_trailing_stop_order", summary)
-    return {
-        "preview_id": preview_id,
-        "preview": preview,
-        "action": _preview_action(account_hash, preview_id),
-    }
+    return await _finalize_preview(
+        ctx,
+        account_hash,
+        order_spec_dict,
+        "preview_equity_trailing_stop_order",
+        summary,
+    )
 
 
 async def preview_oco_order(
@@ -1036,14 +1041,8 @@ async def preview_oco_order(
         session,
         duration,
     )
-    preview = await call(ctx.orders.preview_order, account_hash=account_hash, order_spec=order_spec_dict)
     summary = f"OCO: {first_order['instruction']} {first_order['quantity']} {first_order['symbol']} + 1 other"
-    preview_id = ctx.previews.put(account_hash, order_spec_dict, "preview_oco_order", summary)
-    return {
-        "preview_id": preview_id,
-        "preview": preview,
-        "action": _preview_action(account_hash, preview_id),
-    }
+    return await _finalize_preview(ctx, account_hash, order_spec_dict, "preview_oco_order", summary)
 
 
 async def preview_trigger_order(
@@ -1082,17 +1081,11 @@ async def preview_trigger_order(
         session,
         duration,
     )
-    preview = await call(ctx.orders.preview_order, account_hash=account_hash, order_spec=order_spec_dict)
     summary = (
         f"TRIGGER: {entry_order['instruction']} {entry_order['quantity']} "
         f"{entry_order['symbol']} + {len(exit_orders)} exit(s)"
     )
-    preview_id = ctx.previews.put(account_hash, order_spec_dict, "preview_trigger_order", summary)
-    return {
-        "preview_id": preview_id,
-        "preview": preview,
-        "action": _preview_action(account_hash, preview_id),
-    }
+    return await _finalize_preview(ctx, account_hash, order_spec_dict, "preview_trigger_order", summary)
 
 
 async def preview_bracket_order(
@@ -1163,11 +1156,6 @@ async def preview_bracket_order(
         loss_type=loss_type,
         loss_limit_price=loss_limit_price,
     )
-    preview = await call(
-        ctx.orders.preview_order,
-        account_hash=account_hash,
-        order_spec=bracket_order_dict,
-    )
     summary = (
         f"BRACKET: {entry_instruction.upper()} {quantity} {symbol} {entry_type.upper()}"
         + (f" @ ${entry_price:.2f}" if entry_price else "")
@@ -1179,13 +1167,9 @@ async def preview_bracket_order(
         resolved_leg_types["profit"] = "LIMIT"
     if loss_price is not None:
         resolved_leg_types["loss"] = loss_type.upper()
-    preview_id = ctx.previews.put(account_hash, bracket_order_dict, "preview_bracket_order", summary)
-    return {
-        "preview_id": preview_id,
-        "preview": preview,
-        "action": _preview_action(account_hash, preview_id),
-        "resolved_leg_types": resolved_leg_types,
-    }
+    result = await _finalize_preview(ctx, account_hash, bracket_order_dict, "preview_bracket_order", summary)
+    result["resolved_leg_types"] = resolved_leg_types
+    return result
 
 
 async def preview_option_combo_order(
@@ -1218,14 +1202,8 @@ async def preview_option_combo_order(
     order_spec_dict = _prepare_option_combo_order(
         legs, order_type, price, session, duration, complex_order_strategy_type
     )
-    preview = await call(ctx.orders.preview_order, account_hash=account_hash, order_spec=order_spec_dict)
     summary = f"COMBO: {len(legs)} option legs, {order_type.upper()}"
-    preview_id = ctx.previews.put(account_hash, order_spec_dict, "preview_option_combo_order", summary)
-    return {
-        "preview_id": preview_id,
-        "preview": preview,
-        "action": _preview_action(account_hash, preview_id),
-    }
+    return await _finalize_preview(ctx, account_hash, order_spec_dict, "preview_option_combo_order", summary)
 
 
 async def place_previewed_order(
