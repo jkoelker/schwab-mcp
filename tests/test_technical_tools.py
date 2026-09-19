@@ -23,6 +23,141 @@ def run_tool(coro) -> dict[str, Any]:
     return cast(dict[str, Any], result)
 
 
+def _patch_price_frame(
+    monkeypatch: pytest.MonkeyPatch,
+    module: Any,
+    frame: pd.DataFrame,
+    metadata: dict[str, Any],
+) -> None:
+    """Patch a technical module to return the supplied price frame."""
+
+    async def fake_fetch(
+        ctx: SchwabContext,
+        symbol: str,
+        **kwargs: Any,
+    ) -> tuple[pd.DataFrame, dict[str, Any]]:
+        """Return the test price frame and its metadata."""
+        return frame, metadata
+
+    monkeypatch.setattr(module, "fetch_price_frame", fake_fetch)
+
+
+def _patch_empty_price_frame(
+    monkeypatch: pytest.MonkeyPatch,
+    module: Any,
+    *,
+    end: str,
+) -> None:
+    """Patch a technical module to return an empty price frame."""
+
+    async def fake_fetch(
+        ctx: SchwabContext,
+        symbol: str,
+        **kwargs: Any,
+    ) -> tuple[pd.DataFrame, dict[str, Any]]:
+        """Return empty price data with standard test metadata."""
+        metadata = {
+            "symbol": symbol,
+            "interval": "1d",
+            "start": None,
+            "end": end,
+            "bars_requested": None,
+            "empty": True,
+            "candles_returned": 0,
+        }
+        return pd.DataFrame(), metadata
+
+    monkeypatch.setattr(module, "fetch_price_frame", fake_fetch)
+
+
+def _patch_moving_average(
+    monkeypatch: pytest.MonkeyPatch,
+    frame: pd.DataFrame,
+    metadata: dict[str, Any],
+    *,
+    min_periods: int = 1,
+    expected_context: SchwabContext | None = None,
+) -> None:
+    """Patch moving-average data fetching and SMA/EMA calculations."""
+
+    async def fake_fetch(
+        ctx: SchwabContext,
+        symbol: str,
+        **kwargs: Any,
+    ) -> tuple[pd.DataFrame, dict[str, Any]]:
+        """Return moving-average test data and validate the first call."""
+        assert kwargs["bars"] >= 0
+        if expected_context is not None:
+            assert ctx is expected_context
+            assert symbol == "HOOD"
+            assert kwargs["interval"] == "1d"
+        return frame, metadata
+
+    def fake_sma(series: pd.Series, *, length: int) -> pd.Series:
+        """Calculate the test simple moving average."""
+        return cast(pd.Series, series.rolling(length, min_periods=min_periods).mean())
+
+    def fake_ema(series: pd.Series, *, length: int) -> pd.Series:
+        """Calculate the test exponential moving average."""
+        return cast(pd.Series, series.ewm(span=length, adjust=False).mean())
+
+    monkeypatch.setattr(base, "fetch_price_frame", fake_fetch)
+    monkeypatch.setattr(
+        moving_average,
+        "pandas_ta",
+        SimpleNamespace(sma=fake_sma, ema=fake_ema),
+    )
+
+
+def _patch_atr(monkeypatch: pytest.MonkeyPatch, frame: pd.DataFrame, metadata: dict[str, Any]) -> None:
+    """Patch ATR data fetching and calculation for indicator tests."""
+
+    _patch_price_frame(monkeypatch, base, frame, metadata)
+
+    def fake_atr(
+        high: pd.Series,
+        low: pd.Series,
+        close: pd.Series,
+        *,
+        length: int,
+    ) -> pd.Series:
+        """Return deterministic ATR values for the supplied index."""
+        return pd.Series([1.0 + idx for idx in range(len(close))], index=close.index)
+
+    monkeypatch.setattr(
+        trend,
+        "pandas_ta",
+        SimpleNamespace(
+            atr=fake_atr,
+            adx=lambda *args, **kwargs: None,
+            macd=lambda *args, **kwargs: None,
+        ),
+    )
+
+
+def _patch_vwap(monkeypatch: pytest.MonkeyPatch, frame: pd.DataFrame, metadata: dict[str, Any]) -> None:
+    """Patch VWAP data fetching and calculation for indicator tests."""
+
+    _patch_price_frame(monkeypatch, overlays, frame, metadata)
+
+    def fake_vwap(
+        high: pd.Series,
+        low: pd.Series,
+        close: pd.Series,
+        volume: pd.Series,
+        *,
+        length: int | None = None,
+    ) -> pd.Series:
+        """Return deterministic VWAP values for the supplied index."""
+        return pd.Series([100.0 + idx for idx in range(len(close))], index=close.index)
+
+    monkeypatch.setattr(
+        overlays,
+        "pandas_ta",
+        SimpleNamespace(vwap=fake_vwap, pivot_points=None, bbands=None),
+    )
+
+
 @pytest.fixture
 def dummy_ctx() -> SchwabContext:
     ctx = SimpleNamespace()
@@ -76,26 +211,9 @@ def ohlcv_data():
 
 
 def test_moving_average_returns_sma_and_ema(monkeypatch, dummy_ctx, price_data):
+    """Return both simple and exponential moving-average values."""
     frame, metadata = price_data
-
-    async def fake_fetch(ctx, symbol, **kwargs):
-        assert ctx is dummy_ctx
-        assert symbol == "HOOD"
-        assert kwargs["interval"] == "1d"
-        return frame, metadata
-
-    def fake_sma(series, *, length):
-        return series.rolling(length, min_periods=1).mean()
-
-    def fake_ema(series, *, length):
-        return series.ewm(span=length, adjust=False).mean()
-
-    monkeypatch.setattr(base, "fetch_price_frame", fake_fetch)
-    monkeypatch.setattr(
-        moving_average,
-        "pandas_ta",
-        SimpleNamespace(sma=fake_sma, ema=fake_ema),
-    )
+    _patch_moving_average(monkeypatch, frame, metadata, expected_context=dummy_ctx)
 
     result = run_tool(moving_average.moving_average(dummy_ctx, "HOOD", length=3, points=2))
 
@@ -115,26 +233,9 @@ def test_moving_average_returns_sma_and_ema(monkeypatch, dummy_ctx, price_data):
 
 
 def test_moving_average_drops_rows_missing_either_series(monkeypatch, dummy_ctx, price_data):
+    """Drop rows where either moving-average series is unavailable."""
     frame, metadata = price_data
-
-    async def fake_fetch(ctx, symbol, **kwargs):
-        return frame, metadata
-
-    def fake_sma(series, *, length):
-        # Real warmup behavior: no value until `length` periods have passed.
-        return series.rolling(length, min_periods=length).mean()
-
-    def fake_ema(series, *, length):
-        # EMA warms up immediately, unlike SMA above, so early rows would
-        # otherwise contain ema_{length} with no sma_{length}.
-        return series.ewm(span=length, adjust=False).mean()
-
-    monkeypatch.setattr(base, "fetch_price_frame", fake_fetch)
-    monkeypatch.setattr(
-        moving_average,
-        "pandas_ta",
-        SimpleNamespace(sma=fake_sma, ema=fake_ema),
-    )
+    _patch_moving_average(monkeypatch, frame, metadata, min_periods=3)
 
     result = run_tool(moving_average.moving_average(dummy_ctx, "HOOD", length=3, points=10))
 
@@ -146,30 +247,17 @@ def test_moving_average_drops_rows_missing_either_series(monkeypatch, dummy_ctx,
 
 
 def test_moving_average_defaults_to_default_points(monkeypatch, dummy_ctx, price_data):
+    """Use the default point limit without reducing indicator coverage."""
     frame, metadata = price_data
-
-    async def fake_fetch(ctx, symbol, **kwargs):
-        assert kwargs["bars"] >= 0
-        return frame, metadata
-
-    def fake_sma(series, *, length):
-        return series.rolling(length, min_periods=1).mean()
-
-    def fake_ema(series, *, length):
-        return series.ewm(span=length, adjust=False).mean()
-
-    monkeypatch.setattr(base, "fetch_price_frame", fake_fetch)
-    monkeypatch.setattr(
-        moving_average,
-        "pandas_ta",
-        SimpleNamespace(sma=fake_sma, ema=fake_ema),
-    )
+    _patch_moving_average(monkeypatch, frame, metadata)
 
     result = run_tool(moving_average.moving_average(dummy_ctx, "HOOD", length=5))
 
     values = result["values"]
     assert len(values) == base.DEFAULT_POINTS
+    last_sma = frame["close"].rolling(5, min_periods=1).mean().iloc[-1]
     last_ema = frame["close"].ewm(span=5, adjust=False).mean().iloc[-1]
+    assert values[-1]["sma_5"] == pytest.approx(float(last_sma))
     assert values[-1]["ema_5"] == pytest.approx(float(last_ema))
 
 
@@ -238,20 +326,9 @@ def test_stoch_returns_expected_values(monkeypatch, dummy_ctx, ohlcv_data):
 
 
 def test_vwap_returns_series(monkeypatch, dummy_ctx, ohlcv_data):
+    """Return VWAP values for the requested number of points."""
     frame, metadata = ohlcv_data
-
-    async def fake_fetch(ctx, symbol, **kwargs):
-        return frame, metadata
-
-    def fake_vwap(high, low, close, volume, *, length=None):
-        return pd.Series([100.0 + idx for idx in range(len(close))], index=close.index)
-
-    monkeypatch.setattr(overlays, "fetch_price_frame", fake_fetch)
-    monkeypatch.setattr(
-        overlays,
-        "pandas_ta",
-        SimpleNamespace(vwap=fake_vwap, pivot_points=None, bbands=None),
-    )
+    _patch_vwap(monkeypatch, frame, metadata)
 
     result = run_tool(overlays.vwap(dummy_ctx, "HOOD", length=5, points=2))
 
@@ -283,15 +360,13 @@ def test_vwap_requires_positive_volume(monkeypatch, dummy_ctx, ohlcv_data):
 
 
 def test_pivot_points_returns_levels(monkeypatch, dummy_ctx, ohlcv_data):
+    """Return standard pivot levels for the requested number of points."""
     # pandas_ta_classic has no pivot_points implementation (confirmed empty on
     # 0.3.59), so this indicator is computed directly rather than delegated —
     # no pandas_ta monkeypatch needed here, unlike the other overlay tools.
     frame, metadata = ohlcv_data
 
-    async def fake_fetch(ctx, symbol, **kwargs):
-        return frame, metadata
-
-    monkeypatch.setattr(base, "fetch_price_frame", fake_fetch)
+    _patch_price_frame(monkeypatch, base, frame, metadata)
 
     result = run_tool(overlays.pivot_points(dummy_ctx, "HOOD", method="standard", lookback=1, points=2))
 
@@ -401,24 +476,9 @@ def test_macd_returns_expected_values(monkeypatch, dummy_ctx, price_data):
 
 
 def test_atr_returns_series(monkeypatch, dummy_ctx, ohlcv_data):
+    """Return deterministic ATR values for the requested points."""
     frame, metadata = ohlcv_data
-
-    async def fake_fetch(ctx, symbol, **kwargs):
-        return frame, metadata
-
-    def fake_atr(high, low, close, *, length):
-        return pd.Series([1.0 + idx for idx in range(len(close))], index=close.index)
-
-    monkeypatch.setattr(base, "fetch_price_frame", fake_fetch)
-    monkeypatch.setattr(
-        trend,
-        "pandas_ta",
-        SimpleNamespace(
-            atr=fake_atr,
-            adx=lambda *args, **kwargs: None,
-            macd=lambda *args, **kwargs: None,
-        ),
-    )
+    _patch_atr(monkeypatch, frame, metadata)
 
     result = run_tool(trend.atr(dummy_ctx, "HOOD", length=4, points=2))
 
@@ -735,52 +795,10 @@ def test_expected_move_honors_custom_multiplier(monkeypatch, dummy_ctx):
     assert result["boundaries"]["upper_1x"] == pytest.approx(100.0 + 4.8)
 
 
-def test_moving_average_defaults_to_default_points_not_length(monkeypatch, dummy_ctx, price_data):
-    frame, metadata = price_data
-
-    async def fake_fetch(ctx, symbol, **kwargs):
-        return frame, metadata
-
-    def fake_sma(series, *, length):
-        return series.rolling(length, min_periods=1).mean()
-
-    def fake_ema(series, *, length):
-        return series.ewm(span=length, adjust=False).mean()
-
-    monkeypatch.setattr(base, "fetch_price_frame", fake_fetch)
-    monkeypatch.setattr(
-        moving_average,
-        "pandas_ta",
-        SimpleNamespace(sma=fake_sma, ema=fake_ema),
-    )
-
-    result = run_tool(moving_average.moving_average(dummy_ctx, "HOOD", length=5))
-
-    values = result["values"]
-    assert len(values) == base.DEFAULT_POINTS
-    last_value = frame["close"].rolling(5, min_periods=1).mean().iloc[-1]
-    assert values[-1]["sma_5"] == pytest.approx(float(last_value))
-
-
 def test_atr_defaults_to_default_points_not_length(monkeypatch, dummy_ctx, ohlcv_data):
+    """Use the default point limit instead of the ATR length."""
     frame, metadata = ohlcv_data
-
-    async def fake_fetch(ctx, symbol, **kwargs):
-        return frame, metadata
-
-    def fake_atr(high, low, close, *, length):
-        return pd.Series([1.0 + idx for idx in range(len(close))], index=close.index)
-
-    monkeypatch.setattr(base, "fetch_price_frame", fake_fetch)
-    monkeypatch.setattr(
-        trend,
-        "pandas_ta",
-        SimpleNamespace(
-            atr=fake_atr,
-            adx=lambda *args, **kwargs: None,
-            macd=lambda *args, **kwargs: None,
-        ),
-    )
+    _patch_atr(monkeypatch, frame, metadata)
 
     result = run_tool(trend.atr(dummy_ctx, "HOOD", length=5))
 
@@ -790,20 +808,9 @@ def test_atr_defaults_to_default_points_not_length(monkeypatch, dummy_ctx, ohlcv
 
 
 def test_vwap_defaults_to_default_points_not_length(monkeypatch, dummy_ctx, ohlcv_data):
+    """Use the default point limit instead of the VWAP length."""
     frame, metadata = ohlcv_data
-
-    async def fake_fetch(ctx, symbol, **kwargs):
-        return frame, metadata
-
-    def fake_vwap(high, low, close, volume, *, length=None):
-        return pd.Series([100.0 + idx for idx in range(len(close))], index=close.index)
-
-    monkeypatch.setattr(overlays, "fetch_price_frame", fake_fetch)
-    monkeypatch.setattr(
-        overlays,
-        "pandas_ta",
-        SimpleNamespace(vwap=fake_vwap, pivot_points=None, bbands=None),
-    )
+    _patch_vwap(monkeypatch, frame, metadata)
 
     result = run_tool(overlays.vwap(dummy_ctx, "HOOD", length=5))
 
@@ -813,12 +820,9 @@ def test_vwap_defaults_to_default_points_not_length(monkeypatch, dummy_ctx, ohlc
 
 
 def test_pivot_points_defaults_to_default_points_not_lookback(monkeypatch, dummy_ctx, ohlcv_data):
+    """Use the default point limit instead of the pivot lookback."""
     frame, metadata = ohlcv_data
-
-    async def fake_fetch(ctx, symbol, **kwargs):
-        return frame, metadata
-
-    monkeypatch.setattr(base, "fetch_price_frame", fake_fetch)
+    _patch_price_frame(monkeypatch, base, frame, metadata)
 
     result = run_tool(overlays.pivot_points(dummy_ctx, "HOOD", method="standard", lookback=1))
 
@@ -912,19 +916,12 @@ def test_frame_to_json_with_limit_none_returns_all_rows():
 
 
 def test_compute_series_indicator_raises_on_empty_frame(monkeypatch, dummy_ctx):
-    async def fake_fetch(ctx, symbol, **kwargs):
-        meta = {
-            "symbol": symbol,
-            "interval": "1d",
-            "start": None,
-            "end": "2024-01-06T00:00:00+00:00",
-            "bars_requested": None,
-            "empty": True,
-            "candles_returned": 0,
-        }
-        return pd.DataFrame(), meta
-
-    monkeypatch.setattr(base, "fetch_price_frame", fake_fetch)
+    """Raise when a series indicator receives no price data."""
+    _patch_empty_price_frame(
+        monkeypatch,
+        base,
+        end="2024-01-06T00:00:00+00:00",
+    )
 
     with pytest.raises(ValueError, match="No price data"):
         run(
@@ -945,12 +942,9 @@ def test_compute_series_indicator_raises_on_empty_frame(monkeypatch, dummy_ctx):
 
 
 def test_compute_series_indicator_raises_when_fn_returns_none(monkeypatch, dummy_ctx, price_data):
+    """Raise when a series indicator returns no values."""
     frame, metadata = price_data
-
-    async def fake_fetch(ctx, symbol, **kwargs):
-        return frame, metadata
-
-    monkeypatch.setattr(base, "fetch_price_frame", fake_fetch)
+    _patch_price_frame(monkeypatch, base, frame, metadata)
 
     with pytest.raises(RuntimeError, match="returned no values"):
         run(
@@ -970,12 +964,9 @@ def test_compute_series_indicator_raises_when_fn_returns_none(monkeypatch, dummy
 
 
 def test_compute_series_indicator_raises_when_fn_returns_dataframe(monkeypatch, dummy_ctx, price_data):
+    """Raise when a series indicator returns a data frame."""
     frame, metadata = price_data
-
-    async def fake_fetch(ctx, symbol, **kwargs):
-        return frame, metadata
-
-    monkeypatch.setattr(base, "fetch_price_frame", fake_fetch)
+    _patch_price_frame(monkeypatch, base, frame, metadata)
 
     with pytest.raises(TypeError, match="got DataFrame"):
         run(
@@ -995,12 +986,9 @@ def test_compute_series_indicator_raises_when_fn_returns_dataframe(monkeypatch, 
 
 
 def test_compute_series_indicator_raises_when_result_all_nan(monkeypatch, dummy_ctx, price_data):
+    """Raise when a series indicator contains no usable values."""
     frame, metadata = price_data
-
-    async def fake_fetch(ctx, symbol, **kwargs):
-        return frame, metadata
-
-    monkeypatch.setattr(base, "fetch_price_frame", fake_fetch)
+    _patch_price_frame(monkeypatch, base, frame, metadata)
 
     with pytest.raises(ValueError, match="Not enough price history"):
         run(
@@ -1020,12 +1008,9 @@ def test_compute_series_indicator_raises_when_result_all_nan(monkeypatch, dummy_
 
 
 def test_compute_series_indicator_includes_extra_metadata(monkeypatch, dummy_ctx, price_data):
+    """Include extra metadata in a successful series indicator result."""
     frame, metadata = price_data
-
-    async def fake_fetch(ctx, symbol, **kwargs):
-        return frame, metadata
-
-    monkeypatch.setattr(base, "fetch_price_frame", fake_fetch)
+    _patch_price_frame(monkeypatch, base, frame, metadata)
 
     result = run(
         base.compute_series_indicator(
@@ -1052,19 +1037,12 @@ def test_compute_series_indicator_includes_extra_metadata(monkeypatch, dummy_ctx
 
 
 def test_compute_frame_indicator_raises_on_empty_frame(monkeypatch, dummy_ctx):
-    async def fake_fetch(ctx, symbol, **kwargs):
-        meta = {
-            "symbol": symbol,
-            "interval": "1d",
-            "start": None,
-            "end": "2024-01-06T00:00:00+00:00",
-            "bars_requested": None,
-            "empty": True,
-            "candles_returned": 0,
-        }
-        return pd.DataFrame(), meta
-
-    monkeypatch.setattr(base, "fetch_price_frame", fake_fetch)
+    """Raise when a frame indicator receives no price data."""
+    _patch_empty_price_frame(
+        monkeypatch,
+        base,
+        end="2024-01-06T00:00:00+00:00",
+    )
 
     with pytest.raises(ValueError, match="No price data"):
         run(
@@ -1084,12 +1062,9 @@ def test_compute_frame_indicator_raises_on_empty_frame(monkeypatch, dummy_ctx):
 
 
 def test_compute_frame_indicator_raises_when_fn_returns_none(monkeypatch, dummy_ctx, price_data):
+    """Raise when a frame indicator returns no values."""
     frame, metadata = price_data
-
-    async def fake_fetch(ctx, symbol, **kwargs):
-        return frame, metadata
-
-    monkeypatch.setattr(base, "fetch_price_frame", fake_fetch)
+    _patch_price_frame(monkeypatch, base, frame, metadata)
 
     with pytest.raises(RuntimeError, match="returned no values"):
         run(
@@ -1108,12 +1083,9 @@ def test_compute_frame_indicator_raises_when_fn_returns_none(monkeypatch, dummy_
 
 
 def test_compute_frame_indicator_raises_when_fn_returns_series(monkeypatch, dummy_ctx, price_data):
+    """Raise when a frame indicator returns a series."""
     frame, metadata = price_data
-
-    async def fake_fetch(ctx, symbol, **kwargs):
-        return frame, metadata
-
-    monkeypatch.setattr(base, "fetch_price_frame", fake_fetch)
+    _patch_price_frame(monkeypatch, base, frame, metadata)
 
     with pytest.raises(TypeError, match="got Series"):
         run(
@@ -1132,12 +1104,9 @@ def test_compute_frame_indicator_raises_when_fn_returns_series(monkeypatch, dumm
 
 
 def test_compute_frame_indicator_raises_when_result_all_nan(monkeypatch, dummy_ctx, price_data):
+    """Raise when a frame indicator contains no usable values."""
     frame, metadata = price_data
-
-    async def fake_fetch(ctx, symbol, **kwargs):
-        return frame, metadata
-
-    monkeypatch.setattr(base, "fetch_price_frame", fake_fetch)
+    _patch_price_frame(monkeypatch, base, frame, metadata)
 
     with pytest.raises(ValueError, match="Not enough price history"):
         run(
@@ -1156,12 +1125,9 @@ def test_compute_frame_indicator_raises_when_result_all_nan(monkeypatch, dummy_c
 
 
 def test_compute_frame_indicator_includes_extra_metadata(monkeypatch, dummy_ctx, price_data):
+    """Include extra metadata in a successful frame indicator result."""
     frame, metadata = price_data
-
-    async def fake_fetch(ctx, symbol, **kwargs):
-        return frame, metadata
-
-    monkeypatch.setattr(base, "fetch_price_frame", fake_fetch)
+    _patch_price_frame(monkeypatch, base, frame, metadata)
 
     result = run(
         base.compute_frame_indicator(
