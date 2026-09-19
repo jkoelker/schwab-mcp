@@ -1167,9 +1167,10 @@ async def preview_bracket_order(
         resolved_leg_types["profit"] = "LIMIT"
     if loss_price is not None:
         resolved_leg_types["loss"] = loss_type.upper()
-    result = await _finalize_preview(ctx, account_hash, bracket_order_dict, "preview_bracket_order", summary)
-    result["resolved_leg_types"] = resolved_leg_types
-    return result
+    return {
+        **await _finalize_preview(ctx, account_hash, bracket_order_dict, "preview_bracket_order", summary),
+        "resolved_leg_types": resolved_leg_types,
+    }
 
 
 async def preview_option_combo_order(
