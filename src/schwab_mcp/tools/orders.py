@@ -711,7 +711,7 @@ async def _finalize_preview(
     tool_name: str,
     summary: str,
 ) -> dict[str, Any]:
-    """Preview, cache, and envelope an order preview result."""
+    """Preview an order and cache its successful result."""
     preview = await call(ctx.orders.preview_order, account_hash=account_hash, order_spec=order_spec)
     preview_id = ctx.previews.put(account_hash, order_spec, tool_name, summary)
     return {

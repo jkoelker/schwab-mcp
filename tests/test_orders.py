@@ -1599,7 +1599,7 @@ class TestPreviewEquityOrder:
         assert entry.tool_name == "preview_equity_order"
         assert entry.order_spec["orderType"] == "LIMIT"
 
-    def test_failed_preview_is_not_cached(self, monkeypatch):
+    def test_failed_preview_is_not_cached(self, monkeypatch: pytest.MonkeyPatch) -> None:
         """A failed preview API call must not leave an executable cache entry."""
         client = DummyPreviewClient()
         ctx = make_ctx(client)
