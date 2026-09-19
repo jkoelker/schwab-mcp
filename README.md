@@ -127,13 +127,19 @@ Placing an order is two steps: preview it, then place it by ID. Every
 the projected order details plus a `preview_id`; `place_previewed_order`
 then submits that exact previewed order — no re-derivation from parameters,
 so the LLM can't hallucinate a different order than what was reviewed.
+Replacing an order uses the same safe flow: preview a complete single-leg
+equity, option, or equity trailing-stop description with
+`preview_replacement_order`, then call `replace_previewed_order` for the
+bound target order.
 
 | Tool | Description |
 |------|-------------|
 | `preview_equity_order` | Preview a stock/ETF buy or sell. |
 | `preview_option_order` | Preview an option contract buy or sell. |
 | `preview_bracket_order` | Preview an entry + take-profit + stop-loss order. Stop-loss exit type defaults to `STOP`; pass `loss_type` (`STOP`, `STOP_LIMIT`, or `LIMIT`) for a different exit, plus `loss_limit_price` when `loss_type` is `STOP_LIMIT`; the response's `resolved_leg_types` shows what was actually built. |
+| `preview_replacement_order` | Preview a complete single-leg replacement for an existing order. |
 | `place_previewed_order` | Place the exact order returned by a `preview_*` call, by `preview_id`. Requires approval. |
+| `replace_previewed_order` | Replace the exact order bound to a replacement preview. Requires approval. |
 | `cancel_order` | Cancel an open order. |
 
 *(See full tool list in `src/schwab_mcp/tools/`)*
