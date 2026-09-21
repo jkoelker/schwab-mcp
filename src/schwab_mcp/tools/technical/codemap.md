@@ -21,10 +21,12 @@ move helpers.
 - `base.py` provides the shared indicator pipeline: interval normalization,
   Schwab price-history fetches, candle-to-DataFrame conversion, required-column
   validation, warm-up window sizing, and JSON serialization.
-- `compute_series_indicator()` and `compute_frame_indicator()` reduce repeated
-  logic for pandas-ta indicators, enforcing Series/DataFrame expectations,
-  dropping warm-up nulls, limiting output rows via `points`, and returning common
-  metadata (`symbol`, `interval`, `start`, `end`, `candles`, parameters).
+- A private indicator pipeline shared by the typed
+  `compute_series_indicator()` and `compute_frame_indicator()` wrappers reduces
+  repeated logic for pandas-ta indicators, enforcing Series/DataFrame
+  expectations, dropping warm-up nulls, limiting output rows via `points`, and
+  returning common metadata (`symbol`, `interval`, `start`, `end`, `candles`,
+  parameters).
 - Not every calculation is delegated to pandas-ta: pivot points are implemented
   directly because the pinned `pandas_ta_classic` versions do not expose a
   compatible pivot-point function. Volatility tools use pandas/numpy math for
