@@ -8,6 +8,7 @@ from mcp.server.mcpserver import MCPServer
 from pydantic import Field
 
 from schwab_mcp.context import SchwabContext
+from schwab_mcp.tools._protocols import OptionsClient
 from schwab_mcp.tools._registration import register_tool
 from schwab_mcp.tools.utils import JSONType, call, parse_date
 
@@ -109,6 +110,35 @@ def _parse_strike_range(client: Any, strike_range: str | None) -> Any:
         raise ValueError(f"Invalid strike_range: {strike_range}. Must be one of: {choices}") from exc
 
 
+async def _get_option_chain(
+    client: OptionsClient,
+    symbol: str,
+    *,
+    contract_type: Any,
+    strike_count: int,
+    include_underlying_quote: bool | None,
+    from_date: datetime.date | str | None,
+    to_date: datetime.date | str | None,
+    verbose: bool,
+    **advanced_kwargs: Any,
+) -> JSONType:
+    """Request an option chain and apply the default response shaping."""
+    from_date_obj, to_date_obj = _normalize_expiration_window(
+        parse_date(from_date),
+        parse_date(to_date),
+    )
+    request_kwargs = {
+        "contract_type": contract_type,
+        "strike_count": strike_count,
+        "include_underlying_quote": include_underlying_quote,
+        "from_date": from_date_obj,
+        "to_date": to_date_obj,
+        **advanced_kwargs,
+    }
+    result = await call(client.get_option_chain, symbol, **request_kwargs)
+    return result if verbose else _prune_option_chain(result)
+
+
 async def get_option_chain(
     ctx: SchwabContext,
     symbol: Annotated[str, Field(description="Underlying symbol, such as AAPL or SPY.")],
@@ -156,22 +186,16 @@ async def get_option_chain(
     the compact default.
     """
     client = ctx.options
-
-    from_date_obj, to_date_obj = _normalize_expiration_window(
-        parse_date(from_date),
-        parse_date(to_date),
-    )
-
-    result = await call(
-        client.get_option_chain,
+    return await _get_option_chain(
+        client,
         symbol,
         contract_type=client.Options.ContractType[contract_type] if contract_type else None,
         strike_count=strike_count,
         include_underlying_quote=include_underlying_quote,
-        from_date=from_date_obj,
-        to_date=to_date_obj,
+        from_date=from_date,
+        to_date=to_date,
+        verbose=verbose,
     )
-    return result if verbose else _prune_option_chain(result)
 
 
 async def get_advanced_option_chain(
@@ -295,24 +319,19 @@ async def get_advanced_option_chain(
     the compact default.
     """
     client = ctx.options
-
-    from_date_obj, to_date_obj = _normalize_expiration_window(
-        parse_date(from_date),
-        parse_date(to_date),
-    )
-
-    result = await call(
-        client.get_option_chain,
+    return await _get_option_chain(
+        client,
         symbol,
         contract_type=client.Options.ContractType[contract_type] if contract_type else None,
         strike_count=strike_count,
         include_underlying_quote=include_underlying_quote,
+        from_date=from_date,
+        to_date=to_date,
+        verbose=verbose,
         strategy=client.Options.Strategy[strategy] if strategy else None,
         interval=interval,
         strike=strike,
         strike_range=_parse_strike_range(client, strike_range),
-        from_date=from_date_obj,
-        to_date=to_date_obj,
         volatility=volatility,
         underlying_price=underlying_price,
         interest_rate=interest_rate,
@@ -320,7 +339,6 @@ async def get_advanced_option_chain(
         exp_month=client.Options.ExpirationMonth[exp_month] if exp_month else None,
         option_type=client.Options.Type[option_type] if option_type else None,
     )
-    return result if verbose else _prune_option_chain(result)
 
 
 async def get_option_expiration_chain(
