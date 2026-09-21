@@ -20,6 +20,7 @@ from typing_extensions import TypedDict
 
 from schwab_mcp.approvals import ApprovalDecision, ApprovalRequest
 from schwab_mcp.context import SchwabContext
+from schwab_mcp.previews import PreviewOperation
 from schwab_mcp.tools._registration import register_tool, run_approval
 from schwab_mcp.tools.order_helpers import (
     equity_buy_limit,
@@ -284,6 +285,18 @@ _OPTION_ORDER_BUILDERS: dict[str, tuple[Any, Any]] = {
 _OPTION_ORDER_TYPES = frozenset({"MARKET", "LIMIT"})
 _OPTION_INSTRUCTIONS = frozenset(_OPTION_ORDER_BUILDERS.keys())
 
+_REPLACEMENT_OPTIONAL_FIELDS = frozenset({"price", "stop_price", "trail_offset", "trail_type"})
+_REPLACEMENT_ALLOWED_FIELDS: dict[tuple[str, str], frozenset[str]] = {
+    ("EQUITY", "MARKET"): frozenset(),
+    ("EQUITY", "LIMIT"): frozenset({"price"}),
+    ("EQUITY", "STOP"): frozenset({"stop_price"}),
+    ("EQUITY", "STOP_LIMIT"): frozenset({"price", "stop_price"}),
+    ("EQUITY", "TRAILING_STOP"): frozenset({"trail_offset", "trail_type"}),
+    ("OPTION", "MARKET"): frozenset(),
+    ("OPTION", "LIMIT"): frozenset({"price"}),
+    ("OPTION", "TRAILING_STOP"): frozenset(),
+}
+
 
 def _build_option_order_spec(
     symbol: str,
@@ -437,6 +450,20 @@ class OrderDesc:
         )
 
 
+def _order_summary_from_desc(desc: OrderDesc) -> str:
+    """Build a normalized reviewer summary from a validated order description."""
+    parts = [desc.instruction.upper(), str(desc.quantity), desc.symbol, desc.order_type.upper()]
+    if desc.price is not None:
+        parts.append(f"@ ${desc.price:.2f}")
+    if desc.stop_price is not None:
+        parts.append(f"stop ${desc.stop_price:.2f}")
+    if desc.trail_offset is not None:
+        parts.append(f"offset={desc.trail_offset:g} {desc.trail_type.upper()}")
+    if desc.asset_type == "OPTION":
+        parts.append("OPTION")
+    return " ".join(parts)
+
+
 def _build_order_from_desc(
     desc: dict[str, Any],
     default_session: str | None,
@@ -454,31 +481,43 @@ def _build_order_from_desc(
     from untrusted MCP tool-call JSON (not Python literals), required keys
     are checked explicitly at runtime rather than relying on static typing.
     """
-    od = OrderDesc.from_dict(desc)
+    return _build_order_from_validated_desc(OrderDesc.from_dict(desc), default_session, default_duration)
 
-    # Determine effective session/duration (per-leg overrides defaults)
-    session = od.session if od.session is not None else default_session
-    duration = od.duration if od.duration is not None else default_duration
 
-    if od.order_type == "TRAILING_STOP":
-        builder = _build_trailing_stop_from_desc(od, od.symbol, od.quantity, od.instruction, od.asset_type)
-    elif od.asset_type == "OPTION":
+def _build_order_from_validated_desc(
+    desc: OrderDesc,
+    default_session: str | None,
+    default_duration: str | None,
+) -> Any:
+    """Build an OrderBuilder from a validated order description."""
+    # Per-leg session and duration override the supplied defaults.
+    session = desc.session if desc.session is not None else default_session
+    duration = desc.duration if desc.duration is not None else default_duration
+
+    if desc.order_type == "TRAILING_STOP":
+        builder = _build_trailing_stop_from_desc(
+            desc,
+            desc.symbol,
+            desc.quantity,
+            desc.instruction,
+            desc.asset_type,
+        )
+    elif desc.asset_type == "OPTION":
         builder = _build_option_order_spec(
-            od.symbol,
-            od.quantity,
-            od.instruction,
-            od.order_type,
-            price=od.price,
+            desc.symbol,
+            desc.quantity,
+            desc.instruction,
+            desc.order_type,
+            price=desc.price,
         )
     else:
-        # Default: EQUITY
         builder = _build_equity_order_spec(
-            od.symbol,
-            od.quantity,
-            od.instruction,
-            od.order_type,
-            price=od.price,
-            stop_price=od.stop_price,
+            desc.symbol,
+            desc.quantity,
+            desc.instruction,
+            desc.order_type,
+            price=desc.price,
+            stop_price=desc.stop_price,
         )
 
     builder = _apply_order_settings(builder, session, duration)
@@ -510,6 +549,31 @@ def _order_response_handler(ctx: SchwabContext, account_hash: str) -> ResponseHa
         return True, payload
 
     return handler
+
+
+async def _post_write_order_result(
+    ctx: SchwabContext,
+    account_hash: str,
+    write_result: JSONType,
+    fallback_note: str,
+) -> JSONType:
+    """Fetch compact status after a successful write, retaining its response fallback."""
+    order_id = write_result.get("orderId") if isinstance(write_result, dict) else None
+    if order_id is None:
+        return write_result
+    normalized_order_id = str(order_id)
+    fallback: JSONType = {
+        "orderId": normalized_order_id,
+        "accountHash": account_hash,
+        "note": fallback_note,
+    }
+    try:
+        result = await call(ctx.orders.get_order, order_id=normalized_order_id, account_hash=account_hash)
+    except (SchwabAPIError, ValueError):
+        return fallback
+    if not isinstance(result, dict):
+        return fallback
+    return _prune_order(result)
 
 
 # ---------------------------------------------------------------------------
@@ -546,6 +610,43 @@ def _prepare_option_order(
     builder = _build_option_order_spec(symbol, quantity, instruction, order_type, price)
     builder = _apply_order_settings(builder, session, duration)
     return cast(dict[str, Any], builder.build())
+
+
+def _validate_replacement_fields(replacement_order: dict[str, Any], desc: OrderDesc) -> None:
+    """Reject order fields that the selected replacement builder would ignore."""
+    allowed_fields = _REPLACEMENT_ALLOWED_FIELDS.get(
+        (desc.asset_type, desc.order_type),
+        _REPLACEMENT_OPTIONAL_FIELDS,
+    )
+    supplied_fields = frozenset(replacement_order).intersection(_REPLACEMENT_OPTIONAL_FIELDS)
+    incompatible_fields = sorted(supplied_fields - allowed_fields)
+    if incompatible_fields:
+        fields = ", ".join(incompatible_fields)
+        raise ValueError(f"replacement_order fields incompatible with {desc.asset_type} {desc.order_type}: {fields}")
+
+
+def _prepare_replacement_order(replacement_order: dict[str, Any]) -> tuple[dict[str, Any], OrderDesc]:
+    """Validate and build a complete single-order replacement description."""
+    allowed_fields = {
+        "symbol",
+        "quantity",
+        "instruction",
+        "order_type",
+        "price",
+        "stop_price",
+        "trail_offset",
+        "trail_type",
+        "asset_type",
+        "session",
+        "duration",
+    }
+    unsupported = sorted(set(replacement_order) - allowed_fields)
+    if unsupported:
+        raise ValueError(f"replacement_order has unsupported field(s): {', '.join(unsupported)}")
+    desc = OrderDesc.from_dict(replacement_order)
+    _validate_replacement_fields(replacement_order, desc)
+    builder = _build_order_from_validated_desc(desc, "NORMAL", "DAY")
+    return cast(dict[str, Any], builder.build()), desc
 
 
 def _prepare_trailing_stop_order(
@@ -713,12 +814,26 @@ async def _finalize_preview(
 ) -> dict[str, Any]:
     """Preview an order and cache its successful result."""
     preview = await call(ctx.orders.preview_order, account_hash=account_hash, order_spec=order_spec)
-    preview_id = ctx.previews.put(account_hash, order_spec, tool_name, summary)
+    preview_id = ctx.previews.put(
+        account_hash,
+        order_spec,
+        tool_name,
+        summary,
+        operation=PreviewOperation.PLACE_ORDER,
+    )
     return {
         "preview_id": preview_id,
         "preview": preview,
         "action": _preview_action(account_hash, preview_id),
     }
+
+
+def _replacement_preview_action(account_hash: str, preview_id: str) -> str:
+    """Describe how to execute a replacement preview after review."""
+    return (
+        f"Call replace_previewed_order(account_hash='{account_hash}', "
+        f"preview_id='{preview_id}') to replace the bound order."
+    )
 
 
 async def get_order(
@@ -1207,6 +1322,45 @@ async def preview_option_combo_order(
     return await _finalize_preview(ctx, account_hash, order_spec_dict, "preview_option_combo_order", summary)
 
 
+async def preview_replacement_order(
+    ctx: SchwabContext,
+    account_hash: Annotated[str, "Account hash for the Schwab account"],
+    order_id: Annotated[str, "Existing pending order ID to replace"],
+    replacement_order: Annotated[
+        _OrderDescInput,
+        "Complete single replacement order description. Required: symbol, quantity, instruction, order_type. "
+        "Optional: price, stop_price, trail_offset, trail_type, asset_type, session, duration. "
+        "Only one equity, option, or equity trailing-stop order is supported; composites are not supported.",
+    ],
+) -> JSONType:
+    """Preview a replacement for one existing order without writing it.
+
+    The replacement description is validated and built through the same typed
+    order builders used by other order tools. The returned preview_id is bound
+    to both the account and target order and can only be executed by
+    replace_previewed_order.
+    """
+    normalized_order_id = order_id.strip()
+    if not normalized_order_id:
+        raise ValueError("order_id must not be empty")
+    order_spec, desc = _prepare_replacement_order(cast(dict[str, Any], replacement_order))
+    preview = await call(ctx.orders.preview_order, account_hash=account_hash, order_spec=order_spec)
+    preview_id = ctx.previews.put(
+        account_hash,
+        order_spec,
+        "preview_replacement_order",
+        _order_summary_from_desc(desc),
+        operation=PreviewOperation.REPLACE_ORDER,
+        target_order_id=normalized_order_id,
+    )
+    return {
+        "preview_id": preview_id,
+        "preview": preview,
+        "action": _replacement_preview_action(account_hash, preview_id),
+        "target_order_id": normalized_order_id,
+    }
+
+
 async def place_previewed_order(
     ctx: SchwabContext,
     account_hash: Annotated[str, "Account hash for the Schwab account"],
@@ -1221,7 +1375,7 @@ async def place_previewed_order(
     {orderId, accountHash, note} payload if the post-placement status fetch
     fails or returns no data. *Write operation.*
     """
-    entry = ctx.previews.pop(preview_id, account_hash)
+    entry = ctx.previews.pop(preview_id, account_hash, operation=PreviewOperation.PLACE_ORDER)
 
     request = ApprovalRequest(
         id=str(uuid.uuid4()),
@@ -1244,27 +1398,65 @@ async def place_previewed_order(
             order_spec=entry.order_spec,
             response_handler=_order_response_handler(ctx, account_hash),
         )
-        order_id = placed.get("orderId") if isinstance(placed, dict) else None
-        if order_id is None:
-            return placed
-        order_id = str(order_id)
-        fallback: JSONType = {
-            "orderId": order_id,
-            "accountHash": account_hash,
-            "note": "Order placed; status fetch failed",
-        }
-        try:
-            result = await call(ctx.orders.get_order, order_id=order_id, account_hash=account_hash)
-        except (SchwabAPIError, ValueError):
-            return fallback
-        if not isinstance(result, dict):
-            return fallback
-        return _prune_order(result)
+        return await _post_write_order_result(ctx, account_hash, placed, "Order placed; status fetch failed")
 
     message = (
         "Order placement denied by reviewer."
         if decision is ApprovalDecision.DENIED
         else "Approval request for order placement expired."
+    )
+    logger.warning(message)
+    if decision is ApprovalDecision.DENIED:
+        raise PermissionError(message)
+    raise TimeoutError(message)
+
+
+async def replace_previewed_order(
+    ctx: SchwabContext,
+    account_hash: Annotated[str, "Account hash for the Schwab account"],
+    preview_id: Annotated[str, "Replacement preview ID returned by preview_replacement_order"],
+) -> JSONType:
+    """Replace the exact order bound to a reviewed replacement preview.
+
+    The replacement preview expires after 10 minutes and is single-use.
+    Approval is requested only after the account, operation, and target order
+    binding have been validated.
+    """
+    entry = ctx.previews.pop(preview_id, account_hash, operation=PreviewOperation.REPLACE_ORDER)
+    target_order_id = entry.target_order_id.strip() if entry.target_order_id is not None else None
+    if not target_order_id:
+        raise ValueError("Replacement preview is missing its target order id.")
+
+    request = ApprovalRequest(
+        id=str(uuid.uuid4()),
+        tool_name="replace_previewed_order",
+        request_id=ctx.request_id,
+        client_id=ctx.client_id,
+        arguments={
+            "original_tool": entry.tool_name,
+            "order_summary": entry.summary,
+            "preview_id": preview_id,
+            "account_hash": account_hash,
+            "target_order_id": target_order_id,
+            "order_id": target_order_id,
+        },
+    )
+
+    decision = await run_approval(ctx, request)
+    if decision is ApprovalDecision.APPROVED:
+        replaced = await call(
+            ctx.orders.replace_order,
+            account_hash=account_hash,
+            order_id=target_order_id,
+            order_spec=entry.order_spec,
+            response_handler=_order_response_handler(ctx, account_hash),
+        )
+        return await _post_write_order_result(ctx, account_hash, replaced, "Order replaced; status fetch failed")
+
+    message = (
+        "Order replacement denied by reviewer."
+        if decision is ApprovalDecision.DENIED
+        else "Approval request for order replacement expired."
     )
     logger.warning(message)
     if decision is ApprovalDecision.DENIED:
@@ -1283,6 +1475,7 @@ _READ_ONLY_TOOLS = (
     preview_trigger_order,
     preview_bracket_order,
     preview_option_combo_order,
+    preview_replacement_order,
 )
 
 _WRITE_TOOLS = (cancel_order,)  # keeps automatic argument-dump approval
@@ -1310,6 +1503,13 @@ def register(
     register_tool(
         server,
         place_previewed_order,
+        write=False,
+        annotations=ToolAnnotations(read_only_hint=False, destructive_hint=True),
+        result_transform=result_transform,
+    )
+    register_tool(
+        server,
+        replace_previewed_order,
         write=False,
         annotations=ToolAnnotations(read_only_hint=False, destructive_hint=True),
         result_transform=result_transform,

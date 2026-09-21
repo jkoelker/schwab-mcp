@@ -48,11 +48,13 @@ compact defaults with `verbose=True` escape hatches where response size matters.
    returning to the MCP caller. Compact mode is the default for high-volume
    accounts, quotes, options, and orders.
 6. Order preview tools build an exact order spec, submit Schwab `preview_order`,
-   cache the spec in `ctx.previews`, and return `preview_id` plus reviewer/user
-   action text. `place_previewed_order()` consumes that cached spec, creates a
-   custom approval request with a human-readable summary, places the exact order,
-   and returns compact post-placement order status. `cancel_order()` uses the
-   generic write-tool approval wrapper.
+    cache the spec in `ctx.previews`, and return `preview_id` plus reviewer/user
+    action text. `place_previewed_order()` consumes only PLACE_ORDER entries,
+    while `preview_replacement_order()` caches a typed single-leg replacement
+    bound to an existing order and `replace_previewed_order()` consumes only
+    REPLACE_ORDER entries. Both custom executors request approval with a
+    human-readable summary and return compact post-write order status.
+    `cancel_order()` uses the generic write-tool approval wrapper.
 
 ## Integration
 

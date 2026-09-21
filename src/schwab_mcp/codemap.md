@@ -13,7 +13,7 @@
 - `server.py`: FastMCP adapter. `SchwabMCPServer` constructs `FastMCP`, installs `_client_lifespan()`, registers tools/resources, and chooses a result transform: Toon-encoded stripped payloads by default or stripped JSON when `use_json=True`. `send_error_response()` emits JSON-RPC 2.0 errors to stdout before the MCP server is initialized.
 - `context.py`: typed dependency container. `SchwabServerContext` stores the raw `AsyncClient`, `ApprovalManager`, `PreviewStore`, and typed client facades cast from `schwab_mcp.tools._protocols`. `SchwabContext` subclasses FastMCP `Context` and exposes safe properties for tools.
 - `resources.py`: static MCP reference resource registry for order statuses, order types/workflows, option symbol formats, and trading sessions. `register_resources()` binds them to `schwab://reference/...` URIs.
-- `previews.py`: TTL cache for the two-step order workflow. `PreviewStore.put()` deep-copies an order spec and returns a cryptographically random 16-character hex ID; `pop()` validates expiry and account hash, deletes on use, and returns the stored `PreviewEntry`.
+- `previews.py`: TTL cache for the two-step order workflow. `PreviewStore.put()` deep-copies an order spec and returns a cryptographically random 16-character hex ID; entries carry an explicit PLACE_ORDER or REPLACE_ORDER operation and optional target order binding. `pop()` validates expiry, account hash, and operation before deleting on use.
 
 Key architectural patterns are lifespan-scoped dependency injection, protocol-based facades over the Schwab client, command-line dependency assembly, explicit pre-server error reporting, result transformation at registration time, and preview-then-place order safety.
 
@@ -25,7 +25,7 @@ Key architectural patterns are lifespan-scoped dependency injection, protocol-ba
 4. The server command selects write permissions: `--jesus-take-the-wheel` uses `NoOpApprovalManager` and enables writes; Discord configuration creates `DiscordApprovalManager`; otherwise writes are disabled and a no-op manager is still used for lifecycle consistency.
 5. `SchwabMCPServer.__init__()` creates `FastMCP` with `_client_lifespan()`, registers all tools via `tools.register_tools()` with write/technical/result-transform flags, then registers resources via `resources.register_resources()`.
 6. On FastMCP startup, `_client_lifespan()` starts the approval manager and yields `SchwabServerContext`. Tool registration wrappers in `schwab_mcp.tools._registration` convert generic MCP contexts to `SchwabContext`, apply approval gating for write tools, and apply the configured result transform.
-7. During tool execution, code accesses Schwab APIs through `ctx.accounts`, `ctx.orders`, `ctx.quotes`, `ctx.options`, `ctx.price_history`, `ctx.transactions`, or `ctx.tools`; order placement tools use `ctx.previews` for preview IDs and exact-spec execution.
+7. During tool execution, code accesses Schwab APIs through `ctx.accounts`, `ctx.orders`, `ctx.quotes`, `ctx.options`, `ctx.price_history`, `ctx.transactions`, or `ctx.tools`; order placement and replacement tools use operation-bound `ctx.previews` entries for exact-spec execution.
 8. On shutdown, `_client_lifespan()` stops the approval manager. The process-scoped Schwab `AsyncClient` is not closed here: streamable-HTTP may tear down lifespan per MCP session, and closing the shared client would break subsequent sessions.
 
 ## Integration
