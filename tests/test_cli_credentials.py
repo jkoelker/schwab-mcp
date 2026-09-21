@@ -1,52 +1,27 @@
 from __future__ import annotations
 
 import os
-from typing import Any
 
 import yaml
-from click.testing import CliRunner
 
 from schwab_mcp import cli
 
 
-class FakeAsyncClient:
-    def token_age(self) -> int:
-        return 0
-
-    async def close_async_session(self) -> None:
-        return None
-
-
-def _patch_auth(monkeypatch, captured: dict[str, Any]) -> None:
-    class DummyManager:
-        def __init__(self, path: str) -> None:
-            self.path = path
-
-    def fake_easy_client(**kwargs):
-        captured["easy_client_kwargs"] = kwargs
-        return object()
-
-    monkeypatch.setattr(cli.tokens, "Manager", DummyManager)
-    monkeypatch.setattr(cli.schwab_auth, "easy_client", fake_easy_client)
-
-
 class TestAuthCredentialsFile:
-    def test_falls_back_to_credentials_file(self, monkeypatch, tmp_path):
-        captured: dict[str, Any] = {}
-        _patch_auth(monkeypatch, captured)
+    def test_falls_back_to_credentials_file(
+        self,
+        cli_auth_capture,
+        cli_credentials_writer,
+        cli_runner,
+        cli_credentials_file,
+    ):
+        """Use credentials loaded from the configured credentials file."""
+        captured = cli_auth_capture
+        cli_credentials_writer("file-id", "file-secret")
 
-        creds_path = tmp_path / "credentials.yaml"
-        with open(creds_path, "w") as f:
-            yaml.safe_dump({"client_id": "file-id", "client_secret": "file-secret"}, f)
-
-        monkeypatch.setattr(cli.tokens, "credentials_path", lambda app: str(creds_path))
-        monkeypatch.delenv("SCHWAB_CLIENT_ID", raising=False)
-        monkeypatch.delenv("SCHWAB_CLIENT_SECRET", raising=False)
-
-        runner = CliRunner()
-        result = runner.invoke(
+        result = cli_runner.invoke(
             cli.cli,
-            ["auth", "--token-path", str(tmp_path / "token.yaml")],
+            ["auth", "--token-path", str(cli_credentials_file.with_name("token.yaml"))],
             catch_exceptions=False,
         )
 
@@ -54,25 +29,23 @@ class TestAuthCredentialsFile:
         assert captured["easy_client_kwargs"]["client_id"] == "file-id"
         assert captured["easy_client_kwargs"]["client_secret"] == "file-secret"
 
-    def test_cli_args_override_credentials_file(self, monkeypatch, tmp_path):
-        captured: dict[str, Any] = {}
-        _patch_auth(monkeypatch, captured)
+    def test_cli_args_override_credentials_file(
+        self,
+        cli_auth_capture,
+        cli_credentials_writer,
+        cli_runner,
+        cli_credentials_file,
+    ):
+        """Prefer explicit CLI credentials over values from the credentials file."""
+        captured = cli_auth_capture
+        cli_credentials_writer("file-id", "file-secret")
 
-        creds_path = tmp_path / "credentials.yaml"
-        with open(creds_path, "w") as f:
-            yaml.safe_dump({"client_id": "file-id", "client_secret": "file-secret"}, f)
-
-        monkeypatch.setattr(cli.tokens, "credentials_path", lambda app: str(creds_path))
-        monkeypatch.delenv("SCHWAB_CLIENT_ID", raising=False)
-        monkeypatch.delenv("SCHWAB_CLIENT_SECRET", raising=False)
-
-        runner = CliRunner()
-        result = runner.invoke(
+        result = cli_runner.invoke(
             cli.cli,
             [
                 "auth",
                 "--token-path",
-                str(tmp_path / "token.yaml"),
+                str(cli_credentials_file.with_name("token.yaml")),
                 "--client-id",
                 "cli-id",
                 "--client-secret",
@@ -85,57 +58,39 @@ class TestAuthCredentialsFile:
         assert captured["easy_client_kwargs"]["client_id"] == "cli-id"
         assert captured["easy_client_kwargs"]["client_secret"] == "cli-secret"
 
-    def test_errors_when_no_credentials_available(self, monkeypatch, tmp_path):
-        _patch_auth(monkeypatch, {})
-
-        creds_path = tmp_path / "nonexistent.yaml"
-        monkeypatch.setattr(cli.tokens, "credentials_path", lambda app: str(creds_path))
-        monkeypatch.delenv("SCHWAB_CLIENT_ID", raising=False)
-        monkeypatch.delenv("SCHWAB_CLIENT_SECRET", raising=False)
-
-        runner = CliRunner()
-        result = runner.invoke(cli.cli, ["auth", "--token-path", str(tmp_path / "t.yaml")])
+    def test_errors_when_no_credentials_available(
+        self,
+        cli_runner,
+        cli_credentials_file,
+    ):
+        """Reject authentication when neither CLI nor file credentials exist."""
+        result = cli_runner.invoke(
+            cli.cli,
+            ["auth", "--token-path", str(cli_credentials_file.with_name("t.yaml"))],
+        )
 
         assert result.exit_code == 1
         assert "client-id and client-secret are required" in result.output
 
 
 class TestServerCredentialsFile:
-    def _patch_server(self, monkeypatch, captured: dict[str, Any]) -> None:
-        monkeypatch.setattr(cli, "AsyncClient", FakeAsyncClient)
+    def test_falls_back_to_credentials_file(
+        self,
+        cli_server_capture,
+        cli_credentials_writer,
+        cli_runner,
+        cli_credentials_file,
+    ):
+        """Use credentials loaded from the configured credentials file."""
+        captured = cli_server_capture
+        cli_credentials_writer("file-id", "file-secret")
 
-        def fake_easy_client(**kwargs):
-            captured["easy_client_kwargs"] = kwargs
-            return FakeAsyncClient()
-
-        monkeypatch.setattr(cli.tokens, "Manager", lambda p: type("M", (), {"path": p})())
-        monkeypatch.setattr(cli.schwab_auth, "easy_client", fake_easy_client)
-        monkeypatch.setattr(
-            cli,
-            "SchwabMCPServer",
-            lambda *a, **kw: type("S", (), {"run": staticmethod(lambda: None)})(),
-        )
-        monkeypatch.setattr(cli.anyio, "run", lambda func, *args, **kw: None)
-
-    def test_falls_back_to_credentials_file(self, monkeypatch, tmp_path):
-        captured: dict[str, Any] = {}
-        self._patch_server(monkeypatch, captured)
-
-        creds_path = tmp_path / "credentials.yaml"
-        with open(creds_path, "w") as f:
-            yaml.safe_dump({"client_id": "file-id", "client_secret": "file-secret"}, f)
-
-        monkeypatch.setattr(cli.tokens, "credentials_path", lambda app: str(creds_path))
-        monkeypatch.delenv("SCHWAB_CLIENT_ID", raising=False)
-        monkeypatch.delenv("SCHWAB_CLIENT_SECRET", raising=False)
-
-        runner = CliRunner()
-        result = runner.invoke(
+        result = cli_runner.invoke(
             cli.cli,
             [
                 "server",
                 "--token-path",
-                str(tmp_path / "token.yaml"),
+                str(cli_credentials_file.with_name("token.yaml")),
                 "--jesus-take-the-wheel",
             ],
             catch_exceptions=False,
@@ -145,25 +100,23 @@ class TestServerCredentialsFile:
         assert captured["easy_client_kwargs"]["client_id"] == "file-id"
         assert captured["easy_client_kwargs"]["client_secret"] == "file-secret"
 
-    def test_cli_args_override_credentials_file(self, monkeypatch, tmp_path):
-        captured: dict[str, Any] = {}
-        self._patch_server(monkeypatch, captured)
+    def test_cli_args_override_credentials_file(
+        self,
+        cli_server_capture,
+        cli_credentials_writer,
+        cli_runner,
+        cli_credentials_file,
+    ):
+        """Prefer explicit CLI credentials over values from the credentials file."""
+        captured = cli_server_capture
+        cli_credentials_writer("file-id", "file-secret")
 
-        creds_path = tmp_path / "credentials.yaml"
-        with open(creds_path, "w") as f:
-            yaml.safe_dump({"client_id": "file-id", "client_secret": "file-secret"}, f)
-
-        monkeypatch.setattr(cli.tokens, "credentials_path", lambda app: str(creds_path))
-        monkeypatch.delenv("SCHWAB_CLIENT_ID", raising=False)
-        monkeypatch.delenv("SCHWAB_CLIENT_SECRET", raising=False)
-
-        runner = CliRunner()
-        result = runner.invoke(
+        result = cli_runner.invoke(
             cli.cli,
             [
                 "server",
                 "--token-path",
-                str(tmp_path / "token.yaml"),
+                str(cli_credentials_file.with_name("token.yaml")),
                 "--client-id",
                 "cli-id",
                 "--client-secret",
@@ -177,28 +130,28 @@ class TestServerCredentialsFile:
         assert captured["easy_client_kwargs"]["client_id"] == "cli-id"
         assert captured["easy_client_kwargs"]["client_secret"] == "cli-secret"
 
-    def test_errors_when_no_credentials_available(self, monkeypatch, tmp_path):
-        captured: dict[str, Any] = {}
-        self._patch_server(monkeypatch, captured)
-
-        creds_path = tmp_path / "nonexistent.yaml"
-        monkeypatch.setattr(cli.tokens, "credentials_path", lambda app: str(creds_path))
-        monkeypatch.delenv("SCHWAB_CLIENT_ID", raising=False)
-        monkeypatch.delenv("SCHWAB_CLIENT_SECRET", raising=False)
-
-        runner = CliRunner()
-        result = runner.invoke(cli.cli, ["server", "--token-path", str(tmp_path / "t.yaml")])
+    def test_errors_when_no_credentials_available(
+        self,
+        cli_server_capture,
+        cli_runner,
+        cli_credentials_file,
+    ):
+        """Reject server startup before attempting client authentication."""
+        captured = cli_server_capture
+        result = cli_runner.invoke(
+            cli.cli,
+            ["server", "--token-path", str(cli_credentials_file.with_name("t.yaml"))],
+        )
 
         assert result.exit_code == 1
+        assert "client-id and client-secret are required" in result.output
+        assert "easy_client_called" not in captured
 
 
 class TestSaveCredentialsCommand:
-    def test_saves_credentials_with_prompts(self, monkeypatch, tmp_path):
-        creds_path = tmp_path / "credentials.yaml"
-        monkeypatch.setattr(cli.tokens, "credentials_path", lambda app: str(creds_path))
-
-        runner = CliRunner()
-        result = runner.invoke(
+    def test_saves_credentials_with_prompts(self, cli_credentials_file, cli_runner):
+        """Save credentials supplied through interactive prompts."""
+        result = cli_runner.invoke(
             cli.cli,
             ["save-credentials"],
             input="my-client-id\nmy-client-secret\n",
@@ -208,20 +161,17 @@ class TestSaveCredentialsCommand:
         assert result.exit_code == 0
         assert "Credentials saved to:" in result.output
 
-        with open(creds_path) as f:
-            data = yaml.safe_load(f)
+        with cli_credentials_file.open() as credentials:
+            data = yaml.safe_load(credentials)
 
         assert data == {
             "client_id": "my-client-id",
             "client_secret": "my-client-secret",
         }
 
-    def test_saves_credentials_with_flags(self, monkeypatch, tmp_path):
-        creds_path = tmp_path / "credentials.yaml"
-        monkeypatch.setattr(cli.tokens, "credentials_path", lambda app: str(creds_path))
-
-        runner = CliRunner()
-        result = runner.invoke(
+    def test_saves_credentials_with_flags(self, cli_credentials_file, cli_runner):
+        """Save credentials supplied through command-line flags."""
+        result = cli_runner.invoke(
             cli.cli,
             [
                 "save-credentials",
@@ -235,21 +185,18 @@ class TestSaveCredentialsCommand:
 
         assert result.exit_code == 0
 
-        with open(creds_path) as f:
-            data = yaml.safe_load(f)
+        with cli_credentials_file.open() as credentials:
+            data = yaml.safe_load(credentials)
 
         assert data == {"client_id": "flag-id", "client_secret": "flag-secret"}
 
-    def test_file_has_restricted_permissions(self, monkeypatch, tmp_path):
-        creds_path = tmp_path / "credentials.yaml"
-        monkeypatch.setattr(cli.tokens, "credentials_path", lambda app: str(creds_path))
-
-        runner = CliRunner()
-        runner.invoke(
+    def test_file_has_restricted_permissions(self, cli_credentials_file, cli_runner):
+        """Create the credentials file with owner-only permissions."""
+        cli_runner.invoke(
             cli.cli,
             ["save-credentials", "--client-id", "id", "--client-secret", "secret"],
             catch_exceptions=False,
         )
 
-        mode = os.stat(creds_path).st_mode & 0o777
+        mode = os.stat(cli_credentials_file).st_mode & 0o777
         assert mode == 0o600

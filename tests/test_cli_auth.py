@@ -2,29 +2,14 @@ from __future__ import annotations
 
 from typing import Any
 
-from click.testing import CliRunner
-
 from schwab_mcp import cli
 
 
-def test_auth_command_uses_max_token_age(monkeypatch, tmp_path):
-    captured: dict[str, Any] = {}
-
-    class DummyManager:
-        def __init__(self, path: str) -> None:
-            self.path = path
-            captured["token_path"] = path
-
-    def fake_easy_client(**kwargs):
-        captured["easy_client_kwargs"] = kwargs
-        return object()
-
-    monkeypatch.setattr(cli.tokens, "Manager", DummyManager)
-    monkeypatch.setattr(cli.schwab_auth, "easy_client", fake_easy_client)
-
-    runner = CliRunner()
+def test_auth_command_uses_max_token_age(cli_auth_capture, cli_runner, tmp_path):
+    """Pass the configured maximum token age to the authentication client."""
+    captured: dict[str, Any] = cli_auth_capture
     token_file = tmp_path / "token.yaml"
-    result = runner.invoke(
+    result = cli_runner.invoke(
         cli.cli,
         [
             "auth",
@@ -43,22 +28,22 @@ def test_auth_command_uses_max_token_age(monkeypatch, tmp_path):
     assert captured["easy_client_kwargs"]["max_token_age"] == cli.TOKEN_MAX_AGE_SECONDS
 
 
-def test_auth_command_returns_error_on_exception(monkeypatch, tmp_path):
+def test_auth_command_returns_error_on_exception(
+    monkeypatch,
+    cli_auth_capture,
+    cli_runner,
+    tmp_path,
+):
     """When easy_client raises, the auth command prints an error but does not re-raise."""
 
-    class DummyManager:
-        def __init__(self, path: str) -> None:
-            self.path = path
-
-    def fake_easy_client(**kwargs):
+    def fake_easy_client(**kwargs: Any) -> object:
+        """Raise the authentication failure used by this test."""
         raise RuntimeError("network unavailable")
 
-    monkeypatch.setattr(cli.tokens, "Manager", DummyManager)
     monkeypatch.setattr(cli.schwab_auth, "easy_client", fake_easy_client)
 
-    runner = CliRunner()
     token_file = tmp_path / "token.yaml"
-    result = runner.invoke(
+    result = cli_runner.invoke(
         cli.cli,
         [
             "auth",
