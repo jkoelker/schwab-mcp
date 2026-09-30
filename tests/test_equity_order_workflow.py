@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from enum import Enum
 from typing import Any
 
 import httpx
@@ -58,11 +59,29 @@ ORDER_DETAILS = {
 class EquityOrdersClient:
     """Narrow Schwab API fake that returns real HTTPX responses."""
 
+    class Instrument:
+        Projection = Enum("Projection", {"SYMBOL_SEARCH": "symbol-search"})
+
     def __init__(self, events: list[str]) -> None:
         self.events = events
         self.preview_submissions: list[tuple[str, dict[str, Any]]] = []
         self.placed_submissions: list[tuple[str, dict[str, Any]]] = []
         self.status_lookups: list[tuple[str, str]] = []
+        self.instrument_lookups: list[str] = []
+
+    async def get_instruments(self, symbol: str, **kwargs: Any) -> httpx.Response:
+        """Serve the preview flow's assetType guard; every equity symbol resolves EQUITY."""
+        self.events.append("instrument_resolved")
+        self.instrument_lookups.append(symbol)
+        request = httpx.Request(
+            "GET",
+            f"https://api.schwabapi.com/marketdata/v1/instruments?symbol={symbol}",
+        )
+        return httpx.Response(
+            200,
+            json={"instruments": [{"symbol": symbol, "assetType": "EQUITY"}]},
+            request=request,
+        )
 
     async def preview_order(self, account_hash: str, order_spec: dict[str, Any]) -> httpx.Response:
         self.events.append("preview_submitted")
@@ -168,6 +187,7 @@ def test_approved_equity_preview_places_once_and_returns_order_status() -> None:
     assert client.placed_submissions == [(ACCOUNT_HASH, EXPECTED_ORDER_SPEC)]
     assert client.status_lookups == [(ORDER_ID, ACCOUNT_HASH)]
     assert events == [
+        "instrument_resolved",
         "preview_submitted",
         "approval_requested",
         "order_placed",
@@ -181,6 +201,7 @@ def test_approved_equity_preview_places_once_and_returns_order_status() -> None:
     assert len(approval_manager.requests) == 1
     assert client.placed_submissions == [(ACCOUNT_HASH, EXPECTED_ORDER_SPEC)]
     assert events == [
+        "instrument_resolved",
         "preview_submitted",
         "approval_requested",
         "order_placed",
@@ -200,7 +221,7 @@ def test_wrong_account_cannot_place_equity_preview_or_consume_it() -> None:
     assert client.placed_submissions == []
     assert client.status_lookups == []
     assert approval_manager.requests == []
-    assert events == ["preview_submitted"]
+    assert events == ["instrument_resolved", "preview_submitted"]
 
     result = run(orders.place_previewed_order(ctx, ACCOUNT_HASH, preview_id))
 
@@ -209,6 +230,7 @@ def test_wrong_account_cannot_place_equity_preview_or_consume_it() -> None:
     assert client.placed_submissions == [(ACCOUNT_HASH, EXPECTED_ORDER_SPEC)]
     assert client.status_lookups == [(ORDER_ID, ACCOUNT_HASH)]
     assert events == [
+        "instrument_resolved",
         "preview_submitted",
         "approval_requested",
         "order_placed",
@@ -256,11 +278,11 @@ def test_rejected_equity_preview_does_not_place_and_cannot_be_retried(
     assert_approval_request(approval_manager, preview_id)
     assert client.placed_submissions == []
     assert client.status_lookups == []
-    assert events == ["preview_submitted", "approval_requested"]
+    assert events == ["instrument_resolved", "preview_submitted", "approval_requested"]
 
     with pytest.raises(ValueError, match="not found or expired"):
         run(orders.place_previewed_order(ctx, ACCOUNT_HASH, preview_id))
 
     assert len(approval_manager.requests) == 1
     assert client.placed_submissions == []
-    assert events == ["preview_submitted", "approval_requested"]
+    assert events == ["instrument_resolved", "preview_submitted", "approval_requested"]
