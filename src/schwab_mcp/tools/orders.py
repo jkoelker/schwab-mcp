@@ -6,6 +6,7 @@ from collections.abc import Callable
 from dataclasses import dataclass
 from typing import Annotated, Any, cast
 
+import httpx
 from mcp.server.mcpserver import MCPServer
 from mcp.types import ToolAnnotations
 from schwab.orders.common import Duration, first_triggers_second as trigger_builder, one_cancels_other as oco_builder
@@ -227,17 +228,27 @@ async def _resolve_symbol_asset_type(client: ToolsClient, symbol: str) -> str | 
             symbol,
             projection=client.Instrument.Projection["SYMBOL_SEARCH"],
         )
-    except (SchwabAPIError, ValueError) as err:
+    except (SchwabAPIError, ValueError, httpx.TransportError) as err:
+        # TransportError covers timeouts and connection failures from the
+        # lookup request itself, which call() does not wrap. Without it, a
+        # slow market-data endpoint would fail equity previews that never
+        # depended on that endpoint before the guard existed.
         logger.warning("assetType pre-check skipped for %r: %s", symbol, err)
         return None
-    instruments = data.get("instruments") if isinstance(data, dict) else None
-    if not instruments or not isinstance(instruments, list):
-        return None
-    first = instruments[0]
-    if not isinstance(first, dict):
-        return None
-    asset_type = first.get("assetType")
-    return asset_type if isinstance(asset_type, str) else None
+    if isinstance(data, dict):
+        instruments = data.get("instruments")
+        if isinstance(instruments, list):
+            if not instruments:
+                # Symbol not found: a legitimate no-answer, not a malfunction,
+                # so fall through quietly and let Schwab validate.
+                return None
+            first = instruments[0]
+            if isinstance(first, dict):
+                asset_type = first.get("assetType")
+                if isinstance(asset_type, str):
+                    return asset_type
+    logger.warning("assetType pre-check skipped for %r: unexpected instruments payload", symbol)
+    return None
 
 
 async def _require_supported_asset_type(client: ToolsClient, symbol: str) -> None:
