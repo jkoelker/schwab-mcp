@@ -107,11 +107,7 @@ async def call(
         body = response.text
         if not body:
             raw = getattr(response, "content", b"")
-            body = (
-                raw.decode("utf-8", errors="replace")
-                if raw
-                else f"HTTP {response.status_code}"
-            )
+            body = raw.decode("utf-8", errors="replace") if raw else f"HTTP {response.status_code}"
         raise SchwabAPIError(
             status_code=response.status_code,
             url=response.url,
