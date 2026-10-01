@@ -47,9 +47,14 @@ compact defaults with `verbose=True` escape hatches where response size matters.
 5. Raw JSON is returned directly for simple endpoints or pruned/enriched before
    returning to the MCP caller. Compact mode is the default for high-volume
    accounts, quotes, options, and orders.
-6. Order preview tools build an exact order spec, submit Schwab `preview_order`,
-    cache the spec in `ctx.previews`, and return `preview_id` plus reviewer/user
-    action text. `place_previewed_order()` consumes only PLACE_ORDER entries,
+6. Order preview tools build an exact order spec, run the upfront assetType
+    guard (an instruments symbol-search lookup via `ctx.tools` that rejects
+    denylisted types such as MUTUAL_FUND and BOND before any order API call;
+    lookup failures log a warning and fall through to Schwab-side validation),
+    submit Schwab `preview_order`, cache the spec in `ctx.previews`, and return
+    `preview_id` plus reviewer/user action text. The guard lives in
+    `_finalize_preview` and in `preview_replacement_order`, so every preview
+    path shares it. `place_previewed_order()` consumes only PLACE_ORDER entries,
     while `preview_replacement_order()` caches a typed single-leg replacement
     bound to an existing order and `replace_previewed_order()` consumes only
     REPLACE_ORDER entries. Both custom executors request approval with a

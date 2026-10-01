@@ -21,6 +21,7 @@ from typing_extensions import TypedDict
 from schwab_mcp.approvals import ApprovalDecision, ApprovalRequest
 from schwab_mcp.context import SchwabContext
 from schwab_mcp.previews import PreviewOperation
+from schwab_mcp.tools._protocols import ToolsClient
 from schwab_mcp.tools._registration import register_tool, run_approval
 from schwab_mcp.tools.order_helpers import (
     equity_buy_limit,
@@ -167,7 +168,128 @@ _EQUITY_ORDER_TYPES = frozenset({"MARKET", "LIMIT", "STOP", "STOP_LIMIT"})
 _BRACKET_LOSS_TYPES = frozenset({"STOP", "STOP_LIMIT", "LIMIT"})
 _EQUITY_INSTRUCTIONS = frozenset({"BUY", "SELL"})
 
+# Asset types that Schwab's /orders endpoint is confirmed to reject when they
+# arrive as an equity-shaped leg. This is a denylist on purpose: anything NOT
+# listed here passes through for Schwab to validate, so unrecognized or future
+# assetTypes (UNKNOWN, EXTENDED, INDEX, ...) are never blocked by this client.
+# MUTUAL_FUND was verified empirically 2026-05-27 (bharat/schwab-mcp#29): the
+# API returns an opaque HTTP 500. BOND is the label the instruments
+# symbol-search endpoint uses for fixed income; FIXED_INCOME is the Trader
+# API's positions label for the same class, kept in case a spec is ever built
+# from position data. ETFs need no special-casing under this model: the order
+# endpoint accepts them like common stock (verified live 2026-07-07 with VTI).
+_EQUITY_UNORDERABLE_ASSET_TYPES = frozenset({"MUTUAL_FUND", "BOND", "FIXED_INCOME"})
+
+# Redirect hints appended to the rejection message, keyed by resolved type.
+_ASSET_TYPE_HINTS = {
+    "MUTUAL_FUND": " For mutual fund orders, use Schwab.com Trade > Mutual Funds.",
+    "BOND": " For fixed income orders, use Schwab.com Trade > Bonds.",
+    "FIXED_INCOME": " For fixed income orders, use Schwab.com Trade > Bonds.",
+}
+
 _TRAILING_STOP_LINK_TYPES = frozenset({"VALUE", "PERCENT"})
+
+
+class UnsupportedAssetTypeError(ValueError):
+    """Raised when an order symbol resolves to an assetType Schwab's order endpoint rejects.
+
+    Schwab's /trader/v1/.../orders endpoint accepts only EQUITY and OPTION as
+    assetType values on the order leg instrument (verified empirically against
+    the live API on 2026-05-27, see bharat/schwab-mcp#29). Sending an
+    equity-shaped payload for a mutual fund or bond returns a generic 500 from
+    the upstream API. This pre-check turns that into a clear, actionable error
+    surfaced at the MCP boundary. Only asset types confirmed to fail are
+    rejected; anything else passes through for Schwab to validate.
+    """
+
+    def __init__(self, *, symbol: str, resolved_type: str) -> None:
+        hint = _ASSET_TYPE_HINTS.get(resolved_type, "")
+        super().__init__(
+            f"Schwab's Trader API rejects {resolved_type} instruments on its order"
+            f" endpoints. The symbol {symbol!r} resolves to assetType"
+            f" {resolved_type}, which cannot be traded as an equity order leg.{hint}"
+        )
+        self.symbol = symbol
+        self.resolved_type = resolved_type
+
+
+async def _resolve_symbol_asset_type(client: ToolsClient, symbol: str) -> str | None:
+    """Look up a symbol's assetType via the Schwab instruments endpoint.
+
+    Returns None when the lookup cannot answer (API error, malformed
+    response), so the caller falls back to letting the upstream API validate.
+    The fallback is logged at WARNING: a guard that silently stops guarding
+    would otherwise be indistinguishable from one that is working.
+    """
+    try:
+        data = await call(
+            client.get_instruments,
+            symbol,
+            projection=client.Instrument.Projection["SYMBOL_SEARCH"],
+        )
+    except (SchwabAPIError, ValueError) as err:
+        logger.warning("assetType pre-check skipped for %r: %s", symbol, err)
+        return None
+    instruments = data.get("instruments") if isinstance(data, dict) else None
+    if not instruments or not isinstance(instruments, list):
+        return None
+    first = instruments[0]
+    if not isinstance(first, dict):
+        return None
+    asset_type = first.get("assetType")
+    return asset_type if isinstance(asset_type, str) else None
+
+
+async def _require_supported_asset_type(client: ToolsClient, symbol: str) -> None:
+    """Reject an order upfront if the symbol resolves to an unorderable assetType.
+
+    If the lookup cannot determine the assetType, the check passes (with a
+    logged warning from the resolver) and the upstream API validates as it
+    would without the guard. Only raises when the lookup succeeds AND the
+    resolved type is confirmed unorderable.
+    """
+    resolved = await _resolve_symbol_asset_type(client, symbol)
+    if resolved is not None and resolved in _EQUITY_UNORDERABLE_ASSET_TYPES:
+        raise UnsupportedAssetTypeError(symbol=symbol, resolved_type=resolved)
+
+
+def _equity_leg_symbols(order_spec: dict[str, Any]) -> list[str]:
+    """Collect the distinct EQUITY-leg symbols from a built order spec.
+
+    Walks orderLegCollection (instrument assetType EQUITY only; OPTION legs
+    are never subject to the guard) and recurses into childOrderStrategies so
+    composite specs (OCO/trigger/bracket) are fully covered.
+    """
+    symbols: list[str] = []
+    legs = order_spec.get("orderLegCollection")
+    if isinstance(legs, list):
+        for leg in legs:
+            if not isinstance(leg, dict):
+                continue
+            instrument = leg.get("instrument")
+            if not isinstance(instrument, dict):
+                continue
+            symbol = instrument.get("symbol")
+            if instrument.get("assetType") == "EQUITY" and isinstance(symbol, str):
+                symbols.append(symbol)
+    children = order_spec.get("childOrderStrategies")
+    if isinstance(children, list):
+        for child in children:
+            if isinstance(child, dict):
+                symbols.extend(_equity_leg_symbols(child))
+    # De-duplicate preserving order so each symbol is looked up at most once.
+    return list(dict.fromkeys(symbols))
+
+
+async def _require_spec_supported_asset_types(client: ToolsClient, order_spec: dict[str, Any]) -> None:
+    """Apply the upfront assetType guard to every EQUITY leg in a built spec.
+
+    Called from _finalize_preview and preview_replacement_order so every
+    preview path fails fast, before Schwab's previewOrder is invoked. Specs
+    without EQUITY legs (pure option orders) make no lookup at all.
+    """
+    for symbol in _equity_leg_symbols(order_spec):
+        await _require_supported_asset_type(client, symbol)
 
 
 def _format_order_price(price: float) -> str:
@@ -812,7 +934,13 @@ async def _finalize_preview(
     tool_name: str,
     summary: str,
 ) -> dict[str, Any]:
-    """Preview an order and cache its successful result."""
+    """Preview an order and cache its successful result.
+
+    Applies the upfront assetType guard before Schwab's previewOrder is
+    invoked, so every preview tool (current and future) is covered by the
+    single call here.
+    """
+    await _require_spec_supported_asset_types(ctx.tools, order_spec)
     preview = await call(ctx.orders.preview_order, account_hash=account_hash, order_spec=order_spec)
     preview_id = ctx.previews.put(
         account_hash,
@@ -1344,6 +1472,7 @@ async def preview_replacement_order(
     if not normalized_order_id:
         raise ValueError("order_id must not be empty")
     order_spec, desc = _prepare_replacement_order(cast(dict[str, Any], replacement_order))
+    await _require_spec_supported_asset_types(ctx.tools, order_spec)
     preview = await call(ctx.orders.preview_order, account_hash=account_hash, order_spec=order_spec)
     preview_id = ctx.previews.put(
         account_hash,
