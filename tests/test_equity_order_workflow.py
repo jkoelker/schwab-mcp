@@ -169,6 +169,7 @@ def test_approved_equity_preview_places_once_and_returns_order_status() -> None:
         "to execute this exact order."
     )
     assert client.preview_submissions == [(ACCOUNT_HASH, EXPECTED_ORDER_SPEC)]
+    assert client.instrument_lookups == [SYMBOL]
 
     result = run(orders.place_previewed_order(ctx, ACCOUNT_HASH, preview_id))
 
@@ -271,6 +272,7 @@ def test_rejected_equity_preview_does_not_place_and_cannot_be_retried(
         f"Call place_previewed_order(account_hash='{ACCOUNT_HASH}', preview_id='{preview_id}')"
     )
     assert client.preview_submissions == [(ACCOUNT_HASH, EXPECTED_ORDER_SPEC)]
+    assert client.instrument_lookups == [SYMBOL]
 
     with pytest.raises(error, match=message):
         run(orders.place_previewed_order(ctx, ACCOUNT_HASH, preview_id))

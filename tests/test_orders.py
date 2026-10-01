@@ -3,6 +3,7 @@ from enum import Enum
 from typing import Any, cast
 from unittest.mock import AsyncMock
 
+import httpx
 import pytest
 from conftest import make_ctx, run
 from mcp.server.mcpserver import MCPServer
@@ -2226,7 +2227,7 @@ class DummyInstrumentsResponse:
         instruments: list[dict[str, Any]] = []
         if asset_type is not None:
             instruments.append({"symbol": symbol, "assetType": asset_type})
-        self._payload = {"instruments": instruments}
+        self._payload: Any = {"instruments": instruments}
         self.headers: dict[str, str] = {}
         # call() treats an empty body as a no-content response and returns
         # None, so the mock must advertise a non-empty body for json() to run.
@@ -2263,8 +2264,10 @@ class DummyGuardedPreviewClient(DummyPreviewClient):
     """Preview client with a get_instruments stub that drives the assetType guard.
 
     Set ``asset_type_override`` to control what the instruments symbol-search
-    lookup resolves to; ``"fail"`` simulates an API error during the lookup
-    and ``None`` simulates an empty instruments list. Every lookup is recorded
+    lookup resolves to; ``"fail"`` simulates an API error during the lookup,
+    ``"timeout"`` simulates a transport-level failure of the request itself,
+    ``"malformed"`` returns a payload whose first entry is not an object, and
+    ``None`` simulates an empty instruments list. Every lookup is recorded
     in ``instrument_requests`` so tests can assert the guard genuinely ran
     (or genuinely did not) rather than passing vacuously.
     """
@@ -2278,6 +2281,12 @@ class DummyGuardedPreviewClient(DummyPreviewClient):
         self.instrument_requests.append({"symbol": symbol, **kwargs})
         if self.asset_type_override == "fail":
             return FailingInstrumentsResponse()
+        if self.asset_type_override == "timeout":
+            raise httpx.ReadTimeout("simulated instruments timeout")
+        if self.asset_type_override == "malformed":
+            response = DummyInstrumentsResponse(symbol=symbol)
+            response._payload = {"instruments": ["junk"]}
+            return response
         return DummyInstrumentsResponse(symbol=symbol, asset_type=self.asset_type_override)
 
 
@@ -2438,16 +2447,56 @@ class TestAssetTypeGuard:
         assert len(client.instrument_requests) == 1
         assert any("assetType pre-check skipped" in record.getMessage() for record in caplog.records)
 
-    def test_preview_passes_through_when_lookup_returns_no_instruments(self, monkeypatch, account_hash):
-        """An empty `instruments` list is also treated as a non-result."""
+    def test_preview_passes_through_when_lookup_times_out(self, monkeypatch, caplog, account_hash):
+        """Transport failures of the lookup request itself must not block the order.
+
+        call() only wraps raise_for_status, so a timeout or connection error
+        from the instruments request surfaces as httpx.TransportError, not
+        SchwabAPIError. Equity previews never depended on the market-data
+        endpoint before the guard existed; a slow endpoint must not start
+        failing them now.
+        """
+        client = DummyGuardedPreviewClient("timeout")
+        ctx = make_ctx(client)
+        captured: dict[str, Any] = {}
+        self._stub_preview_call(monkeypatch, captured)
+
+        with caplog.at_level("WARNING", logger="schwab_mcp.tools.orders"):
+            result = run(orders.preview_equity_order(ctx, account_hash, "AAPL", 100, "buy", "market"))
+
+        assert "preview_id" in result
+        assert len(client.instrument_requests) == 1
+        assert any("assetType pre-check skipped" in record.getMessage() for record in caplog.records)
+
+    def test_preview_passes_through_when_payload_is_malformed(self, monkeypatch, caplog, account_hash):
+        """A payload the resolver cannot parse disables the guard loudly, not silently."""
+        client = DummyGuardedPreviewClient("malformed")
+        ctx = make_ctx(client)
+        captured: dict[str, Any] = {}
+        self._stub_preview_call(monkeypatch, captured)
+
+        with caplog.at_level("WARNING", logger="schwab_mcp.tools.orders"):
+            result = run(orders.preview_equity_order(ctx, account_hash, "AAPL", 100, "buy", "market"))
+
+        assert "preview_id" in result
+        assert any("unexpected instruments payload" in record.getMessage() for record in caplog.records)
+
+    def test_preview_passes_through_when_lookup_returns_no_instruments(self, monkeypatch, caplog, account_hash):
+        """An empty `instruments` list means symbol not found: pass through quietly.
+
+        Unlike a malformed payload, this is a legitimate no-answer, so no
+        warning is logged.
+        """
         client = DummyGuardedPreviewClient(None)
         ctx = make_ctx(client)
         captured: dict[str, Any] = {}
         self._stub_preview_call(monkeypatch, captured)
 
-        result = run(orders.preview_equity_order(ctx, account_hash, "AAPL", 100, "buy", "market"))
+        with caplog.at_level("WARNING", logger="schwab_mcp.tools.orders"):
+            result = run(orders.preview_equity_order(ctx, account_hash, "AAPL", 100, "buy", "market"))
         assert "preview_id" in result
         assert len(client.instrument_requests) == 1
+        assert not any("assetType pre-check skipped" in record.getMessage() for record in caplog.records)
 
     def test_preview_option_order_makes_no_lookup(self, monkeypatch, account_hash):
         """OPTION legs are never subject to the equity assetType guard.
