@@ -200,3 +200,21 @@ class TestSaveCredentialsCommand:
 
         mode = os.stat(cli_credentials_file).st_mode & 0o777
         assert mode == 0o600
+
+    def test_secret_prompt_is_not_echoed(self, cli_credentials_file, cli_runner):
+        """Hide the secret while it is typed at the interactive prompt."""
+        result = cli_runner.invoke(
+            cli.cli,
+            ["save-credentials"],
+            input="prompt-id\nprompt-secret\n",
+            catch_exceptions=False,
+        )
+
+        assert result.exit_code == 0
+        assert "prompt-id" in result.output
+        assert "prompt-secret" not in result.output
+
+        with cli_credentials_file.open() as credentials:
+            data = yaml.safe_load(credentials)
+
+        assert data == {"client_id": "prompt-id", "client_secret": "prompt-secret"}

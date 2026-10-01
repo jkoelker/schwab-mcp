@@ -344,6 +344,7 @@ def server(
     "--client-secret",
     type=str,
     prompt="Schwab Client Secret",
+    hide_input=True,
     help="Schwab Client Secret",
 )
 def save_credentials(client_id: str, client_secret: str) -> None:
