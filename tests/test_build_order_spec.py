@@ -41,9 +41,20 @@ class TestBuildEquityOrderSpec:
         result = _build_equity_order_spec(symbol, quantity, instruction, "LIMIT", price=150.00)
         spec = cast(dict[str, Any], result.build())
 
-        assert spec["orderType"] == "LIMIT"
-        assert float(spec["price"]) == 150.00
-        assert spec["orderLegCollection"][0]["instruction"] == instruction
+        assert spec == {
+            "session": "NORMAL",
+            "duration": "DAY",
+            "orderType": "LIMIT",
+            "price": "150.00",
+            "orderStrategyType": "SINGLE",
+            "orderLegCollection": [
+                {
+                    "instruction": instruction,
+                    "quantity": quantity,
+                    "instrument": {"symbol": symbol, "assetType": "EQUITY"},
+                }
+            ],
+        }
 
     @pytest.mark.parametrize(
         "instruction",
