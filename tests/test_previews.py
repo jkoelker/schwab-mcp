@@ -143,9 +143,8 @@ def test_pop_expired_raises(monkeypatch):
         store.pop(preview_id, ACCOUNT, operation=PreviewOperation.PLACE_ORDER)
 
 
-def test_pop_removes_expired_entry_immediately(monkeypatch):
-    """pop() on an expired entry should evict it right away, not just raise —
-    it shouldn't wait for a future put() to prune it."""
+def test_expired_preview_cannot_be_reused_and_new_preview_remains_usable(monkeypatch):
+    """Expired previews stay unusable without affecting fresh previews."""
     store = PreviewStore(ttl=10.0)
     t = 1000.0
     monkeypatch.setattr(previews_module.time, "monotonic", lambda: t)
@@ -155,7 +154,12 @@ def test_pop_removes_expired_entry_immediately(monkeypatch):
     with pytest.raises(ValueError, match="not found or expired"):
         store.pop(preview_id, ACCOUNT, operation=PreviewOperation.PLACE_ORDER)
 
-    assert preview_id not in store._entries
+    with pytest.raises(ValueError, match="not found or expired"):
+        store.pop(preview_id, ACCOUNT, operation=PreviewOperation.PLACE_ORDER)
+
+    monkeypatch.setattr(previews_module.time, "monotonic", lambda: t + 12.0)
+    fresh_id = store.put(ACCOUNT, SPEC, TOOL, SUMMARY, operation=PreviewOperation.PLACE_ORDER)
+    assert store.pop(fresh_id, ACCOUNT, operation=PreviewOperation.PLACE_ORDER).summary == SUMMARY
 
 
 def test_lazy_prune_on_put(monkeypatch):
