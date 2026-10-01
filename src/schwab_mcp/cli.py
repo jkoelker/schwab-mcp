@@ -11,6 +11,7 @@ from schwab.client import AsyncClient
 
 from schwab_mcp import auth as schwab_auth, tokens
 from schwab_mcp.approvals import (
+    ApprovalManager,
     DiscordApprovalManager,
     DiscordApprovalSettings,
     NoOpApprovalManager,
@@ -113,6 +114,53 @@ def auth(
     except Exception as e:
         click.echo(f"Authentication failed: {str(e)}", err=True)
         return 1
+
+
+def _select_write_mode(
+    *,
+    jesus_take_the_wheel: bool,
+    discord_token: str | None,
+    discord_channel_id: int | None,
+    approver_values: tuple[str, ...],
+    discord_timeout: int,
+) -> tuple[ApprovalManager, bool] | None:
+    """Choose write access and its approval manager from resolved CLI values."""
+    if jesus_take_the_wheel:
+        return NoOpApprovalManager(), True
+
+    discord_requested = any((discord_token, discord_channel_id, approver_values))
+    if not discord_requested:
+        return NoOpApprovalManager(), False
+
+    if not discord_token or not discord_channel_id:
+        send_error_response(
+            "Discord approval configuration is required to enable write tools.",
+            code=400,
+            details={
+                "missing_token": not bool(discord_token),
+                "missing_channel_id": not bool(discord_channel_id),
+            },
+        )
+        return None
+
+    approver_ids = DiscordApprovalManager.authorized_user_ids(
+        [int(value) for value in approver_values] if approver_values else None
+    )
+    if not approver_ids:
+        send_error_response(
+            "Discord approver list cannot be empty. Configure at least one reviewer.",
+            code=400,
+            details={"approver_source": "flags_or_env"},
+        )
+        return None
+
+    settings = DiscordApprovalSettings(
+        token=discord_token,
+        channel_id=discord_channel_id,
+        approver_ids=approver_ids,
+        timeout_seconds=float(discord_timeout),
+    )
+    return DiscordApprovalManager(settings), True
 
 
 @cli.command("server")
@@ -269,50 +317,16 @@ def server(
             if env_approvers:
                 approver_values = tuple(value.strip() for value in env_approvers.split(",") if value.strip())
 
-        discord_requested = any(
-            (
-                discord_token,
-                discord_channel_id,
-                approver_values,
-            )
+        write_mode = _select_write_mode(
+            jesus_take_the_wheel=jesus_take_the_wheel,
+            discord_token=discord_token,
+            discord_channel_id=discord_channel_id,
+            approver_values=approver_values,
+            discord_timeout=discord_timeout,
         )
-        allow_write = False
-
-        if jesus_take_the_wheel:
-            approval_manager = NoOpApprovalManager()
-            allow_write = True
-        elif discord_requested:
-            if not discord_token or not discord_channel_id:
-                send_error_response(
-                    "Discord approval configuration is required to enable write tools.",
-                    code=400,
-                    details={
-                        "missing_token": not bool(discord_token),
-                        "missing_channel_id": not bool(discord_channel_id),
-                    },
-                )
-                return 1
-
-            approver_ids = DiscordApprovalManager.authorized_user_ids(
-                [int(value) for value in approver_values] if approver_values else None
-            )
-            if not approver_ids:
-                send_error_response(
-                    "Discord approver list cannot be empty. Configure at least one reviewer.",
-                    code=400,
-                    details={"approver_source": "flags_or_env"},
-                )
-                return 1
-            settings = DiscordApprovalSettings(
-                token=discord_token,
-                channel_id=discord_channel_id,
-                approver_ids=approver_ids,
-                timeout_seconds=float(discord_timeout),
-            )
-            approval_manager = DiscordApprovalManager(settings)
-            allow_write = True
-        else:
-            approval_manager = NoOpApprovalManager()
+        if write_mode is None:
+            return 1
+        approval_manager, allow_write = write_mode
 
         if jesus_take_the_wheel and discord_token:
             click.echo("Warning: --jesus-take-the-wheel bypasses Discord approvals.", err=True)
