@@ -5,9 +5,13 @@ from types import SimpleNamespace
 from typing import Any
 from unittest.mock import AsyncMock
 
+import httpx
+import pytest
 from conftest import make_ctx, run
+from schwab.client import AsyncClient
 
 from schwab_mcp.tools import account
+from schwab_mcp.tools.utils import JSONType, SchwabAPIError
 
 
 class DummyAccountClient:
@@ -676,3 +680,194 @@ def test_prune_account_response_list_item_securities_account_not_dict():
     assert result[0] == {"securitiesAccount": None}
     # Second item should be pruned normally
     assert "currentBalances" in result[1]["securitiesAccount"]
+
+
+def account_endpoint_response(
+    payload: JSONType,
+    *,
+    status_code: int = 200,
+    url: str = "https://api.schwabapi.com/trader/v1/accounts",
+) -> httpx.Response:
+    request = httpx.Request("GET", url)
+    return httpx.Response(status_code, request=request, json=payload)
+
+
+class AccountEndpointFake:
+    """Fake only the three Schwab account endpoints used by get_accounts()."""
+
+    Account = AsyncClient.Account
+
+    def __init__(
+        self,
+        *,
+        account_numbers: httpx.Response,
+        preferences: httpx.Response,
+        accounts: httpx.Response,
+    ) -> None:
+        self.responses = {
+            "get_account_numbers": account_numbers,
+            "get_user_preferences": preferences,
+            "get_accounts": accounts,
+        }
+        self.calls: dict[str, dict[str, Any]] = {}
+
+    async def get_account_numbers(self, **kwargs: Any) -> httpx.Response:
+        self.calls["get_account_numbers"] = kwargs
+        return self.responses["get_account_numbers"]
+
+    async def get_user_preferences(self, **kwargs: Any) -> httpx.Response:
+        self.calls["get_user_preferences"] = kwargs
+        return self.responses["get_user_preferences"]
+
+    async def get_accounts(self, **kwargs: Any) -> httpx.Response:
+        self.calls["get_accounts"] = kwargs
+        return self.responses["get_accounts"]
+
+
+def test_get_accounts_compact_output_enriches_identities_and_nets_positions() -> None:
+    client = AccountEndpointFake(
+        account_numbers=account_endpoint_response([{"accountNumber": "100", "hashValue": "hash-100"}]),
+        preferences=account_endpoint_response(
+            {"accounts": [{"accountNumber": "100", "nickName": "Primary", "primaryAccount": True}]}
+        ),
+        accounts=account_endpoint_response(
+            [
+                {
+                    "securitiesAccount": {
+                        "type": "MARGIN",
+                        "accountNumber": "100",
+                        "currentBalances": {
+                            "equity": 12_000.0,
+                            "buyingPower": 8_000.0,
+                            "cashBalance": 2_000.0,
+                            "cashAvailableForTrading": 1_500.0,
+                            "liquidationValue": 11_750.0,
+                            "maintenanceRequirement": 900.0,
+                        },
+                        "initialBalances": {"equity": 10_000.0},
+                        "projectedBalances": {"equity": 13_000.0},
+                        "positions": [
+                            {
+                                "instrument": {"symbol": "LONG", "assetType": "EQUITY"},
+                                "longQuantity": 10,
+                                "shortQuantity": 3,
+                                "marketValue": 700.0,
+                                "averagePrice": 90.0,
+                                "currentDayProfitLoss": 40.0,
+                                "settledLongQuantity": 10,
+                            },
+                            {
+                                "instrument": {"symbol": "SHORT", "assetType": "EQUITY"},
+                                "longQuantity": 2,
+                                "shortQuantity": 5,
+                                "marketValue": 450.0,
+                                "averagePrice": 150.0,
+                                "currentDayProfitLoss": -25.0,
+                                "settledShortQuantity": 5,
+                            },
+                        ],
+                    }
+                },
+            ]
+        ),
+    )
+
+    result = run(account.get_accounts(make_ctx(client), include_positions=True))
+
+    assert isinstance(result, list)
+    assert len(result) == 1
+    securities_account = result[0]["securitiesAccount"]
+    assert securities_account["type"] == "MARGIN"
+    assert securities_account["accountNumber"] == "100"
+    assert securities_account["accountHash"] == "hash-100"
+    assert securities_account["nickname"] == "Primary"
+    assert securities_account["isDefault"] is True
+    assert securities_account["currentBalances"] == {
+        "equity": 12_000.0,
+        "buyingPower": 8_000.0,
+        "cashBalance": 2_000.0,
+        "cashAvailableForTrading": 1_500.0,
+        "liquidationValue": 11_750.0,
+    }
+    assert "initialBalances" not in securities_account
+    assert "projectedBalances" not in securities_account
+    assert securities_account["positions"] == [
+        {
+            "symbol": "LONG",
+            "quantity": 7,
+            "marketValue": 700.0,
+            "averagePrice": 90.0,
+            "unrealizedPL": 40.0,
+        },
+        {
+            "symbol": "SHORT",
+            "quantity": -3,
+            "marketValue": 450.0,
+            "averagePrice": 150.0,
+            "unrealizedPL": -25.0,
+        },
+    ]
+    assert client.calls.keys() == {
+        "get_account_numbers",
+        "get_user_preferences",
+        "get_accounts",
+    }
+    assert client.calls["get_accounts"]["fields"] == [AsyncClient.Account.Fields.POSITIONS]
+
+
+def test_get_accounts_keeps_compact_balances_when_preferences_fail() -> None:
+    client = AccountEndpointFake(
+        account_numbers=account_endpoint_response([{"accountNumber": "300", "hashValue": "hash-300"}]),
+        preferences=account_endpoint_response(
+            {"accounts": []},
+            status_code=503,
+            url="https://api.schwabapi.com/trader/v1/userPreference",
+        ),
+        accounts=account_endpoint_response(
+            [
+                {
+                    "securitiesAccount": {
+                        "accountNumber": "300",
+                        "currentBalances": {
+                            "equity": 5_000.0,
+                            "cashBalance": 1_000.0,
+                        },
+                    }
+                }
+            ]
+        ),
+    )
+
+    result = run(account.get_accounts(make_ctx(client)))
+
+    assert isinstance(result, list)
+    assert len(result) == 1
+    securities_account = result[0]["securitiesAccount"]
+    assert securities_account["accountNumber"] == "300"
+    assert securities_account["accountHash"] is None
+    assert securities_account["nickname"] is None
+    assert securities_account["isDefault"] is False
+    assert securities_account["currentBalances"]["equity"] == 5_000.0
+    assert securities_account["currentBalances"]["cashBalance"] == 1_000.0
+    assert client.calls.keys() == {
+        "get_account_numbers",
+        "get_user_preferences",
+        "get_accounts",
+    }
+    assert client.calls["get_accounts"] == {}
+
+
+def test_get_accounts_propagates_primary_endpoint_failure() -> None:
+    client = AccountEndpointFake(
+        account_numbers=account_endpoint_response([]),
+        preferences=account_endpoint_response({"accounts": []}),
+        accounts=account_endpoint_response(
+            [],
+            status_code=503,
+        ),
+    )
+
+    with pytest.raises(SchwabAPIError, match="status=503"):
+        run(account.get_accounts(make_ctx(client)))
+
+    assert "get_accounts" in client.calls
