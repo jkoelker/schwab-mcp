@@ -1,5 +1,13 @@
 from __future__ import annotations
 
+import asyncio
+import json
+from contextlib import suppress
+from pathlib import Path
+from typing import Any
+
+import discord
+import pytest
 from schwab.client import AsyncClient
 
 from schwab_mcp import cli
@@ -9,6 +17,7 @@ from schwab_mcp.approvals import (
     ApprovalRequest,
     NoOpApprovalManager,
 )
+from schwab_mcp.server import MCPServer, SchwabMCPServer
 
 
 class DummyDiscordApprovalManager(ApprovalManager):
@@ -396,3 +405,290 @@ def test_server_exits_when_server_run_raises(monkeypatch, cli_server_capture, cl
 
     assert result.exit_code == 1
     assert "server exploded during run" in result.output
+
+
+@pytest.fixture
+def isolated_server_cli_environment(monkeypatch, tmp_path: Path) -> Path:
+    """Keep platform directories and CLI configuration inside this test."""
+    monkeypatch.setenv("HOME", str(tmp_path / "home"))
+    monkeypatch.setenv("XDG_DATA_HOME", str(tmp_path / "xdg-data"))
+    for name in (
+        "SCHWAB_CLIENT_ID",
+        "SCHWAB_CLIENT_SECRET",
+        "SCHWAB_CALLBACK_URL",
+        "SCHWAB_BASE_URL",
+        "SCHWAB_MCP_DISCORD_TOKEN",
+        "SCHWAB_MCP_DISCORD_CHANNEL_ID",
+        "SCHWAB_MCP_DISCORD_APPROVERS",
+        "SCHWAB_MCP_DISCORD_TIMEOUT",
+        "MCP_HOST",
+        "MCP_PORT",
+    ):
+        monkeypatch.delenv(name, raising=False)
+    return tmp_path / "token.yaml"
+
+
+@pytest.fixture
+def sociable_cli_server(monkeypatch) -> dict[str, Any]:
+    """Fake Schwab initialization and transport around the real MCP server."""
+    captured: dict[str, Any] = {}
+
+    class StartupClient:
+        def token_age(self) -> int:
+            return 0
+
+    client = StartupClient()
+
+    def fake_easy_client(**kwargs: Any) -> StartupClient:
+        captured["easy_client_kwargs"] = kwargs
+        return client
+
+    monkeypatch.setattr(cli, "AsyncClient", StartupClient)
+    monkeypatch.setattr(cli.schwab_auth, "easy_client", fake_easy_client)
+
+    real_server_type = cli.SchwabMCPServer
+
+    def construct_real_server(
+        name: str,
+        schwab_client: Any,
+        approval_manager: ApprovalManager,
+        *,
+        allow_write: bool,
+        enable_technical_tools: bool = True,
+        use_json: bool = False,
+    ) -> SchwabMCPServer:
+        server = real_server_type(
+            name,
+            schwab_client,
+            approval_manager=approval_manager,
+            allow_write=allow_write,
+            enable_technical_tools=enable_technical_tools,
+            use_json=use_json,
+        )
+        captured["server"] = server
+        captured["approval_manager"] = approval_manager
+        captured["allow_write"] = allow_write
+        return server
+
+    monkeypatch.setattr(cli, "SchwabMCPServer", construct_real_server)
+
+    async def fake_run_stdio_async(server: MCPServer) -> None:
+        captured["transport"] = "stdio"
+        captured["registered_tools"] = {tool.name for tool in await server.list_tools()}
+
+    async def fake_run_streamable_http_async(server: MCPServer, *, host: str, port: int) -> None:
+        captured["transport"] = "streamable-http"
+        captured["host"] = host
+        captured["port"] = port
+        captured["registered_tools"] = {tool.name for tool in await server.list_tools()}
+
+    monkeypatch.setattr(MCPServer, "run_stdio_async", fake_run_stdio_async)
+    monkeypatch.setattr(MCPServer, "run_streamable_http_async", fake_run_streamable_http_async)
+    return captured
+
+
+def _server_args(token_path: Path, *options: str) -> list[str]:
+    return [
+        "server",
+        "--token-path",
+        str(token_path),
+        "--client-id",
+        "cli-client-id",
+        "--client-secret",
+        "cli-client-secret",
+        "--json",
+        "--no-technical-tools",
+        *options,
+    ]
+
+
+def _approval_request() -> ApprovalRequest:
+    return ApprovalRequest(
+        id="approval-1",
+        tool_name="cancel_order",
+        request_id="request-1",
+        client_id=None,
+        arguments={"order_id": "123"},
+    )
+
+
+def test_cli_server_default_is_read_only_with_real_policy_and_manager(
+    cli_runner,
+    isolated_server_cli_environment,
+    sociable_cli_server,
+) -> None:
+    token_path = isolated_server_cli_environment
+    captured = sociable_cli_server
+
+    result = cli_runner.invoke(cli.cli, _server_args(token_path), catch_exceptions=False)
+
+    assert result.exit_code == 0
+    assert captured["allow_write"] is False
+    assert captured["transport"] == "stdio"
+    assert "preview_equity_order" in captured["registered_tools"]
+    assert "cancel_order" not in captured["registered_tools"]
+    assert "place_previewed_order" not in captured["registered_tools"]
+
+    token_manager = captured["easy_client_kwargs"]["token_manager"]
+    assert token_manager.path == str(token_path)
+    assert captured["easy_client_kwargs"]["max_token_age"] == cli.TOKEN_MAX_AGE_SECONDS
+
+
+def test_cli_server_bypass_enables_writes_even_with_incomplete_discord_config(
+    cli_runner,
+    isolated_server_cli_environment,
+    sociable_cli_server,
+) -> None:
+    token_path = isolated_server_cli_environment
+    captured = sociable_cli_server
+
+    result = cli_runner.invoke(
+        cli.cli,
+        _server_args(
+            token_path,
+            "--jesus-take-the-wheel",
+            "--discord-channel-id",
+            "777",
+            "--discord-approver",
+            "456",
+        ),
+        catch_exceptions=False,
+    )
+
+    assert result.exit_code == 0
+    assert captured["allow_write"] is True
+    assert {"cancel_order", "place_previewed_order"} <= captured["registered_tools"]
+    assert asyncio.run(captured["approval_manager"].require(_approval_request())) is ApprovalDecision.APPROVED
+    assert "Discord approval configuration is required" not in result.output
+
+
+class _FakeDiscordMessage:
+    def __init__(self, channel: _FakeDiscordTextChannel, embed: discord.Embed) -> None:
+        self.id = 9001
+        self.channel = channel
+        self.embed = embed
+
+    async def add_reaction(self, _emoji: str) -> None:
+        return None
+
+
+class _FakeDiscordTextChannel(discord.TextChannel):
+    __slots__ = ("channel_id", "message", "message_sent")
+
+    def __init__(self, channel_id: int) -> None:
+        self.channel_id = channel_id
+        self.message: _FakeDiscordMessage | None = None
+        self.message_sent = asyncio.Event()
+
+    @property
+    def id(self) -> int:
+        return self.channel_id
+
+    async def send(self, *, embed: discord.Embed) -> _FakeDiscordMessage:
+        self.message = _FakeDiscordMessage(self, embed)
+        self.message_sent.set()
+        return self.message
+
+
+@pytest.fixture
+def fake_discord_network(monkeypatch) -> dict[str, Any]:
+    """Replace Discord network methods while retaining its real client adapter."""
+    captured: dict[str, Any] = {"tokens": [], "channel_ids": []}
+    channel = _FakeDiscordTextChannel(channel_id=789)
+
+    async def fake_start(client: Any, token: str) -> None:
+        captured["tokens"].append(token)
+        await client.on_ready()
+
+    async def fake_close(_client: discord.Client) -> None:
+        return None
+
+    def fake_get_channel(_client: discord.Client, channel_id: int) -> _FakeDiscordTextChannel:
+        captured["channel_ids"].append(channel_id)
+        return channel
+
+    monkeypatch.setattr(discord.Client, "start", fake_start)
+    monkeypatch.setattr(discord.Client, "close", fake_close)
+    monkeypatch.setattr(discord.Client, "get_channel", fake_get_channel)
+    captured["channel"] = channel
+    return captured
+
+
+def test_cli_server_uses_complete_discord_configuration_and_real_approval_manager(
+    monkeypatch,
+    cli_runner,
+    isolated_server_cli_environment,
+    sociable_cli_server,
+    fake_discord_network,
+) -> None:
+    token_path = isolated_server_cli_environment
+    captured = sociable_cli_server
+    discord_network = fake_discord_network
+    monkeypatch.setenv("SCHWAB_MCP_DISCORD_TOKEN", "discord-env-token")
+    monkeypatch.setenv("SCHWAB_MCP_DISCORD_CHANNEL_ID", "789")
+    monkeypatch.setenv("SCHWAB_MCP_DISCORD_APPROVERS", " 456, 789 ")
+    monkeypatch.setenv("SCHWAB_MCP_DISCORD_TIMEOUT", "15")
+
+    result = cli_runner.invoke(cli.cli, _server_args(token_path), catch_exceptions=False)
+
+    assert result.exit_code == 0
+    assert captured["allow_write"] is True
+    assert {"cancel_order", "place_previewed_order"} <= captured["registered_tools"]
+    assert captured["transport"] == "stdio"
+
+    async def observe_pending_approval() -> None:
+        manager = captured["approval_manager"]
+        request_task = asyncio.create_task(manager.require(_approval_request()))
+        try:
+            await asyncio.wait_for(discord_network["channel"].message_sent.wait(), timeout=2)
+            message = discord_network["channel"].message
+            assert message is not None
+            assert message.embed.title == "Write operation requires approval"
+            assert not request_task.done()
+        finally:
+            if not request_task.done():
+                request_task.cancel()
+                with suppress(asyncio.CancelledError):
+                    await request_task
+            await captured["approval_manager"].stop()
+
+    asyncio.run(observe_pending_approval())
+    assert discord_network["tokens"] == ["discord-env-token"]
+    assert discord_network["channel_ids"] == [789]
+
+
+@pytest.mark.parametrize(
+    ("discord_options", "expected_message", "expected_details"),
+    [
+        (
+            ["--discord-channel-id", "789", "--discord-approver", "456"],
+            "Discord approval configuration is required to enable write tools.",
+            {"missing_token": True, "missing_channel_id": False},
+        ),
+        (
+            ["--discord-token", "discord-token", "--discord-channel-id", "789"],
+            "Discord approver list cannot be empty. Configure at least one reviewer.",
+            {"approver_source": "flags_or_env"},
+        ),
+    ],
+)
+def test_cli_server_rejects_incomplete_discord_config_with_mcp_error_before_transport(
+    cli_runner,
+    isolated_server_cli_environment,
+    sociable_cli_server,
+    discord_options: list[str],
+    expected_message: str,
+    expected_details: dict[str, Any],
+) -> None:
+    token_path = isolated_server_cli_environment
+    captured = sociable_cli_server
+
+    result = cli_runner.invoke(cli.cli, _server_args(token_path, *discord_options))
+
+    assert result.exit_code == 1
+    payload = json.loads(result.stdout)
+    assert payload["error"]["code"] == 400
+    assert payload["error"]["message"] == expected_message
+    assert payload["error"]["data"] == expected_details
+    assert "server" not in captured
+    assert "transport" not in captured
