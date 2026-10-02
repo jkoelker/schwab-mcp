@@ -19,6 +19,9 @@ name: AI Agent
   pull_request:
     types: [review_requested]
 
+  pull_request_target:
+    types: [labeled]
+
   pull_request_review:
     types: [submitted]
 
@@ -83,6 +86,71 @@ jobs:
         uses: dobbyphus/action@main
         with:
           bot_name: dobbyphus
+          auth_json: ${{ secrets.COPILOT_AUTH_JSON }}
+          provider_anthropic: "no"
+          provider_openai: "no"
+          provider_google: "no"
+          provider_copilot: "yes"
+          github_token: ${{ steps.app-token.outputs.token }}
+
+  label-review:
+    if: >-
+      github.event_name == 'pull_request_target' &&
+      github.event.action == 'labeled' &&
+      github.event.label.name == 'ai-review' &&
+      github.event.pull_request.state == 'open' &&
+      github.event.sender &&
+      github.event.sender.type == 'User' &&
+      github.event.sender.login
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - name: Check labeler's repository permission
+        # yamllint disable-line rule:line-length rule:comments
+        uses: actions/github-script@ed597411d8f924073f98dfc5c65a23a2325f34cd  # v8
+        with:
+          script: |
+            const { data } =
+              await github.rest.repos.getCollaboratorPermissionLevel({
+                ...context.repo,
+                username: context.payload.sender.login,
+              });
+            if (!['write', 'admin'].includes(data.permission)) {
+              core.setFailed(
+                'The labeler needs write, maintain, or admin access.'
+              );
+            }
+
+      # Keep agent configuration trusted; inspect PR changes via gh pr diff.
+      - name: Checkout trusted workflow revision
+        # yamllint disable-line rule:line-length rule:comments
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+          fetch-depth: 0
+
+      - name: Generate review-only App Token
+        id: app-token
+        # yamllint disable-line rule:line-length rule:comments
+        uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1  # v3
+        with:
+          app-id: ${{ secrets.APP_ID }}
+          private-key: ${{ secrets.APP_PRIVATE_KEY }}
+          permission-contents: read
+          permission-issues: write
+          permission-pull-requests: write
+
+      - name: Review labeled PR
+        # Reviewed upstream revision supporting privileged label events.
+        # yamllint disable-line rule:line-length rule:comments
+        uses: dobbyphus/action@b44f34eea14e5bdcac7e3f89e04f757547274550
+        with:
+          bot_name: dobbyphus
+          bot_login: dobbyphus[bot]
+          mode: review
+          prompt_path: ${{ github.workspace }}/.github/prompts
           auth_json: ${{ secrets.COPILOT_AUTH_JSON }}
           provider_anthropic: "no"
           provider_openai: "no"
