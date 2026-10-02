@@ -157,3 +157,13 @@ jobs:
           provider_google: "no"
           provider_copilot: "yes"
           github_token: ${{ steps.app-token.outputs.token }}
+
+      - name: Remove ai-review label
+        if: always() && steps.app-token.outputs.token != ''
+        env:
+          GH_TOKEN: ${{ steps.app-token.outputs.token }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+          REPO: ${{ github.repository }}
+        run: |
+          gh issue edit "$PR_NUMBER" --repo "$REPO" \
+            --remove-label "ai-review" || true
