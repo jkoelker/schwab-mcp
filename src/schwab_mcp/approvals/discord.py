@@ -44,9 +44,7 @@ class _ApprovalClient(discord.Client):
     async def on_ready(self) -> None:  # pragma: no cover - thin delegation
         await self._manager._handle_ready()
 
-    async def on_reaction_add(  # pragma: no cover - thin delegation
-        self, reaction: discord.Reaction, user: discord.User | discord.Member
-    ) -> None:
+    async def on_reaction_add(self, reaction: discord.Reaction, user: discord.User | discord.Member) -> None:
         await self._manager._handle_reaction_add(reaction, user)
 
 
@@ -173,7 +171,7 @@ class DiscordApprovalManager(ApprovalManager):
         if emoji not in {"✅", "❌"}:
             return
 
-        if self._settings.approver_ids and user.id not in self._settings.approver_ids:
+        if user.id not in self._settings.approver_ids:
             logger.debug(
                 "Ignoring reaction %s from unauthorized user %s for request %s",
                 emoji,
@@ -191,6 +189,7 @@ class DiscordApprovalManager(ApprovalManager):
         if pending.future.done():
             return
 
+        pending.future.set_result(decision)
         await self._finalize_message(
             pending.message,
             pending.request,
@@ -198,7 +197,6 @@ class DiscordApprovalManager(ApprovalManager):
             actor=user,
             reason=f"Decision recorded via {emoji}",
         )
-        pending.future.set_result(decision)
 
     async def _ensure_channel(self) -> discord.abc.MessageableChannel:
         await self._ready.wait()

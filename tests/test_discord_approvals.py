@@ -118,6 +118,14 @@ def inject_pending(mgr: DiscordApprovalManager, msg: Any) -> asyncio.Future[Appr
     return future
 
 
+async def wait_until_pending(mgr: DiscordApprovalManager, msg: Any) -> None:
+    async def poll() -> None:
+        while msg.id not in mgr._pending:
+            await asyncio.sleep(0)
+
+    await asyncio.wait_for(poll(), timeout=1.0)
+
+
 # ---------------------------------------------------------------------------
 # Constructor validation
 # ---------------------------------------------------------------------------
@@ -285,8 +293,12 @@ async def test_ensure_channel_raises_if_not_messageable() -> None:
 # ---------------------------------------------------------------------------
 
 
+@pytest.mark.parametrize(
+    ("emoji", "expected"),
+    [("✅", ApprovalDecision.APPROVED), ("❌", ApprovalDecision.DENIED)],
+)
 @pytest.mark.anyio
-async def test_require_approved_via_reaction() -> None:
+async def test_require_records_authorized_reaction(emoji: str, expected: ApprovalDecision) -> None:
     mgr = make_manager()
     mgr._ready.set()
 
@@ -295,63 +307,22 @@ async def test_require_approved_via_reaction() -> None:
     channel.send = AsyncMock(return_value=msg)
     mgr._channel = channel
 
-    async def drive_approval() -> None:
-        await asyncio.sleep(0)
-        pending = mgr._pending.get(msg.id)
-        if pending and not pending.future.done():
-            pending.future.set_result(ApprovalDecision.APPROVED)
+    async def submit_reaction() -> None:
+        await wait_until_pending(mgr, msg)
+        await mgr._handle_reaction_add(make_fake_reaction(msg, emoji), make_fake_user(APPROVER_ID))
 
-    asyncio.get_running_loop().create_task(drive_approval())
+    reaction_task = asyncio.create_task(submit_reaction())
     decision = await mgr.require(make_request())
+    await reaction_task
 
-    assert decision == ApprovalDecision.APPROVED
-    channel.send.assert_awaited_once()
-    msg.add_reaction.assert_any_await("✅")
-    msg.add_reaction.assert_any_await("❌")
-
-
-@pytest.mark.anyio
-async def test_require_denied_via_reaction() -> None:
-    mgr = make_manager()
-    mgr._ready.set()
-
-    channel = make_fake_channel()
-    msg = make_fake_message(channel)
-    channel.send = AsyncMock(return_value=msg)
-    mgr._channel = channel
-
-    async def drive_denial() -> None:
-        await asyncio.sleep(0)
-        pending = mgr._pending.get(msg.id)
-        if pending and not pending.future.done():
-            pending.future.set_result(ApprovalDecision.DENIED)
-
-    asyncio.get_running_loop().create_task(drive_denial())
-    decision = await mgr.require(make_request())
-
-    assert decision == ApprovalDecision.DENIED
-
-
-@pytest.mark.anyio
-async def test_require_cleans_up_pending_after_decision() -> None:
-    mgr = make_manager()
-    mgr._ready.set()
-
-    channel = make_fake_channel()
-    msg = make_fake_message(channel)
-    channel.send = AsyncMock(return_value=msg)
-    mgr._channel = channel
-
-    async def resolve() -> None:
-        await asyncio.sleep(0)
-        pending = mgr._pending.get(msg.id)
-        if pending:
-            pending.future.set_result(ApprovalDecision.APPROVED)
-
-    asyncio.get_running_loop().create_task(resolve())
-    await mgr.require(make_request())
-
+    assert decision == expected
     assert msg.id not in mgr._pending
+    embed: discord.Embed = msg.edit.call_args.kwargs["embed"]
+    assert expected.value in (embed.title or "")
+    fields = {field.name: field.value for field in embed.fields}
+    assert str(APPROVER_ID) in (fields["Actor"] or "")
+    assert emoji in (fields["Notes"] or "")
+    assert {call.args[0] for call in msg.add_reaction.await_args_list} == {"✅", "❌"}
 
 
 @pytest.mark.anyio
@@ -384,9 +355,20 @@ async def test_require_sends_pending_embed_with_tool_name() -> None:
 # ---------------------------------------------------------------------------
 
 
+@pytest.mark.parametrize(
+    ("user_id", "bot", "emoji", "channel_id"),
+    [
+        pytest.param(OTHER_USER_ID, False, "✅", CHANNEL_ID, id="unauthorized-user"),
+        pytest.param(APPROVER_ID, True, "✅", CHANNEL_ID, id="bot"),
+        pytest.param(APPROVER_ID, False, "✅", CHANNEL_ID + 1, id="wrong-channel"),
+        pytest.param(APPROVER_ID, False, "🤔", CHANNEL_ID, id="unsupported-emoji"),
+    ],
+)
 @pytest.mark.anyio
-async def test_require_expires_after_configured_timeout_and_cleans_up() -> None:
-    mgr = make_manager(make_settings(timeout_seconds=0.01))
+async def test_invalid_reaction_cannot_approve_live_request(
+    user_id: int, bot: bool, emoji: str, channel_id: int
+) -> None:
+    mgr = make_manager(make_settings(timeout_seconds=0.05))
     mgr._ready.set()
 
     channel = make_fake_channel()
@@ -394,13 +376,21 @@ async def test_require_expires_after_configured_timeout_and_cleans_up() -> None:
     channel.send = AsyncMock(return_value=msg)
     mgr._channel = channel
 
-    # The outer bound is a test guard only: if require() stops honoring
-    # timeout_seconds, fail fast instead of waiting for a human forever.
+    async def submit_invalid_reaction() -> None:
+        await wait_until_pending(mgr, msg)
+        channel.id = channel_id
+        await mgr._handle_reaction_add(make_fake_reaction(msg, emoji), make_fake_user(user_id, bot=bot))
+
+    reaction_task = asyncio.create_task(submit_invalid_reaction())
     decision = await asyncio.wait_for(mgr.require(make_request()), timeout=2.0)
+    await reaction_task
 
     assert decision == ApprovalDecision.EXPIRED
     msg.edit.assert_awaited_once()
     assert msg.id not in mgr._pending
+    embed: discord.Embed = msg.edit.call_args.kwargs["embed"]
+    assert "expired" in (embed.title or "")
+    assert "timeout" in (next(field.value for field in embed.fields if field.name == "Notes") or "")
 
 
 # ---------------------------------------------------------------------------
@@ -423,6 +413,32 @@ async def test_require_denied_when_add_reaction_raises_http_exception() -> None:
 
     assert decision == ApprovalDecision.DENIED
     msg.edit.assert_awaited_once()
+    embed: discord.Embed = msg.edit.call_args.kwargs["embed"]
+    fields = {field.name: field.value for field in embed.fields}
+    assert "denied" in (embed.title or "")
+    assert fields["Notes"] == "Failed to add reactions."
+    assert "Actor" not in fields
+
+
+@pytest.mark.anyio
+async def test_require_keeps_approval_when_message_edit_fails() -> None:
+    mgr = make_manager()
+    mgr._ready.set()
+    channel = make_fake_channel()
+    msg = make_fake_message(channel)
+    channel.send = AsyncMock(return_value=msg)
+    msg.edit = AsyncMock(side_effect=discord.HTTPException(MagicMock(status=500), "Server error"))
+    mgr._channel = channel
+
+    async def submit_approval() -> None:
+        await wait_until_pending(mgr, msg)
+        await mgr._handle_reaction_add(make_fake_reaction(msg, "✅"), make_fake_user(APPROVER_ID))
+
+    reaction_task = asyncio.create_task(submit_approval())
+    decision = await asyncio.wait_for(mgr.require(make_request()), timeout=2.0)
+    await reaction_task
+
+    assert decision == ApprovalDecision.APPROVED
 
 
 # ---------------------------------------------------------------------------
@@ -431,74 +447,76 @@ async def test_require_denied_when_add_reaction_raises_http_exception() -> None:
 
 
 @pytest.mark.anyio
-async def test_handle_reaction_add_approved_by_authorized_user() -> None:
-    mgr = make_manager()
-    mgr._ready.set()
-
+async def test_conflicting_reactions_keep_first_decision_during_message_edit() -> None:
+    mgr = make_manager(make_settings(approver_ids=frozenset({APPROVER_ID, OTHER_USER_ID})))
     channel = make_fake_channel()
     msg = make_fake_message(channel)
     future = inject_pending(mgr, msg)
+    edit_started = asyncio.Event()
+    release_edit = asyncio.Event()
+    edited_embeds: list[discord.Embed] = []
 
-    reaction = make_fake_reaction(msg, "✅")
-    user = make_fake_user(APPROVER_ID)
+    async def slow_edit(*, embed: discord.Embed) -> None:
+        edited_embeds.append(embed)
+        edit_started.set()
+        await release_edit.wait()
 
-    await mgr._handle_reaction_add(reaction, user)
+    msg.edit = AsyncMock(side_effect=slow_edit)
+    approve = asyncio.create_task(mgr._handle_reaction_add(make_fake_reaction(msg, "✅"), make_fake_user(APPROVER_ID)))
+    await edit_started.wait()
+    deny = asyncio.create_task(mgr._handle_reaction_add(make_fake_reaction(msg, "❌"), make_fake_user(OTHER_USER_ID)))
+    await asyncio.sleep(0)
+    release_edit.set()
+    await asyncio.gather(approve, deny)
 
-    assert future.done()
     assert future.result() == ApprovalDecision.APPROVED
     msg.edit.assert_awaited_once()
+    assert "approved" in (edited_embeds[0].title or "")
 
 
 @pytest.mark.anyio
-async def test_handle_reaction_add_denied_by_authorized_user() -> None:
-    mgr = make_manager()
+async def test_require_returns_decision_without_waiting_for_message_edit() -> None:
+    mgr = make_manager(make_settings(timeout_seconds=0.05))
     mgr._ready.set()
+    channel = make_fake_channel()
+    msg = make_fake_message(channel)
+    channel.send = AsyncMock(return_value=msg)
+    mgr._channel = channel
+    edit_started = asyncio.Event()
+    release_edit = asyncio.Event()
 
+    async def slow_edit(*, embed: discord.Embed) -> None:
+        edit_started.set()
+        await release_edit.wait()
+
+    msg.edit = AsyncMock(side_effect=slow_edit)
+    require_task = asyncio.create_task(mgr.require(make_request()))
+    try:
+        await wait_until_pending(mgr, msg)
+        reaction_task = asyncio.create_task(
+            mgr._handle_reaction_add(make_fake_reaction(msg, "✅"), make_fake_user(APPROVER_ID))
+        )
+        await edit_started.wait()
+        decision = await asyncio.wait_for(require_task, timeout=2)
+        release_edit.set()
+        await asyncio.wait_for(reaction_task, timeout=2)
+    finally:
+        release_edit.set()
+
+    assert decision == ApprovalDecision.APPROVED
+
+
+@pytest.mark.anyio
+async def test_approval_client_reaction_event_resolves_pending_approval() -> None:
+    mgr = DiscordApprovalManager(make_settings())
     channel = make_fake_channel()
     msg = make_fake_message(channel)
     future = inject_pending(mgr, msg)
 
-    reaction = make_fake_reaction(msg, "❌")
-    user = make_fake_user(APPROVER_ID)
+    await mgr._client.on_reaction_add(make_fake_reaction(msg, "✅"), make_fake_user(APPROVER_ID))
 
-    await mgr._handle_reaction_add(reaction, user)
-
-    assert future.result() == ApprovalDecision.DENIED
-
-
-@pytest.mark.anyio
-async def test_handle_reaction_add_ignores_bot_reactions() -> None:
-    mgr = make_manager()
-    mgr._ready.set()
-
-    channel = make_fake_channel()
-    msg = make_fake_message(channel)
-    future = inject_pending(mgr, msg)
-
-    reaction = make_fake_reaction(msg, "✅")
-    bot_user = make_fake_user(APPROVER_ID, bot=True)
-
-    await mgr._handle_reaction_add(reaction, bot_user)
-
-    assert not future.done()
-
-
-@pytest.mark.anyio
-async def test_handle_reaction_add_ignores_wrong_channel() -> None:
-    mgr = make_manager()
-    mgr._ready.set()
-
-    channel = make_fake_channel()
-    channel.id = 12345  # different from CHANNEL_ID
-    msg = make_fake_message(channel)
-    future = inject_pending(mgr, msg)
-
-    reaction = make_fake_reaction(msg, "✅")
-    user = make_fake_user(APPROVER_ID)
-
-    await mgr._handle_reaction_add(reaction, user)
-
-    assert not future.done()
+    assert future.result() == ApprovalDecision.APPROVED
+    msg.edit.assert_awaited_once()
 
 
 @pytest.mark.anyio
@@ -514,23 +532,6 @@ async def test_handle_reaction_add_ignores_unknown_message() -> None:
     user = make_fake_user(APPROVER_ID)
 
     await mgr._handle_reaction_add(reaction, user)  # must not raise
-
-
-@pytest.mark.anyio
-async def test_handle_reaction_add_ignores_unrecognized_emoji() -> None:
-    mgr = make_manager()
-    mgr._ready.set()
-
-    channel = make_fake_channel()
-    msg = make_fake_message(channel)
-    future = inject_pending(mgr, msg)
-
-    reaction = make_fake_reaction(msg, "🤔")
-    user = make_fake_user(APPROVER_ID)
-
-    await mgr._handle_reaction_add(reaction, user)
-
-    assert not future.done()
 
 
 @pytest.mark.anyio
