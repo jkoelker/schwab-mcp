@@ -79,13 +79,15 @@ def make_ctx(
     return ctx, approval_manager, session, request_context
 
 
-async def sample_write_tool(ctx: SchwabContext, symbol: str) -> str:
-    return symbol.upper()
-
-
 def wrapped_tool():
+    calls: list[str] = []
+
+    async def sample_write_tool(ctx: SchwabContext, symbol: str) -> str:
+        calls.append(symbol)
+        return symbol.upper()
+
     ensured = _registration._ensure_schwab_context(sample_write_tool)
-    return _registration._wrap_with_approval(ensured)
+    return _registration._wrap_with_approval(ensured), calls
 
 
 T = TypeVar("T")
@@ -100,11 +102,12 @@ def await_result(awaitable: Awaitable[T]) -> T:
 
 def test_write_tool_runs_when_approved() -> None:
     ctx, approval_manager, session, _ = make_ctx(ApprovalDecision.APPROVED)
-    tool = wrapped_tool()
+    tool, calls = wrapped_tool()
 
     result = await_result(tool(ctx, "spy"))
 
     assert result == "SPY"
+    assert calls == ["spy"]
     assert len(approval_manager.requests) == 1
     request = approval_manager.requests[0]
     assert request.tool_name == "sample_write_tool"
@@ -115,11 +118,12 @@ def test_write_tool_runs_when_approved() -> None:
 def test_write_tool_denied_raises_permission_error(caplog: pytest.LogCaptureFixture) -> None:
     """Log the denial message and raise a permission error."""
     ctx, approval_manager, session, _ = make_ctx(ApprovalDecision.DENIED)
-    tool = wrapped_tool()
+    tool, calls = wrapped_tool()
 
     with pytest.raises(PermissionError):
         await_result(tool(ctx, "spy"))
 
+    assert calls == []
     assert len(approval_manager.requests) == 1
     assert session.messages == []
     assert [record.getMessage() for record in caplog.records] == [
@@ -130,11 +134,12 @@ def test_write_tool_denied_raises_permission_error(caplog: pytest.LogCaptureFixt
 def test_write_tool_timeout_raises_timeout_error(caplog: pytest.LogCaptureFixture) -> None:
     """Log the expiration message and raise a timeout error."""
     ctx, approval_manager, session, _ = make_ctx(ApprovalDecision.EXPIRED)
-    tool = wrapped_tool()
+    tool, calls = wrapped_tool()
 
     with pytest.raises(TimeoutError):
         await_result(tool(ctx, "spy"))
 
+    assert calls == []
     assert len(approval_manager.requests) == 1
     assert session.messages == []
     assert [record.getMessage() for record in caplog.records] == [
@@ -148,7 +153,7 @@ def test_write_tool_accepts_base_context() -> None:
         _request_context=cast(Any, request_context),
         _mcp_server=None,
     )
-    tool = wrapped_tool()
+    tool, _ = wrapped_tool()
 
     result = await_result(tool(base_ctx, "spy"))
 
@@ -159,7 +164,7 @@ def test_write_tool_accepts_base_context() -> None:
 
 def test_progress_notifications_emitted_when_supported() -> None:
     ctx, approval_manager, session, _ = make_ctx(ApprovalDecision.APPROVED, progress_token="token-1")
-    tool = wrapped_tool()
+    tool, _ = wrapped_tool()
 
     result = await_result(tool(ctx, "spy"))
 
