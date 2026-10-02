@@ -10,6 +10,7 @@ from enum import Enum
 from typing import Any
 
 _DEFAULT_TTL: float = 600.0  # 10 minutes
+_MAX_ID_ATTEMPTS = 8
 
 
 class PreviewOperation(str, Enum):
@@ -82,10 +83,12 @@ class PreviewStore:
             raise ValueError("Placement previews cannot bind a replacement target.")
 
         self._prune()
-        while True:
+        for _ in range(_MAX_ID_ATTEMPTS):
             preview_id = secrets.token_hex(8)
             if preview_id not in self._entries:
                 break
+        else:
+            raise RuntimeError("Could not generate a unique preview id.")
         self._entries[preview_id] = PreviewEntry(
             order_spec=copy.deepcopy(order_spec),
             account_hash=account_hash,
