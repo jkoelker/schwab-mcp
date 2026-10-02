@@ -161,6 +161,13 @@ uv run pytest
 uv run ruff format . && uv run ruff check .
 ```
 
+### Mutation testing
+
+Run a local mutation campaign with `make mutation` (two workers). The weekly
+GitHub Actions workflow runs Sundays at 07:29 UTC and also supports manual
+runs. CI limits the mutation step to 20 minutes and saves reports for 14 days;
+surviving mutants are informational and do not fail the build by score.
+
 ## License
 
 MIT License.
