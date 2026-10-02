@@ -15,6 +15,8 @@ from schwab_mcp.approvals import (
     DiscordApprovalManager,
     DiscordApprovalSettings,
     NoOpApprovalManager,
+    SignalApprovalManager,
+    SignalApprovalSettings,
 )
 from schwab_mcp.server import SchwabMCPServer, send_error_response
 
@@ -123,12 +125,47 @@ def _select_write_mode(
     discord_channel_id: int | None,
     approver_values: tuple[str, ...],
     discord_timeout: int,
+    signal_api_url: str,
+    signal_account: str | None,
+    signal_approver: tuple[str, ...],
+    signal_timeout: int,
+    signal_account_name: tuple[str, ...],
 ) -> tuple[ApprovalManager, bool] | None:
     """Choose write access and its approval manager from resolved CLI values."""
     if jesus_take_the_wheel:
         return NoOpApprovalManager(), True
 
     discord_requested = any((discord_token, discord_channel_id, approver_values))
+    signal_requested = any((signal_account, signal_approver))
+    if discord_requested and signal_requested:
+        send_error_response(
+            "Configure either Discord or Signal approvals, not both.",
+            code=400,
+            details={"discord": True, "signal": True},
+        )
+        return None
+    if signal_requested:
+        approver_numbers = SignalApprovalManager.authorized_numbers(signal_approver)
+        if not signal_account or not approver_numbers:
+            send_error_response(
+                "Signal approval configuration is required to enable write tools.",
+                code=400,
+                details={
+                    "missing_account": not bool(signal_account),
+                    "missing_approvers": not bool(approver_numbers),
+                },
+            )
+            return None
+        manager = SignalApprovalManager(
+            SignalApprovalSettings(
+                api_url=signal_api_url,
+                account=signal_account,
+                approver_numbers=approver_numbers,
+                timeout_seconds=float(signal_timeout),
+                account_names=SignalApprovalManager.parse_account_names(signal_account_name),
+            )
+        )
+        return manager, True
     if not discord_requested:
         return NoOpApprovalManager(), False
 
@@ -204,6 +241,54 @@ def _select_write_mode(
     help="Seconds to wait for Discord approval before timing out.",
 )
 @click.option(
+    "--signal-api-url",
+    type=str,
+    default="http://127.0.0.1:8080",
+    show_default=True,
+    envvar="SCHWAB_MCP_SIGNAL_API_URL",
+    help=(
+        "Base URL of the local signal-cli REST daemon "
+        "(bbernhard/signal-cli-rest-api). The daemon must run in "
+        "MODE=json-rpc (or json-rpc-native); other modes cannot stream "
+        "replies and would silently consume them."
+    ),
+)
+@click.option(
+    "--signal-account",
+    type=str,
+    envvar="SCHWAB_MCP_SIGNAL_ACCOUNT",
+    help="E.164 number the signal-cli daemon is registered as.",
+)
+@click.option(
+    "--signal-approver",
+    type=str,
+    multiple=True,
+    help=(
+        "E.164 number allowed to approve or deny. Pass multiple times for "
+        "several reviewers, or set SCHWAB_MCP_SIGNAL_APPROVERS to a "
+        "comma-separated list."
+    ),
+)
+@click.option(
+    "--signal-timeout",
+    type=int,
+    default=600,
+    show_default=True,
+    envvar="SCHWAB_MCP_SIGNAL_TIMEOUT",
+    help="Seconds to wait for Signal approval before timing out.",
+)
+@click.option(
+    "--signal-account-name",
+    type=str,
+    multiple=True,
+    help=(
+        "Friendly name to display in approval messages for an account, "
+        "keyed by the last 4 chars of its hash. Format: 'last4=Name'. "
+        "Pass multiple times, or set SCHWAB_MCP_SIGNAL_ACCOUNT_NAMES to a "
+        "comma-separated value (e.g. '5805=Rollover IRA,71F7=Roth IRA')."
+    ),
+)
+@click.option(
     "--json",
     "json_output",
     default=False,
@@ -244,6 +329,11 @@ def server(
     discord_channel_id: int | None,
     discord_approver: tuple[str, ...],
     discord_timeout: int,
+    signal_api_url: str,
+    signal_account: str | None,
+    signal_approver: tuple[str, ...],
+    signal_timeout: int,
+    signal_account_name: tuple[str, ...],
     no_technical_tools: bool,
     json_output: bool,
     use_http: bool,
@@ -317,19 +407,51 @@ def server(
             if env_approvers:
                 approver_values = tuple(value.strip() for value in env_approvers.split(",") if value.strip())
 
+        # Signal env vars are comma-split by hand (not via Click's envvar=):
+        # Click splits multiple=True env values on whitespace, which mangles
+        # comma-separated lists and names containing spaces.
+        signal_approver_values: tuple[str, ...] = signal_approver
+        if not signal_approver_values:
+            env_signal_approvers = os.getenv("SCHWAB_MCP_SIGNAL_APPROVERS")
+            if env_signal_approvers:
+                signal_approver_values = tuple(
+                    value.strip() for value in env_signal_approvers.split(",") if value.strip()
+                )
+
+        signal_account_name_values: tuple[str, ...] = signal_account_name
+        if not signal_account_name_values:
+            env_signal_names = os.getenv("SCHWAB_MCP_SIGNAL_ACCOUNT_NAMES")
+            if env_signal_names:
+                # parse_account_names comma-splits each entry itself.
+                signal_account_name_values = (env_signal_names,)
+
         write_mode = _select_write_mode(
             jesus_take_the_wheel=jesus_take_the_wheel,
             discord_token=discord_token,
             discord_channel_id=discord_channel_id,
             approver_values=approver_values,
             discord_timeout=discord_timeout,
+            signal_api_url=signal_api_url,
+            signal_account=signal_account,
+            signal_approver=signal_approver_values,
+            signal_timeout=signal_timeout,
+            signal_account_name=signal_account_name_values,
         )
         if write_mode is None:
             return 1
         approval_manager, allow_write = write_mode
 
-        if jesus_take_the_wheel and discord_token:
-            click.echo("Warning: --jesus-take-the-wheel bypasses Discord approvals.", err=True)
+        backend_configured = any(
+            (
+                discord_token,
+                discord_channel_id,
+                approver_values,
+                signal_account,
+                signal_approver_values,
+            )
+        )
+        if jesus_take_the_wheel and backend_configured:
+            click.echo("Warning: --jesus-take-the-wheel bypasses configured approvals.", err=True)
 
         server = SchwabMCPServer(
             APP_NAME,

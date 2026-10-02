@@ -6,8 +6,8 @@
 market data, option chains, price history, optional technical indicators, and
 approval-gated order workflows to MCP clients. The repository packages a Click
 CLI, Schwab OAuth/token persistence helpers, a FastMCP stdio server, static MCP
-resources, typed request context facades, order preview caching, and Discord
-approval infrastructure for write operations.
+resources, typed request context facades, order preview caching, and
+Discord/Signal approval infrastructure for write operations.
 
 ## System Entry Points
 
@@ -27,7 +27,7 @@ approval infrastructure for write operations.
 |-----------|------------------------|--------------|
 | `src/` | Installable Python source tree containing the Schwab MCP server package and its CLI/runtime modules. | [View Map](src/codemap.md) |
 | `src/schwab_mcp/` | Core application package: CLI, OAuth/token lifecycle, FastMCP server adapter, context model, static resources, and preview cache. | [View Map](src/schwab_mcp/codemap.md) |
-| `src/schwab_mcp/approvals/` | Approval abstraction and Discord-backed approval workflow for Schwab write tools. | [View Map](src/schwab_mcp/approvals/codemap.md) |
+| `src/schwab_mcp/approvals/` | Approval abstraction and the Discord- and Signal-backed approval workflows for Schwab write tools. | [View Map](src/schwab_mcp/approvals/codemap.md) |
 | `src/schwab_mcp/tools/` | MCP tool layer that adapts Schwab API operations, response shaping, order builders, preview/place workflows, and write approvals. | [View Map](src/schwab_mcp/tools/codemap.md) |
 | `src/schwab_mcp/tools/technical/` | Optional technical-analysis tools using Schwab price history and `pandas_ta_classic`/pandas calculations. | [View Map](src/schwab_mcp/tools/technical/codemap.md) |
 
@@ -66,8 +66,8 @@ approval infrastructure for write operations.
   builders.
 - MCP integration uses `mcp.server.fastmcp.FastMCP`, FastMCP `Context`, static
   resources, tool annotations, and stdio transport.
-- Approval integration uses a process-local `ApprovalManager` interface with a
-  Discord implementation for human decisions and a no-op implementation for
-  disabled/bypassed write modes.
+- Approval integration uses a process-local `ApprovalManager` interface with
+  Discord and Signal implementations for human decisions and a no-op
+  implementation for disabled/bypassed write modes.
 - Optional analytics integration loads `pandas_ta_classic`, pandas, and numpy
   only when technical tools are enabled and available.
