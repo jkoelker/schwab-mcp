@@ -385,7 +385,7 @@ async def test_require_sends_pending_embed_with_tool_name() -> None:
 
 
 @pytest.mark.anyio
-async def test_require_times_out_returns_expired() -> None:
+async def test_require_expires_after_configured_timeout_and_cleans_up() -> None:
     mgr = make_manager(make_settings(timeout_seconds=0.01))
     mgr._ready.set()
 
@@ -394,24 +394,12 @@ async def test_require_times_out_returns_expired() -> None:
     channel.send = AsyncMock(return_value=msg)
     mgr._channel = channel
 
-    decision = await mgr.require(make_request())
+    # The outer bound is a test guard only: if require() stops honoring
+    # timeout_seconds, fail fast instead of waiting for a human forever.
+    decision = await asyncio.wait_for(mgr.require(make_request()), timeout=2.0)
 
     assert decision == ApprovalDecision.EXPIRED
     msg.edit.assert_awaited_once()
-
-
-@pytest.mark.anyio
-async def test_require_times_out_cleans_up_pending() -> None:
-    mgr = make_manager(make_settings(timeout_seconds=0.01))
-    mgr._ready.set()
-
-    channel = make_fake_channel()
-    msg = make_fake_message(channel)
-    channel.send = AsyncMock(return_value=msg)
-    mgr._channel = channel
-
-    await mgr.require(make_request())
-
     assert msg.id not in mgr._pending
 
 
