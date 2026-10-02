@@ -191,3 +191,27 @@ def test_id_format():
     assert len(preview_id) == 16
     assert preview_id == preview_id.lower()
     assert all(c in "0123456789abcdef" for c in preview_id)
+
+
+def test_put_retries_when_generated_id_is_already_in_use(monkeypatch):
+    generated_ids = iter(["a" * 16, "a" * 16, "b" * 16])
+    monkeypatch.setattr(previews_module.secrets, "token_hex", lambda nbytes: next(generated_ids))
+    store = PreviewStore()
+
+    first_id = store.put(ACCOUNT, SPEC, TOOL, "first", operation=PreviewOperation.PLACE_ORDER)
+    second_id = store.put(ACCOUNT, SPEC, TOOL, "second", operation=PreviewOperation.PLACE_ORDER)
+
+    assert (first_id, second_id) == ("a" * 16, "b" * 16)
+    assert store.pop(first_id, ACCOUNT, operation=PreviewOperation.PLACE_ORDER).summary == "first"
+    assert store.pop(second_id, ACCOUNT, operation=PreviewOperation.PLACE_ORDER).summary == "second"
+
+
+def test_put_fails_without_overwriting_when_no_unique_id_is_found(monkeypatch):
+    monkeypatch.setattr(previews_module.secrets, "token_hex", lambda nbytes: "a" * 16)
+    store = PreviewStore()
+    existing_id = store.put(ACCOUNT, SPEC, TOOL, "existing", operation=PreviewOperation.PLACE_ORDER)
+
+    with pytest.raises(RuntimeError, match="unique preview id"):
+        store.put(ACCOUNT, SPEC, TOOL, "new", operation=PreviewOperation.PLACE_ORDER)
+
+    assert store.pop(existing_id, ACCOUNT, operation=PreviewOperation.PLACE_ORDER).summary == "existing"
