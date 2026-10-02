@@ -13,7 +13,6 @@ from schwab.client import AsyncClient
 from schwab_mcp.approvals import ApprovalDecision, ApprovalManager, ApprovalRequest
 from schwab_mcp.context import SchwabServerContext
 from schwab_mcp.tools import orders
-from schwab_mcp.tools._registration import register_tool
 
 ACCOUNT_HASH = "account-hash-42"
 ORDER_ID = "order-987"
@@ -86,7 +85,7 @@ def registered_cancel_tool(
         _mcp_server=server,
     )
 
-    register_tool(server, orders.cancel_order, write=True)
+    orders.register(server, allow_write=True)
     tool_manager = getattr(server, "_tool_manager")
     tool = next(tool for tool in cast(list[Tool], tool_manager.list_tools()) if tool.name == "cancel_order")
     return tool, context, client, approvals

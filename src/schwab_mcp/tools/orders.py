@@ -1,6 +1,7 @@
 """Order placement, management, and preview tools for the Schwab MCP server."""
 
 import logging
+import re
 import uuid
 from collections.abc import Callable
 from dataclasses import dataclass
@@ -46,6 +47,7 @@ from schwab_mcp.tools.order_helpers import (
 from schwab_mcp.tools.utils import JSONType, ResponseHandler, SchwabAPIError, call, parse_date
 
 logger = logging.getLogger(__name__)
+_SAFE_ORDER_IDENTIFIER = re.compile(r"[A-Za-z0-9_-]+", re.ASCII)
 
 _COMPACT_ORDER_TOP_FIELDS = frozenset(
     {
@@ -583,18 +585,28 @@ class OrderDesc:
         )
 
 
-def _order_summary_from_desc(desc: OrderDesc) -> str:
-    """Build a normalized reviewer summary from a validated order description."""
-    parts = [desc.instruction.upper(), str(desc.quantity), desc.symbol, desc.order_type.upper()]
-    if desc.price is not None:
-        parts.append(f"@ ${desc.price:.2f}")
-    if desc.stop_price is not None:
-        parts.append(f"stop ${desc.stop_price:.2f}")
-    if desc.trail_offset is not None:
-        parts.append(f"offset={desc.trail_offset:g} {desc.trail_type.upper()}")
-    if desc.asset_type == "OPTION":
+def _replacement_summary(order_spec: dict[str, Any]) -> str:
+    """Describe the exact normalized replacement payload for reviewer approval."""
+    leg = order_spec["orderLegCollection"][0]
+    instrument = leg["instrument"]
+    parts = [leg["instruction"], str(leg["quantity"]), instrument["symbol"], order_spec["orderType"]]
+    if "price" in order_spec:
+        parts.append(f"@ ${order_spec['price']}")
+    if "stopPrice" in order_spec:
+        parts.append(f"stop ${order_spec['stopPrice']}")
+    if "stopPriceOffset" in order_spec:
+        parts.append(f"offset={order_spec['stopPriceOffset']} {order_spec.get('stopPriceLinkType', 'VALUE')}")
+    if instrument.get("assetType") == "OPTION":
         parts.append("OPTION")
+    parts.extend(f"{field.lower()}={order_spec[field]}" for field in ("session", "duration") if field in order_spec)
     return " ".join(parts)
+
+
+def _validate_order_identifier(value: str, name: str) -> str:
+    """Validate an identifier before it can be interpolated into a URL path."""
+    if not isinstance(value, str) or _SAFE_ORDER_IDENTIFIER.fullmatch(value) is None:
+        raise ValueError(f"{name} must contain only ASCII letters, digits, underscores, and hyphens")
+    return value
 
 
 def _build_order_from_desc(
@@ -702,7 +714,7 @@ async def _post_write_order_result(
     }
     try:
         result = await call(ctx.orders.get_order, order_id=normalized_order_id, account_hash=account_hash)
-    except (SchwabAPIError, ValueError):
+    except (SchwabAPIError, ValueError, httpx.TransportError):
         return fallback
     if not isinstance(result, dict):
         return fallback
@@ -951,6 +963,7 @@ async def _finalize_preview(
     invoked, so every preview tool (current and future) is covered by the
     single call here.
     """
+    _validate_order_identifier(account_hash, "account_hash")
     await _require_spec_supported_asset_types(ctx.tools, order_spec)
     preview = await call(ctx.orders.preview_order, account_hash=account_hash, order_spec=order_spec)
     preview_id = ctx.previews.put(
@@ -1077,6 +1090,28 @@ async def cancel_order(
     order_id: Annotated[str, "Order ID to cancel"],
 ) -> JSONType:
     """Cancels a pending order. Cannot cancel executed/terminal orders. Params: account_hash, order_id. Returns updated order details (compact/pruned, same shape as get_order) after cancellation; falls back to a minimal {orderId, status, note} payload if the post-cancel status fetch fails or returns no data. *Write operation.*"""
+    _validate_order_identifier(account_hash, "account_hash")
+    _validate_order_identifier(order_id, "order_id")
+
+    request = ApprovalRequest(
+        id=str(uuid.uuid4()),
+        tool_name="cancel_order",
+        request_id=ctx.request_id,
+        client_id=ctx.client_id,
+        arguments={"account_hash": repr(account_hash), "order_id": repr(order_id)},
+    )
+    decision = await run_approval(ctx, request)
+    if decision is not ApprovalDecision.APPROVED:
+        message = (
+            "Write operation for tool 'cancel_order' denied by reviewer."
+            if decision is ApprovalDecision.DENIED
+            else "Approval request for tool 'cancel_order' expired."
+        )
+        logger.warning(message)
+        if decision is ApprovalDecision.DENIED:
+            raise PermissionError(message)
+        raise TimeoutError(message)
+
     client = ctx.orders
     await call(client.cancel_order, order_id=order_id, account_hash=account_hash)
     fallback: JSONType = {
@@ -1086,7 +1121,7 @@ async def cancel_order(
     }
     try:
         result = await call(client.get_order, order_id=order_id, account_hash=account_hash)
-    except SchwabAPIError:
+    except (SchwabAPIError, ValueError, httpx.TransportError):
         return fallback
     if not isinstance(result, dict):
         return fallback
@@ -1479,17 +1514,16 @@ async def preview_replacement_order(
     to both the account and target order and can only be executed by
     replace_previewed_order.
     """
-    normalized_order_id = order_id.strip()
-    if not normalized_order_id:
-        raise ValueError("order_id must not be empty")
-    order_spec, desc = _prepare_replacement_order(cast(dict[str, Any], replacement_order))
+    _validate_order_identifier(account_hash, "account_hash")
+    normalized_order_id = _validate_order_identifier(order_id.strip(), "order_id")
+    order_spec, _ = _prepare_replacement_order(cast(dict[str, Any], replacement_order))
     await _require_spec_supported_asset_types(ctx.tools, order_spec)
     preview = await call(ctx.orders.preview_order, account_hash=account_hash, order_spec=order_spec)
     preview_id = ctx.previews.put(
         account_hash,
         order_spec,
         "preview_replacement_order",
-        _order_summary_from_desc(desc),
+        _replacement_summary(order_spec),
         operation=PreviewOperation.REPLACE_ORDER,
         target_order_id=normalized_order_id,
     )
@@ -1618,8 +1652,6 @@ _READ_ONLY_TOOLS = (
     preview_replacement_order,
 )
 
-_WRITE_TOOLS = (cancel_order,)  # keeps automatic argument-dump approval
-
 
 def register(
     server: MCPServer,
@@ -1634,8 +1666,13 @@ def register(
     if not allow_write:
         return
 
-    for func in _WRITE_TOOLS:
-        register_tool(server, func, write=True, result_transform=result_transform)
+    register_tool(
+        server,
+        cancel_order,
+        write=False,
+        annotations=ToolAnnotations(read_only_hint=False, destructive_hint=True),
+        result_transform=result_transform,
+    )
 
     # place_previewed_order builds its own ApprovalRequest (with the
     # cached human-readable summary) instead of a raw argument dump, so
