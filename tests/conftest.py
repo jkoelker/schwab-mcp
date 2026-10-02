@@ -4,14 +4,15 @@ import asyncio
 from collections.abc import Callable
 from pathlib import Path
 from types import SimpleNamespace
-from typing import Any, cast
+from typing import Any, NoReturn, cast
 
 import pytest
 import yaml
 from click.testing import CliRunner
+from schwab import auth as schwab_auth
 from schwab.client import AsyncClient
 
-from schwab_mcp import cli
+from schwab_mcp import auth as mcp_auth, cli
 from schwab_mcp.approvals import ApprovalDecision, ApprovalManager, ApprovalRequest
 from schwab_mcp.context import SchwabContext, SchwabServerContext
 
@@ -37,6 +38,32 @@ class CliFakeAsyncClient:
 def cli_runner() -> CliRunner:
     """Provide a Click runner for CLI tests."""
     return CliRunner()
+
+
+@pytest.fixture(autouse=True)
+def prevent_real_schwab_auth(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Fail fast if a test reaches real Schwab OAuth or its I/O boundaries."""
+
+    def unexpected_oauth(*args: Any, **kwargs: Any) -> NoReturn:
+        raise AssertionError("A test attempted to start real Schwab OAuth")
+
+    monkeypatch.setattr(schwab_auth, "easy_client", unexpected_oauth)
+    monkeypatch.setattr(schwab_auth, "client_from_login_flow", unexpected_oauth)
+    monkeypatch.setattr(schwab_auth, "client_from_received_url", unexpected_oauth)
+    monkeypatch.setattr(schwab_auth, "client_from_access_functions", unexpected_oauth)
+    monkeypatch.setattr(mcp_auth, "client_from_access_functions", unexpected_oauth)
+    monkeypatch.setattr(mcp_auth, "ProcessType", unexpected_oauth)
+    monkeypatch.setattr(mcp_auth, "QueueType", unexpected_oauth)
+    monkeypatch.setattr(
+        schwab_auth,
+        "httpx",
+        SimpleNamespace(get=unexpected_oauth, ConnectError=schwab_auth.httpx.ConnectError),
+    )
+    monkeypatch.setattr(
+        schwab_auth,
+        "webbrowser",
+        SimpleNamespace(get=unexpected_oauth, open=unexpected_oauth),
+    )
 
 
 @pytest.fixture
