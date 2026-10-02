@@ -13,6 +13,7 @@ from schwab_mcp.approvals.base import (
     ApprovalDecision,
     ApprovalManager,
     ApprovalRequest,
+    format_arguments,
 )
 
 logger = logging.getLogger(__name__)
@@ -99,10 +100,29 @@ class DiscordApprovalManager(ApprovalManager):
 
     async def require(self, request: ApprovalRequest) -> ApprovalDecision:
         """Post an approval request to Discord and wait for a reaction."""
+        try:
+            embed = self._build_pending_embed(request)
+        except ValueError:
+            logger.warning("Approval request %s exceeds Discord embed limits", request.id)
+            try:
+                await self.start()
+                channel = await self._ensure_channel()
+                await channel.send(
+                    content=(
+                        f"❌ schwab-mcp auto-denied '{request.tool_name}' "
+                        f"(approval {request.id}): arguments exceed Discord's "
+                        "1024-character display limit. Approving a partial "
+                        "view is unsafe."
+                    )
+                )
+            except discord.HTTPException:
+                logger.exception("Failed to post Discord auto-denial notice for request %s", request.id)
+            return ApprovalDecision.DENIED
+
         await self.start()
         channel = await self._ensure_channel()
 
-        message = await channel.send(embed=self._build_pending_embed(request))
+        message = await channel.send(embed=embed)
         try:
             await message.add_reaction("✅")
             await message.add_reaction("❌")
@@ -270,15 +290,9 @@ class DiscordApprovalManager(ApprovalManager):
 
     @staticmethod
     def _format_arguments(arguments: Mapping[str, str]) -> str:
-        if not arguments:
-            return "`<none>`"
-
-        lines: list[str] = []
-        for key, value in arguments.items():
-            lines.append(f"`{key}` = {value}")
-        rendered = "\n".join(lines)
-        if len(rendered) > 1000:
-            return f"{rendered[:997]}..."
+        rendered = discord.utils.escape_mentions(format_arguments(arguments))
+        if len(rendered) > 1024:
+            raise ValueError("Discord argument field exceeds the 1024-character limit")
         return rendered
 
     @staticmethod
