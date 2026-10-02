@@ -63,13 +63,22 @@ schwab-mcp server \
   --discord-token BOT_TOKEN \
   --discord-channel-id CHANNEL_ID \
   --discord-approver YOUR_USER_ID
+
+# Or approve over Signal instead (requires a local bbernhard/signal-cli-rest-api
+# daemon running in MODE=json-rpc or json-rpc-native; other modes cannot
+# stream replies and silently consume them)
+schwab-mcp server \
+  --client-id YOUR_KEY \
+  --client-secret YOUR_SECRET \
+  --signal-account +15555550100 \
+  --signal-approver +15555550199
 ```
 
 Default transport is **stdio** (Claude Desktop and most local MCP clients).
 Use `--http` for FastMCP streamable-http when fronting the server with a
 gateway or remote connector (MCP endpoint is `/mcp` on the bound host:port).
 
-> **Note**: For trading capabilities, you must set up a Discord bot for approvals. See [Discord Setup Guide](docs/discord-setup.md).
+> **Note**: For trading capabilities, you must set up an approval backend: either a Discord bot (see [Discord Setup Guide](docs/discord-setup.md)) or Signal via a local [signal-cli REST daemon](https://github.com/bbernhard/signal-cli-rest-api) running in `MODE=json-rpc` (or `json-rpc-native`). Configure either backend, not both. (The `signal` extra declares the websockets dependency explicitly; a default install already includes it transitively.)
 
 ## Configuration
 

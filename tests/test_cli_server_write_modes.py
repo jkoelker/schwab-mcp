@@ -16,6 +16,7 @@ from schwab_mcp.approvals import (
     ApprovalManager,
     ApprovalRequest,
     NoOpApprovalManager,
+    SignalApprovalManager,
 )
 from schwab_mcp.server import MCPServer, SchwabMCPServer
 
@@ -278,6 +279,142 @@ def test_server_reads_approvers_from_env_var(monkeypatch, cli_server_capture, cl
 
 
 # ---------------------------------------------------------------------------
+# Signal backend wiring
+# ---------------------------------------------------------------------------
+
+
+def test_server_enables_write_mode_with_signal(cli_server_capture, cli_runner):
+    """Enable write mode when Signal approval is configured via flags."""
+    captured = cli_server_capture
+    result = cli_runner.invoke(
+        cli.cli,
+        [
+            "server",
+            "--client-id",
+            "client",
+            "--client-secret",
+            "secret",
+            "--signal-account",
+            "+15555550100",
+            "--signal-approver",
+            "+15555550199",
+            "--signal-approver",
+            "+15555550198",
+        ],
+        catch_exceptions=False,
+    )
+
+    assert result.exit_code == 0
+    assert captured["allow_write"] is True
+    manager = captured["approval_manager"]
+    assert isinstance(manager, SignalApprovalManager)
+    assert manager._settings.approver_numbers == frozenset({"+15555550199", "+15555550198"})
+
+
+def test_server_reads_signal_approvers_from_env_var(monkeypatch, cli_server_capture, cli_runner):
+    """SCHWAB_MCP_SIGNAL_APPROVERS is comma-split by hand; Click's envvar=
+    handling would split on whitespace and produce one bogus approver."""
+    captured = cli_server_capture
+    monkeypatch.setenv("SCHWAB_MCP_SIGNAL_APPROVERS", "+15555550199,+15555550198")
+
+    result = cli_runner.invoke(
+        cli.cli,
+        [
+            "server",
+            "--client-id",
+            "client",
+            "--client-secret",
+            "secret",
+            "--signal-account",
+            "+15555550100",
+        ],
+        catch_exceptions=False,
+    )
+
+    assert result.exit_code == 0
+    manager = captured["approval_manager"]
+    assert isinstance(manager, SignalApprovalManager)
+    assert manager._settings.approver_numbers == frozenset({"+15555550199", "+15555550198"})
+
+
+def test_server_reads_signal_account_names_from_env_var(monkeypatch, cli_server_capture, cli_runner):
+    """SCHWAB_MCP_SIGNAL_ACCOUNT_NAMES keeps spaces inside names; Click's
+    envvar= handling would split 'Rollover IRA' into two entries."""
+    captured = cli_server_capture
+    monkeypatch.setenv("SCHWAB_MCP_SIGNAL_ACCOUNT_NAMES", "5805=Rollover IRA,71F7=Roth IRA")
+
+    result = cli_runner.invoke(
+        cli.cli,
+        [
+            "server",
+            "--client-id",
+            "client",
+            "--client-secret",
+            "secret",
+            "--signal-account",
+            "+15555550100",
+            "--signal-approver",
+            "+15555550199",
+        ],
+        catch_exceptions=False,
+    )
+
+    assert result.exit_code == 0
+    manager = captured["approval_manager"]
+    assert isinstance(manager, SignalApprovalManager)
+    assert dict(manager._settings.account_names) == {
+        "5805": "Rollover IRA",
+        "71F7": "Roth IRA",
+    }
+
+
+def test_server_rejects_both_discord_and_signal(monkeypatch, cli_server_capture, cli_runner):
+    """Configuring both backends at once is an error exit."""
+    result = cli_runner.invoke(
+        cli.cli,
+        [
+            "server",
+            "--client-id",
+            "client",
+            "--client-secret",
+            "secret",
+            "--discord-token",
+            "tok",
+            "--discord-channel-id",
+            "123",
+            "--discord-approver",
+            "456",
+            "--signal-account",
+            "+15555550100",
+            "--signal-approver",
+            "+15555550199",
+        ],
+    )
+
+    assert result.exit_code == 1
+    assert "not both" in result.output
+
+
+def test_server_exits_when_signal_approvers_missing(monkeypatch, cli_server_capture, cli_runner):
+    """Signal account provided but no approvers → error exit."""
+    result = cli_runner.invoke(
+        cli.cli,
+        [
+            "server",
+            "--client-id",
+            "client",
+            "--client-secret",
+            "secret",
+            "--signal-account",
+            "+15555550100",
+        ],
+    )
+
+    assert result.exit_code == 1
+    assert "Signal approval configuration is required" in result.output
+
+
+# ---------------------------------------------------------------------------
 # Missing Discord token/channel
 # ---------------------------------------------------------------------------
 
@@ -381,7 +518,34 @@ def test_server_warns_when_jesus_flag_and_discord_token_both_set(
 
     assert result.exit_code == 0
     # Warning goes to stderr
-    assert "bypasses Discord approvals" in (result.output + (result.stderr or ""))
+    assert "bypasses configured approvals" in (result.output + (result.stderr or ""))
+
+
+def test_server_warns_when_jesus_flag_and_signal_configured(
+    monkeypatch,
+    cli_server_capture,
+    cli_runner,
+):
+    """--jesus-take-the-wheel with Signal options emits the bypass warning too."""
+    result = cli_runner.invoke(
+        cli.cli,
+        [
+            "server",
+            "--client-id",
+            "client",
+            "--client-secret",
+            "secret",
+            "--jesus-take-the-wheel",
+            "--signal-account",
+            "+15555550100",
+            "--signal-approver",
+            "+15555550199",
+        ],
+        catch_exceptions=False,
+    )
+
+    assert result.exit_code == 0
+    assert "bypasses configured approvals" in (result.output + (result.stderr or ""))
 
 
 # ---------------------------------------------------------------------------
@@ -421,6 +585,11 @@ def isolated_server_cli_environment(monkeypatch, tmp_path: Path) -> Path:
         "SCHWAB_MCP_DISCORD_CHANNEL_ID",
         "SCHWAB_MCP_DISCORD_APPROVERS",
         "SCHWAB_MCP_DISCORD_TIMEOUT",
+        "SCHWAB_MCP_SIGNAL_API_URL",
+        "SCHWAB_MCP_SIGNAL_ACCOUNT",
+        "SCHWAB_MCP_SIGNAL_APPROVERS",
+        "SCHWAB_MCP_SIGNAL_TIMEOUT",
+        "SCHWAB_MCP_SIGNAL_ACCOUNT_NAMES",
         "MCP_HOST",
         "MCP_PORT",
     ):
