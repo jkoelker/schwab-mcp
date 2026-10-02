@@ -54,12 +54,18 @@ compact defaults with `verbose=True` escape hatches where response size matters.
     submit Schwab `preview_order`, cache the spec in `ctx.previews`, and return
     `preview_id` plus reviewer/user action text. The guard lives in
     `_finalize_preview` and in `preview_replacement_order`, so every preview
-    path shares it. `place_previewed_order()` consumes only PLACE_ORDER entries,
+    path shares it. Preview account hashes are validated before asset lookup
+    or preview requests; replacement target IDs use the same safe identifier
+    rule. `place_previewed_order()` consumes only PLACE_ORDER entries,
     while `preview_replacement_order()` caches a typed single-leg replacement
     bound to an existing order and `replace_previewed_order()` consumes only
-    REPLACE_ORDER entries. Both custom executors request approval with a
-    human-readable summary and return compact post-write order status.
-    `cancel_order()` uses the generic write-tool approval wrapper.
+    REPLACE_ORDER entries. Both custom executors request approval and return
+    compact post-write order status. Replacement approval summaries reflect the
+    built payload, and replacement target IDs reject URL-unsafe values. A failed
+    status fetch, including an HTTP transport failure, preserves the successful
+    write response as a fallback. `cancel_order()` validates both identifiers
+    before custom approval and the cancel request, and preserves its fallback
+    when status lookup fails with an API, parsing, or transport error.
 
 ## Integration
 

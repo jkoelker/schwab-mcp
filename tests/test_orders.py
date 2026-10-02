@@ -409,6 +409,8 @@ class TestCancelOrder:
                 SchwabAPIError(status_code=404, url="/order", body="not found"),
                 id="api-error",
             ),
+            pytest.param(ValueError("invalid status response"), id="value-error"),
+            pytest.param(httpx.ConnectError("status unavailable"), id="transport-error"),
         ],
     )
     def test_returns_fallback_when_status_fetch_fails(self, monkeypatch, status_fetch):
@@ -1546,7 +1548,7 @@ class TestPreviewReplacementOrder:
         assert entry.target_order_id == "order-9"
         assert entry.order_spec["orderType"] == "LIMIT"
         assert entry.order_spec["orderLegCollection"][0]["instruction"] == "BUY"
-        assert entry.summary == "BUY 100 AAPL LIMIT @ $150.00"
+        assert entry.summary == "BUY 100 AAPL LIMIT @ $150.00 session=NORMAL duration=DAY"
 
     def test_rejects_raw_or_composite_fields(self):
         """Replacement validation rejects Schwab payload and composite fields."""
@@ -1613,7 +1615,7 @@ class TestPreviewReplacementOrder:
         """Replacement previews reject target IDs containing only whitespace."""
         ctx = make_ctx(DummyPreviewClient())
 
-        with pytest.raises(ValueError, match="must not be empty"):
+        with pytest.raises(ValueError, match="order_id must contain only ASCII"):
             run(
                 orders.preview_replacement_order(
                     ctx,

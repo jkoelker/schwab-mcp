@@ -139,6 +139,146 @@ def test_requires_at_least_one_approver_id() -> None:
         DiscordApprovalManager(make_settings(approver_ids=frozenset()))
 
 
+@pytest.mark.anyio
+async def test_pending_message_preserves_late_order_arguments() -> None:
+    mgr = make_manager()
+    mgr._ready.set()
+    channel = make_fake_channel()
+    message = make_fake_message(channel)
+    pending_registered = asyncio.Event()
+
+    class PendingApprovals(dict[int, _PendingApproval]):
+        def __setitem__(self, key: int, value: _PendingApproval) -> None:
+            super().__setitem__(key, value)
+            pending_registered.set()
+
+    mgr._pending = PendingApprovals()
+
+    message.add_reaction = AsyncMock()
+    channel.send.return_value = message
+    mgr._channel = channel
+    mgr.start = AsyncMock()  # type: ignore[method-assign]
+    request = make_request(
+        arguments={
+            "summary": "x" * 960,
+            "account": "1234",
+            "target": "replace order 5678",
+        }
+    )
+
+    approval = asyncio.create_task(mgr.require(request))
+    try:
+        await asyncio.wait_for(pending_registered.wait(), timeout=1)
+        reaction = make_fake_reaction(message, "✅")
+        user = make_fake_user(APPROVER_ID)
+        await mgr._handle_reaction_add(reaction, user)
+        assert await asyncio.wait_for(approval, timeout=1) is ApprovalDecision.APPROVED
+    finally:
+        if not approval.done():
+            approval.cancel()
+            with contextlib.suppress(asyncio.CancelledError):
+                await approval
+
+    embed = channel.send.await_args.kwargs["embed"]
+    argument_field = next(field.value for field in embed.fields if field.name == "Arguments")
+    assert "account" in argument_field and "1234" in argument_field
+    assert "target" in argument_field and "replace order 5678" in argument_field
+
+
+@pytest.mark.anyio
+async def test_oversized_arguments_are_denied_with_notice_not_approval() -> None:
+    mgr = make_manager()
+    mgr._ready.set()
+    channel = make_fake_channel()
+    mgr._channel = channel
+    mgr.start = AsyncMock()  # type: ignore[method-assign]
+    request = make_request(arguments={"summary": "x" * 1025, "account": "1234"})
+
+    assert await asyncio.wait_for(mgr.require(request), timeout=1) is ApprovalDecision.DENIED
+
+    channel.send.assert_awaited_once()
+    assert channel.send.await_args.kwargs == {
+        "content": "❌ schwab-mcp auto-denied 'place_order' (approval approval-1): "
+        "arguments exceed Discord's 1024-character display limit. "
+        "Approving a partial view is unsafe."
+    }
+
+
+@pytest.mark.anyio
+async def test_oversized_arguments_remain_denied_if_notice_send_fails() -> None:
+    mgr = make_manager()
+    mgr._ready.set()
+    channel = make_fake_channel()
+    channel.send = AsyncMock(side_effect=discord.HTTPException(MagicMock(status=500), "Server error"))
+    mgr._channel = channel
+    mgr.start = AsyncMock()  # type: ignore[method-assign]
+
+    decision = await asyncio.wait_for(mgr.require(make_request(arguments={"summary": "x" * 1025})), timeout=1)
+
+    assert decision is ApprovalDecision.DENIED
+    channel.send.assert_awaited_once()
+
+
+@pytest.mark.anyio
+async def test_oversized_arguments_remain_denied_if_channel_lookup_fails() -> None:
+    mgr = make_manager()
+    mgr._ready.set()
+    mgr.start = AsyncMock()  # type: ignore[method-assign]
+    mgr._client.fetch_channel = AsyncMock(side_effect=discord.HTTPException(MagicMock(status=500), "Server error"))
+
+    decision = await asyncio.wait_for(mgr.require(make_request(arguments={"summary": "x" * 1025})), timeout=1)
+
+    assert decision is ApprovalDecision.DENIED
+    mgr._client.fetch_channel.assert_awaited_once_with(CHANNEL_ID)
+    assert mgr._pending == {}
+
+
+@pytest.mark.anyio
+async def test_pending_message_sanitizes_markdown_in_arguments() -> None:
+    mgr = make_manager()
+    mgr._ready.set()
+    channel = make_fake_channel()
+    message = make_fake_message(channel)
+    pending_registered = asyncio.Event()
+
+    class PendingApprovals(dict[int, _PendingApproval]):
+        def __setitem__(self, key: int, value: _PendingApproval) -> None:
+            super().__setitem__(key, value)
+            pending_registered.set()
+
+    mgr._pending = PendingApprovals()
+
+    message.add_reaction = AsyncMock()
+    channel.send.return_value = message
+    mgr._channel = channel
+    mgr.start = AsyncMock()  # type: ignore[method-assign]
+    request = make_request(
+        arguments={
+            "account`**": "123`4 **bold** [link](https://example.com) <@123456789012345678>",
+        }
+    )
+
+    approval = asyncio.create_task(mgr.require(request))
+    try:
+        await asyncio.wait_for(pending_registered.wait(), timeout=1)
+        reaction = make_fake_reaction(message, "✅")
+        user = make_fake_user(APPROVER_ID)
+        await mgr._handle_reaction_add(reaction, user)
+        assert await asyncio.wait_for(approval, timeout=1) is ApprovalDecision.APPROVED
+    finally:
+        if not approval.done():
+            approval.cancel()
+            with contextlib.suppress(asyncio.CancelledError):
+                await approval
+
+    embed = channel.send.await_args.kwargs["embed"]
+    argument_field = next(field.value for field in embed.fields if field.name == "Arguments")
+    assert "accountˋ**" in argument_field
+    assert "123ˋ4 **bold** [link](https://example.com)" in argument_field
+    assert "<@\u200b123456789012345678>" in argument_field
+    assert argument_field.startswith("```\n") and argument_field.endswith("\n```")
+
+
 # ---------------------------------------------------------------------------
 # start() / stop() lifecycle
 # ---------------------------------------------------------------------------
