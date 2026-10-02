@@ -1,4 +1,4 @@
-.PHONY: test test-cov lint lint-fix format format-check typecheck deadcode check all
+.PHONY: test test-cov lint lint-fix format format-check typecheck deadcode mutation check all
 .SILENT:
 
 # Fast test run: pass/fail summary only, no coverage report noise.
@@ -29,6 +29,10 @@ typecheck:
 # Dead-code scan; silent on success, lists findings otherwise.
 deadcode:
 	uv run vulture
+
+# Run a local mutation campaign with two workers.
+mutation:
+	uv run mutmut run --max-children 2
 
 # Run every check. Order: cheapest/fastest first so failures surface early.
 check: format-check lint typecheck deadcode test
