@@ -1,0 +1,113 @@
+name: Mutation tests
+
+on:
+  schedule:
+    - cron: "29 7 * * 0"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: mutmut-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  mutation:
+    name: Weekly mutation campaign
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    permissions:
+      contents: read
+    steps:
+      - name: Check out
+        uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10
+        with:
+          persist-credentials: false
+
+      - name: Install Python
+        uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7
+        with:
+          python-version: "3.14"
+
+      - name: Install uv and sync locked environment
+        run: |
+          python -m pip install --user --disable-pip-version-check "uv==0.12.18"
+          user_base="$(python -m site --user-base)"
+          echo "$user_base/bin" >> "$GITHUB_PATH"
+          export PATH="$user_base/bin:$PATH"
+          uv python install 3.12
+          uv sync --locked --all-groups
+
+      - name: Run mutmut
+        id: mutate
+        timeout-minutes: 20
+        run: |
+          set -o pipefail
+          mkdir -p reports
+          uv run --locked --no-sync mutmut run --max-children 2 2>&1 | tee reports/mutmut-run.log
+
+      - name: Collect mutation report
+        if: ${{ always() }}
+        env:
+          MUTATION_OUTCOME: ${{ steps.mutate.outcome }}
+        run: |
+          set -o pipefail
+          mkdir -p reports
+          printf 'Mutmut step outcome: %s\n' "${MUTATION_OUTCOME:-unknown}" > reports/mutmut-outcome.txt
+          echo "## Mutmut weekly report" >> "$GITHUB_STEP_SUMMARY"
+          printf '\n- Mutmut step outcome: %s\n' "${MUTATION_OUTCOME:-unknown}" >> "$GITHUB_STEP_SUMMARY"
+
+          if [ ! -d mutants ]; then
+            echo 'Mutmut did not create mutants/.' > reports/mutmut-results.txt
+            echo '- No mutation result directory was created.' >> "$GITHUB_STEP_SUMMARY"
+            if [ "${MUTATION_OUTCOME:-}" = success ]; then
+              echo "mutmut succeeded without creating its result directory" >&2
+              exit 1
+            fi
+            exit 0
+          fi
+
+          if [ "${MUTATION_OUTCOME:-}" != success ]; then
+            echo 'Mutation run did not complete successfully; any existing results may be stale or partial.' > reports/mutmut-stats-error.txt
+            echo '- No score summary is shown because the mutation run failed or was interrupted.' >> "$GITHUB_STEP_SUMMARY"
+            exit 0
+          fi
+
+          if ! uv run --locked --no-sync mutmut results --all true > reports/mutmut-results.txt 2> reports/mutmut-results.log; then
+            echo 'Could not collect mutmut results.' >> "$GITHUB_STEP_SUMMARY"
+            exit 1
+          fi
+          if ! uv run --locked --no-sync mutmut export-cicd-stats > reports/mutmut-export.log 2>&1; then
+            echo 'Could not export mutation statistics.' >> "$GITHUB_STEP_SUMMARY"
+            exit 1
+          fi
+
+          stats=mutants/mutmut-cicd-stats.json
+          if [ ! -s "$stats" ]; then
+            echo 'Mutmut produced no statistics file.' > reports/mutmut-stats-error.txt
+            echo '- Mutation statistics are missing.' >> "$GITHUB_STEP_SUMMARY"
+            exit 1
+          fi
+          cp "$stats" reports/mutmut-cicd-stats.json
+          if ! jq -e 'type == "object" and (.total | type) == "number" and (.killed | type) == "number" and (.survived | type) == "number"' "$stats" >/dev/null; then
+            echo 'Mutmut statistics have an invalid schema.' >> "$GITHUB_STEP_SUMMARY"
+            exit 1
+          fi
+          if ! jq -e '.total == ([.killed, .survived, .no_tests, .skipped, .suspicious, .timeout, .check_was_interrupted_by_user, .segfault] | add) and .check_was_interrupted_by_user == 0 and .suspicious == 0' "$stats" >/dev/null; then
+            echo 'Mutation statistics are incomplete or contain unclassified results.' >> "$GITHUB_STEP_SUMMARY"
+            exit 1
+          fi
+          jq -r '"- Mutants: \(.total)", "- Killed: \(.killed)", "- Survivors: \(.survived)", "- No tests: \(.no_tests // 0)", "- Skipped: \(.skipped // 0)", "- Timed out: \(.timeout // 0)"' "$stats" >> "$GITHUB_STEP_SUMMARY"
+          echo 'Survivors are informational. No mutation-score threshold is applied.' >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Upload mutation reports
+        if: ${{ always() }}
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: mutmut-weekly-${{ github.run_id }}
+          path: |
+            reports/
+            mutants/mutmut-cicd-stats.json
+          if-no-files-found: warn
+          retention-days: 14
