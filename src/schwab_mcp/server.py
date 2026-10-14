@@ -16,7 +16,7 @@ from schwab_mcp.approvals import ApprovalManager
 from schwab_mcp.context import SchwabServerContext
 from schwab_mcp.resources import register_resources
 from schwab_mcp.tools import register_tools
-from schwab_mcp.tools.utils import strip_noise
+from schwab_mcp.tools.normalize import strip_noise
 
 logger = logging.getLogger(__name__)
 

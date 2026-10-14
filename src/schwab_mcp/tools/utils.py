@@ -25,37 +25,6 @@ class SchwabAPIError(Exception):
         super().__init__(f"Schwab API request failed; status={status_code}; url={url}; body={body}")
 
 
-def strip_noise(data: JSONType) -> JSONType:
-    """Recursively remove None, "", and {} values from a JSON-like structure.
-
-    Never strips 0, 0.0, or False -- these are meaningful values in financial
-    payloads (e.g. volume: 0, inTheMoney: false). Empty lists are also
-    preserved, since they represent a meaningful "known empty" result (e.g.
-    candles: [], positions: []) rather than an absent field.
-    """
-    if isinstance(data, dict):
-        result = {}
-        for k, v in data.items():
-            stripped = strip_noise(v)
-            if stripped is None or stripped == "":
-                continue
-            if isinstance(stripped, dict) and stripped == {}:
-                continue
-            result[k] = stripped
-        return result
-    if isinstance(data, list):
-        items = []
-        for item in data:
-            stripped = strip_noise(item)
-            if stripped is None or stripped == "":
-                continue
-            if isinstance(stripped, dict) and stripped == {}:
-                continue
-            items.append(stripped)
-        return items
-    return data
-
-
 async def call(
     func: Callable[..., Awaitable[Any]],
     *args: Any,
@@ -111,5 +80,4 @@ __all__ = [
     "JSONType",
     "SchwabAPIError",
     "ResponseHandler",
-    "strip_noise",
 ]
