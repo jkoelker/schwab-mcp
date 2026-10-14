@@ -6,8 +6,9 @@ from typing import Annotated, Any
 from mcp.server.mcpserver import MCPServer
 
 from schwab_mcp.context import SchwabContext
+from schwab_mcp.tools._dates import parse_datetime
 from schwab_mcp.tools._registration import register_tool
-from schwab_mcp.tools.utils import JSONType, call, parse_datetime
+from schwab_mcp.tools.utils import JSONType, call
 
 
 async def get_advanced_price_history(

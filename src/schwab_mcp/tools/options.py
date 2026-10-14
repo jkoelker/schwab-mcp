@@ -8,9 +8,10 @@ from mcp.server.mcpserver import MCPServer
 from pydantic import Field
 
 from schwab_mcp.context import SchwabContext
+from schwab_mcp.tools._dates import parse_date
 from schwab_mcp.tools._protocols import OptionsClient
 from schwab_mcp.tools._registration import register_tool
-from schwab_mcp.tools.utils import JSONType, call, parse_date
+from schwab_mcp.tools.utils import JSONType, call
 
 _EXPIRATION_WINDOW_DAYS = 60
 

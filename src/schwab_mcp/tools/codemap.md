@@ -20,10 +20,15 @@ compact defaults with `verbose=True` escape hatches where response size matters.
   (`accounts`, `orders`, `quotes`, `options`, `price_history`, etc.). These keep
   `SchwabContext` access type-checkable without coupling tool code to concrete
   schwab-py implementations.
-- `utils.py` owns shared parsing and API behavior: `call()` awaits Schwab client
-  methods, raises `SchwabAPIError` with status/url/body on non-2xx responses,
-  handles empty 201/204 bodies, supports endpoint-specific response handlers,
-  and returns the JSON type alias used by all tools.
+- `utils.py` owns shared API behavior: `call()` awaits Schwab client methods,
+  raises `SchwabAPIError` with status/url/body on non-2xx responses, handles
+  empty 201/204 bodies, supports endpoint-specific response handlers, and
+  exposes the JSON type alias used by all tools.
+- `_dates.py` holds date and datetime parsing helpers (`parse_date`,
+  `parse_datetime`) used by tools that accept user-friendly date strings.
+- `normalize.py` holds result-payload normalization helpers such as
+  `strip_noise`, applied as a transform in `server.py` before returning data
+  to MCP callers.
 - Response shaping is intentionally local to each domain: accounts prune balances
   and positions while enriching hashes/nicknames, quotes keep key quote fields,
   options prune per-contract greeks/liquidity fields and default expiration

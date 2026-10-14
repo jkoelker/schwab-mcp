@@ -35,4 +35,4 @@ Key architectural patterns are lifespan-scoped dependency injection, protocol-ba
 - MCP integration: `server.py` uses `mcp.server.fastmcp.FastMCP`; `context.py` subclasses FastMCP `Context`; `resources.py` registers URI-addressable resources; `tools.register_tools()` registers callable Schwab operations.
 - Approval integration: `cli.py` constructs `NoOpApprovalManager`, `DiscordApprovalManager`, or `SignalApprovalManager`; `server._client_lifespan()` owns start/stop; `tools._registration.register_tool()` wraps write tools with approval requests and progress reporting.
 - Persistence/security integration: `tokens.py` stores OAuth tokens and credentials in the user data directory, supports YAML/JSON tokens, and uses restricted file modes for sensitive data.
-- Output integration: server results are normalized with `schwab_mcp.tools.utils.strip_noise`; non-JSON mode requires `toon.encode` to produce compact string payloads for MCP clients.
+- Output integration: server results are normalized with `schwab_mcp.tools.normalize.strip_noise`; non-JSON mode requires `toon.encode` to produce compact string payloads for MCP clients.
