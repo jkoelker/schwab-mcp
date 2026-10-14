@@ -1,4 +1,4 @@
-"""Shared utilities: API call helper, error types, JSON type aliases, and data parsers."""
+"""Network call helper, JSON type alias, and Schwab API error type for tool modules."""
 
 from __future__ import annotations
 

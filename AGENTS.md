@@ -15,6 +15,8 @@ src/schwab_mcp/
     __init__.py       # register_tools() aggregator
     _registration.py  # register_tool(), approval wrapping
     _protocols.py     # Protocol classes for typed client facades
+    _dates.py         # parse_date(), parse_datetime() helpers
+    normalize.py      # strip_noise() result-payload transform
     utils.py          # call() helper, SchwabAPIError, JSONType
     tools.py          # get_datetime, get_market_hours, get_movers
     account.py        # Account and preferences tools
