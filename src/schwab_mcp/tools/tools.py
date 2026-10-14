@@ -8,8 +8,9 @@ from zoneinfo import ZoneInfo
 from mcp.server.mcpserver import MCPServer
 
 from schwab_mcp.context import SchwabContext
+from schwab_mcp.tools._dates import parse_date
 from schwab_mcp.tools._registration import register_tool
-from schwab_mcp.tools.utils import JSONType, call, parse_date
+from schwab_mcp.tools.utils import JSONType, call
 
 
 async def get_datetime() -> str:

@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import datetime
 from collections.abc import Awaitable, Callable
 from typing import Any, TypeAlias
 
@@ -24,25 +23,6 @@ class SchwabAPIError(Exception):
         body: str,
     ) -> None:
         super().__init__(f"Schwab API request failed; status={status_code}; url={url}; body={body}")
-
-
-def parse_date(value: str | datetime.date | None) -> datetime.date | None:
-    """Parse a date from string, date, datetime, or None.
-
-    Args:
-        value: A date string in YYYY-MM-DD format, a date object,
-               a datetime object, or None.
-
-    Returns:
-        A date object, or None if the input was None.
-    """
-    if value is None:
-        return None
-    if isinstance(value, datetime.date) and not isinstance(value, datetime.datetime):
-        return value
-    if isinstance(value, datetime.datetime):
-        return value.date()
-    return datetime.datetime.strptime(value, "%Y-%m-%d").date()
 
 
 def strip_noise(data: JSONType) -> JSONType:
@@ -131,6 +111,5 @@ __all__ = [
     "JSONType",
     "SchwabAPIError",
     "ResponseHandler",
-    "parse_date",
     "strip_noise",
 ]

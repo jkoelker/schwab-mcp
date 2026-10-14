@@ -5,7 +5,6 @@ import pytest
 from schwab_mcp.tools.utils import (
     SchwabAPIError,
     call,
-    parse_date,
     strip_noise,
 )
 
@@ -226,32 +225,6 @@ class TestJSONParseFailure:
             run(call(fake_endpoint))
 
         assert exc_info.value.__cause__ is not None
-
-
-class TestParseDateFunction:
-    def test_parse_date_with_none(self):
-        assert parse_date(None) is None
-
-    def test_parse_date_with_string(self):
-        import datetime
-
-        result = parse_date("2024-03-15")
-        assert result == datetime.date(2024, 3, 15)
-
-    def test_parse_date_with_date(self):
-        import datetime
-
-        input_date = datetime.date(2024, 3, 15)
-        result = parse_date(input_date)
-        assert result == input_date
-        assert result is input_date
-
-    def test_parse_date_with_datetime(self):
-        import datetime
-
-        input_datetime = datetime.datetime(2024, 3, 15, 10, 30)
-        result = parse_date(input_datetime)
-        assert result == datetime.date(2024, 3, 15)
 
 
 class TestStripNoise:

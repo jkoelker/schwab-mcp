@@ -23,6 +23,7 @@ from typing_extensions import TypedDict
 from schwab_mcp.approvals import ApprovalDecision, ApprovalRequest
 from schwab_mcp.context import SchwabContext
 from schwab_mcp.previews import PreviewOperation
+from schwab_mcp.tools._dates import parse_date
 from schwab_mcp.tools._protocols import ToolsClient
 from schwab_mcp.tools._registration import register_tool, run_approval
 from schwab_mcp.tools.order_helpers import (
@@ -44,7 +45,7 @@ from schwab_mcp.tools.order_helpers import (
     option_sell_to_open_limit,
     option_sell_to_open_market,
 )
-from schwab_mcp.tools.utils import JSONType, ResponseHandler, SchwabAPIError, call, parse_date
+from schwab_mcp.tools.utils import JSONType, ResponseHandler, SchwabAPIError, call
 
 logger = logging.getLogger(__name__)
 _SAFE_ORDER_IDENTIFIER = re.compile(r"[A-Za-z0-9_-]+", re.ASCII)
