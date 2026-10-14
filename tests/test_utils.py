@@ -6,7 +6,6 @@ from schwab_mcp.tools.utils import (
     SchwabAPIError,
     call,
     parse_date,
-    parse_datetime,
     strip_noise,
 )
 
@@ -327,20 +326,3 @@ class TestStripNoise:
     def test_list_of_dicts_with_noise(self):
         data = [{"x": 1, "y": None}, {"x": 0, "y": ""}]
         assert strip_noise(data) == [{"x": 1}, {"x": 0}]
-
-
-class TestParseDatetimeFunction:
-    def test_parse_datetime_with_none(self):
-        assert parse_datetime(None) is None
-
-    def test_parse_datetime_with_iso_string(self):
-        import datetime
-
-        result = parse_datetime("2024-03-15T10:30:00")
-        assert result == datetime.datetime(2024, 3, 15, 10, 30)
-
-    def test_parse_datetime_with_date_only_string(self):
-        import datetime
-
-        result = parse_datetime("2024-03-15")
-        assert result == datetime.datetime(2024, 3, 15, 0, 0)

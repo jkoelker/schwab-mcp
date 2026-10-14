@@ -45,18 +45,6 @@ def parse_date(value: str | datetime.date | None) -> datetime.date | None:
     return datetime.datetime.strptime(value, "%Y-%m-%d").date()
 
 
-def parse_datetime(value: str | None) -> datetime.datetime | None:
-    """Parse a datetime from an ISO format string or None.
-
-    Args:
-        value: An ISO format datetime string, or None.
-
-    Returns:
-        A datetime object, or None if the input was None.
-    """
-    return datetime.datetime.fromisoformat(value) if value is not None else None
-
-
 def strip_noise(data: JSONType) -> JSONType:
     """Recursively remove None, "", and {} values from a JSON-like structure.
 
@@ -144,6 +132,5 @@ __all__ = [
     "SchwabAPIError",
     "ResponseHandler",
     "parse_date",
-    "parse_datetime",
     "strip_noise",
 ]
