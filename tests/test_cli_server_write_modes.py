@@ -34,6 +34,8 @@ class DummyDiscordApprovalManager(ApprovalManager):
     async def stop(self) -> None:
         return None
 
+    parse_account_names = staticmethod(cli.DiscordApprovalManager.parse_account_names)
+
     @staticmethod
     def authorized_user_ids(users):
         if not users:
@@ -585,6 +587,7 @@ def isolated_server_cli_environment(monkeypatch, tmp_path: Path) -> Path:
         "SCHWAB_MCP_DISCORD_CHANNEL_ID",
         "SCHWAB_MCP_DISCORD_APPROVERS",
         "SCHWAB_MCP_DISCORD_TIMEOUT",
+        "SCHWAB_MCP_DISCORD_ACCOUNT_NAMES",
         "SCHWAB_MCP_SIGNAL_API_URL",
         "SCHWAB_MCP_SIGNAL_ACCOUNT",
         "SCHWAB_MCP_SIGNAL_APPROVERS",
@@ -681,15 +684,17 @@ def _approval_request() -> ApprovalRequest:
     )
 
 
+@pytest.mark.parametrize("options", [[], ["--discord-account-name", "A1B2=Example Brokerage"]])
 def test_cli_server_default_is_read_only_with_real_policy_and_manager(
     cli_runner,
     isolated_server_cli_environment,
     sociable_cli_server,
+    options: list[str],
 ) -> None:
     token_path = isolated_server_cli_environment
     captured = sociable_cli_server
 
-    result = cli_runner.invoke(cli.cli, _server_args(token_path), catch_exceptions=False)
+    result = cli_runner.invoke(cli.cli, _server_args(token_path, *options), catch_exceptions=False)
 
     assert result.exit_code == 0
     assert captured["allow_write"] is False
@@ -861,3 +866,65 @@ def test_cli_server_rejects_incomplete_discord_config_with_mcp_error_before_tran
     assert payload["error"]["data"] == expected_details
     assert "server" not in captured
     assert "transport" not in captured
+
+
+@pytest.mark.parametrize(
+    ("options", "expected"),
+    [
+        ([], {"A1B2": "Example Brokerage", "C3D4": "Example Retirement"}),
+        (
+            [
+                "--discord-account-name",
+                "A1B2=First Name",
+                "--discord-account-name",
+                "A1B2=CLI Name,C3D4=Second CLI Name",
+            ],
+            {"A1B2": "CLI Name", "C3D4": "Second CLI Name"},
+        ),
+    ],
+)
+def test_discord_account_names_reach_approval_messages(
+    monkeypatch,
+    cli_runner,
+    isolated_server_cli_environment,
+    sociable_cli_server,
+    fake_discord_network,
+    options: list[str],
+    expected: dict[str, str],
+) -> None:
+    monkeypatch.setenv("SCHWAB_MCP_DISCORD_TOKEN", "discord-env-token")
+    monkeypatch.setenv("SCHWAB_MCP_DISCORD_CHANNEL_ID", "789")
+    monkeypatch.setenv("SCHWAB_MCP_DISCORD_APPROVERS", "456")
+    monkeypatch.setenv(
+        "SCHWAB_MCP_DISCORD_ACCOUNT_NAMES",
+        " A1B2=Example Brokerage, C3D4=Example Retirement, malformed, =empty, empty= ",
+    )
+    result = cli_runner.invoke(cli.cli, _server_args(isolated_server_cli_environment, *options), catch_exceptions=False)
+
+    assert result.exit_code == 0
+    manager = sociable_cli_server["approval_manager"]
+    assert dict(manager._settings.account_names) == expected
+
+    async def observe_pending_approval() -> None:
+        request = ApprovalRequest(
+            id="approval-1",
+            tool_name="cancel_order",
+            request_id="request-1",
+            client_id=None,
+            arguments={"account_hash": "'0123456789ABCDEFA1B2'"},
+        )
+        task = asyncio.create_task(manager.require(request))
+        try:
+            channel = fake_discord_network["channel"]
+            await asyncio.wait_for(channel.message_sent.wait(), timeout=1)
+            fields = {field.name: field.value for field in channel.message.embed.fields}
+            assert fields["Account"] == expected["A1B2"]
+            assert "0123456789ABCDEFA1B2" in fields["Arguments"]
+            assert not task.done()
+        finally:
+            task.cancel()
+            with suppress(asyncio.CancelledError):
+                await task
+            await manager.stop()
+
+    asyncio.run(observe_pending_approval())
