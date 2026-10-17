@@ -58,3 +58,30 @@ export SCHWAB_MCP_DISCORD_TOKEN="YOUR_BOT_TOKEN"
 export SCHWAB_MCP_DISCORD_CHANNEL_ID="YOUR_CHANNEL_ID"
 export SCHWAB_MCP_DISCORD_APPROVERS="YOUR_USER_ID"
 ```
+
+## Account names
+
+Use the last four characters of `accountHash` returned by `get_accounts` as
+the key for each name:
+
+```bash
+export SCHWAB_MCP_DISCORD_ACCOUNT_NAMES="A1B2=Example Brokerage,C3D4=Example Retirement"
+```
+
+You can also repeat `--discord-account-name "A1B2=Example Brokerage"`. CLI
+entries override the environment variable. Commas separate entries; spaces in
+names are preserved. The last entry for a suffix wins. Entries missing `=`, a
+key, or a name are skipped with a warning; other entries are stored unchanged.
+Keys are case-sensitive and must match the hash suffix exactly. Names set for
+an inactive approval backend produce a startup warning.
+
+Names appear in the Account field on pending and final messages. These are
+locally configured names, keyed by hash suffix rather than account-number
+suffix. Check for collisions; the full hash remains in Arguments for review.
+No additional Schwab API calls are made.
+
+When names are configured, an unmapped account shows
+`…C3D4 (no configured name)`. Invalid hashes and names longer than 1024
+characters after escaping receive no Account field. Length is checked when
+rendering, without a warning.
+With no names configured, the existing argument display is unchanged.

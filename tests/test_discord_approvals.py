@@ -4,7 +4,8 @@ from __future__ import annotations
 
 import asyncio
 import contextlib
-from typing import Any
+from operator import setitem
+from typing import Any, cast
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import discord
@@ -16,6 +17,7 @@ from schwab_mcp.approvals.discord import (
     DiscordApprovalSettings,
     _PendingApproval,
 )
+from schwab_mcp.approvals.signal import SignalApprovalManager
 
 # ---------------------------------------------------------------------------
 # Constants
@@ -745,3 +747,177 @@ def test_authorized_user_ids_returns_empty_frozenset_for_none() -> None:
 
 def test_authorized_user_ids_returns_empty_frozenset_for_empty_list() -> None:
     assert DiscordApprovalManager.authorized_user_ids([]) == frozenset()
+
+
+@pytest.mark.parametrize(
+    ("suffix", "expected"), [("A1B2", "Example Brokerage"), ("C3D4", "…A1B2 (no configured name)")]
+)
+@pytest.mark.parametrize("tool_name", ["place_previewed_order", "replace_previewed_order", "cancel_order"])
+@pytest.mark.parametrize("decision", list(ApprovalDecision))
+@pytest.mark.anyio
+async def test_account_name_survives_approval_decision(
+    tool_name: str, decision: ApprovalDecision, suffix: str, expected: str
+) -> None:
+    mgr = make_manager(
+        DiscordApprovalSettings(
+            token="fake-token",
+            channel_id=CHANNEL_ID,
+            approver_ids=frozenset({APPROVER_ID}),
+            timeout_seconds=0 if decision is ApprovalDecision.EXPIRED else 5,
+            account_names=DiscordApprovalManager.parse_account_names([f"{suffix}=Example Brokerage"]),
+        )
+    )
+    mgr._ready.set()
+    channel = make_fake_channel()
+    message = make_fake_message(channel)
+    channel.send.return_value = message
+    mgr._channel = channel
+    account_hash = "0123456789ABCDEFA1B2"
+    argument = repr(account_hash) if tool_name == "cancel_order" else account_hash
+    request = make_request(tool_name=tool_name, arguments={"account_hash": argument})
+
+    approval = asyncio.create_task(mgr.require(request))
+    try:
+        if decision is not ApprovalDecision.EXPIRED:
+            await wait_until_pending(mgr, message)
+            emoji = "✅" if decision is ApprovalDecision.APPROVED else "❌"
+            await mgr._handle_reaction_add(make_fake_reaction(message, emoji), make_fake_user(APPROVER_ID))
+        assert await asyncio.wait_for(approval, timeout=1) is decision
+    finally:
+        if not approval.done():
+            approval.cancel()
+            with contextlib.suppress(asyncio.CancelledError):
+                await approval
+        await mgr.stop()
+
+    pending = channel.send.await_args.kwargs["embed"]
+    final = message.edit.await_args.kwargs["embed"]
+    for embed in (pending, final):
+        fields = {field.name: field.value for field in embed.fields}
+        assert fields["Account"] == expected
+        assert f"account_hash = {argument}" in fields["Arguments"]
+    assert not mgr._pending
+
+
+@pytest.mark.parametrize(
+    ("arguments", "names"),
+    [
+        ({}, ["A1B2=Example Brokerage"]),
+        ({"account_hash": "0123456789ABCDEFA1B2"}, []),
+        ({"account_hash": ""}, ["A1B2=Example Brokerage"]),
+        ({"account_hash": "'x', {[]}"}, ["A1B2=Example Brokerage"]),
+        ({"account_hash": "'A1B2', 1"}, ["A1B2=Example Brokerage"]),
+        ({"account_hash": "../A1B2"}, ["A1B2=Example Brokerage"]),
+        ({"account_hash": "\u202eA1B2"}, ["A1B2=Example Brokerage"]),
+        ({"account_hash": "'unterminatedA1B2"}, ["A1B2=Example Brokerage"]),
+        ({"account_hash": "'\\u202eA1B2'"}, ["A1B2=Example Brokerage"]),
+        ({"account_hash": "0123456789ABCDEFA1B2"}, ["A1B2=" + "x" * 1025]),
+        ({"account_hash": "0123456789ABCDEFA1B2"}, ["A1B2=" + "*" * 513]),
+    ],
+)
+def test_account_field_omitted_without_names_or_valid_label(arguments: dict[str, str], names: list[str]) -> None:
+    mgr = make_manager(
+        DiscordApprovalSettings(
+            token="fake-token",
+            channel_id=CHANNEL_ID,
+            approver_ids=frozenset({APPROVER_ID}),
+            account_names=DiscordApprovalManager.parse_account_names(names),
+        )
+    )
+    embed = mgr._build_pending_embed(make_request(arguments=arguments))
+    fields = {field.name: field.value for field in embed.fields}
+
+    assert "Account" not in fields
+    if arguments:
+        argument_field = fields["Arguments"]
+        assert argument_field is not None
+        assert arguments["account_hash"] in argument_field
+
+
+def test_account_name_escapes_discord_formatting_and_mentions() -> None:
+    mgr = make_manager(
+        DiscordApprovalSettings(
+            token="fake-token",
+            channel_id=CHANNEL_ID,
+            approver_ids=frozenset({APPROVER_ID}),
+            account_names=DiscordApprovalManager.parse_account_names(
+                ["A1B2=**Example** @everyone <@123456789012345678>"]
+            ),
+        )
+    )
+    embed = mgr._build_pending_embed(make_request(arguments={"account_hash": "ABCDA1B2"}))
+    label = next(field.value for field in embed.fields if field.name == "Account")
+
+    assert label == "\\*\\*Example\\*\\* @\u200beveryone <@\u200b123456789012345678>"
+
+
+@pytest.mark.parametrize("values", [None, [], ["A1B2=Example Brokerage"]])
+def test_account_name_configuration_is_immutable(values: list[str] | None) -> None:
+    names = DiscordApprovalManager.parse_account_names(values)
+    with pytest.raises(TypeError):
+        setitem(cast(Any, names), "A1B2", "Changed")
+
+
+@pytest.mark.parametrize("manager_type", [DiscordApprovalManager, SignalApprovalManager])
+def test_account_names_ignore_blank_entries_and_warn_on_invalid_entries(
+    manager_type: type[DiscordApprovalManager] | type[SignalApprovalManager], caplog: pytest.LogCaptureFixture
+) -> None:
+    names = manager_type.parse_account_names(
+        ["", " , ", " A1B2 = Example Brokerage, C3D4=First Name ", "C3D4=Name=With Equals", "bad,=name,key="]
+    )
+
+    assert dict(names) == {"A1B2": "Example Brokerage", "C3D4": "Name=With Equals"}
+    assert len(caplog.records) == 3
+    assert "malformed account-name entry" in caplog.records[0].message
+    assert all("empty account-name entry" in record.message for record in caplog.records[1:])
+
+
+@pytest.mark.parametrize(("name", "expected"), [("x" * 1024, "x" * 1024), ("*" * 512, "\\*" * 512)])
+def test_account_name_at_discord_field_limit_is_preserved(name: str, expected: str) -> None:
+    mgr = make_manager(
+        DiscordApprovalSettings(
+            token="fake-token",
+            channel_id=CHANNEL_ID,
+            approver_ids=frozenset({APPROVER_ID}),
+            account_names=DiscordApprovalManager.parse_account_names([f"A1B2={name}"]),
+        )
+    )
+    embed = mgr._build_pending_embed(make_request(arguments={"account_hash": "ABCDA1B2"}))
+    fields = {field.name: field.value for field in embed.fields}
+
+    assert fields["Account"] == expected
+    assert "ABCDA1B2" in (fields["Arguments"] or "")
+
+
+@pytest.mark.parametrize("manager_type", [DiscordApprovalManager, SignalApprovalManager])
+def test_account_name_keys_and_lengths_are_preserved(
+    manager_type: type[DiscordApprovalManager] | type[SignalApprovalManager], caplog: pytest.LogCaptureFixture
+) -> None:
+    names = manager_type.parse_account_names(["A1B=Short,A1B2C=Long,a1b2=Lower", "A1B2=" + "x" * 1025])
+
+    assert dict(names) == {"A1B": "Short", "A1B2C": "Long", "a1b2": "Lower", "A1B2": "x" * 1025}
+    assert not caplog.records
+
+
+@pytest.mark.anyio
+async def test_no_names_preserves_malformed_arguments() -> None:
+    mgr = make_manager(make_settings(timeout_seconds=0))
+    mgr._ready.set()
+    channel = make_fake_channel()
+    message = make_fake_message(channel)
+    channel.send.return_value = message
+    mgr._channel = channel
+    arguments = {"account_hash": "'x', {[]}"}
+
+    try:
+        assert (
+            await asyncio.wait_for(mgr.require(make_request(arguments=arguments)), timeout=1)
+            is ApprovalDecision.EXPIRED
+        )
+    finally:
+        await mgr.stop()
+
+    for embed in (channel.send.await_args.kwargs["embed"], message.edit.await_args.kwargs["embed"]):
+        fields = {field.name: field.value for field in embed.fields}
+        assert "Account" not in fields
+        assert "'x', {[]}" in (fields["Arguments"] or "")

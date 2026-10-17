@@ -19,6 +19,7 @@ from schwab_mcp.approvals.base import (
     ApprovalManager,
     ApprovalRequest,
     format_arguments,
+    parse_account_names,
 )
 
 logger = logging.getLogger(__name__)
@@ -341,34 +342,8 @@ class SignalApprovalManager(ApprovalManager):
 
     @staticmethod
     def parse_account_names(values: Sequence[str] | None) -> Mapping[str, str]:
-        """Parse ``last4=Name`` entries (from CLI flags or comma-split env) into
-        an immutable mapping. Repeated keys: last value wins. Whitespace and
-        empty entries are ignored. Invalid entries are skipped with a warning.
-        """
-        if not values:
-            return _EMPTY_NAMES
-        result: dict[str, str] = {}
-        for raw in values:
-            if not raw:
-                continue
-            for chunk in raw.split(","):
-                chunk = chunk.strip()
-                if not chunk:
-                    continue
-                if "=" not in chunk:
-                    logger.warning(
-                        "Ignoring malformed account-name entry %r (expected 'last4=Name')",
-                        chunk,
-                    )
-                    continue
-                last4, _, name = chunk.partition("=")
-                last4 = last4.strip()
-                name = name.strip()
-                if not last4 or not name:
-                    logger.warning("Ignoring empty account-name entry %r", chunk)
-                    continue
-                result[last4] = name
-        return MappingProxyType(result) if result else _EMPTY_NAMES
+        """Parse configured account names."""
+        return parse_account_names(values)
 
 
 # --------------------------------------------------------------------------- #
