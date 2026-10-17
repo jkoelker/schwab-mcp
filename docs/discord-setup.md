@@ -58,3 +58,24 @@ export SCHWAB_MCP_DISCORD_TOKEN="YOUR_BOT_TOKEN"
 export SCHWAB_MCP_DISCORD_CHANNEL_ID="YOUR_CHANNEL_ID"
 export SCHWAB_MCP_DISCORD_APPROVERS="YOUR_USER_ID"
 ```
+
+## Account names
+
+Map the last four characters of an account hash to a name, as with Signal:
+
+```bash
+export SCHWAB_MCP_DISCORD_ACCOUNT_NAMES="A1B2=Example Brokerage,C3D4=Example Retirement"
+```
+
+You can also repeat `--discord-account-name "A1B2=Example Brokerage"`. CLI
+entries override the environment variable. Commas separate entries; spaces in
+names are preserved. The last entry for a suffix wins. Invalid or empty entries
+are skipped with a warning.
+
+Names appear in the Account field on pending and final messages. These are
+locally configured names, keyed by hash suffix rather than account-number
+suffix. Check for collisions; the full hash remains in Arguments for review.
+No additional Schwab API calls are made.
+
+Missing mappings, invalid hashes, or names longer than 1024 characters after
+escaping leave the existing argument display unchanged.
