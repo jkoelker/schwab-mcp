@@ -2,10 +2,12 @@
 
 from __future__ import annotations
 
+import ast
 import asyncio
 import logging
 from collections.abc import Mapping, Sequence
-from dataclasses import dataclass
+from dataclasses import dataclass, field
+from types import MappingProxyType
 
 import discord
 
@@ -14,6 +16,7 @@ from schwab_mcp.approvals.base import (
     ApprovalManager,
     ApprovalRequest,
     format_arguments,
+    parse_account_names,
 )
 
 logger = logging.getLogger(__name__)
@@ -27,6 +30,8 @@ class DiscordApprovalSettings:
     channel_id: int
     approver_ids: frozenset[int] = frozenset()
     timeout_seconds: float = 600.0
+    account_names: Mapping[str, str] = field(default_factory=lambda: MappingProxyType({}))
+    """Map the last four characters of an account hash to a friendly name."""
 
 
 @dataclass(slots=True)
@@ -242,6 +247,9 @@ class DiscordApprovalManager(ApprovalManager):
             description=f"Tool `{request.tool_name}` requested write access.",
             colour=discord.Colour.orange(),
         )
+        account_label = self._account_label(request.arguments)
+        if account_label:
+            embed.add_field(name="Account", value=account_label, inline=False)
         embed.add_field(name="Request ID", value=request.request_id, inline=False)
         embed.add_field(name="Approval ID", value=request.id, inline=False)
         if request.client_id:
@@ -269,6 +277,9 @@ class DiscordApprovalManager(ApprovalManager):
             description=f"Tool `{request.tool_name}` request {decision.value}.",
             colour=self._colour_for_decision(decision),
         )
+        account_label = self._account_label(request.arguments)
+        if account_label:
+            embed.add_field(name="Account", value=account_label, inline=False)
         embed.add_field(name="Request ID", value=request.request_id, inline=False)
         embed.add_field(name="Approval ID", value=request.id, inline=False)
         if request.client_id:
@@ -288,6 +299,30 @@ class DiscordApprovalManager(ApprovalManager):
         except discord.HTTPException:
             logger.warning("Failed to update Discord approval message for request %s", request.id)
 
+    def _account_label(self, arguments: Mapping[str, str]) -> str | None:
+        if not self._settings.account_names:
+            return None
+
+        account_hash = arguments.get("account_hash")
+        if not account_hash:
+            return None
+
+        # Cancellation requests use repr(); previewed orders use plain strings.
+        if account_hash.startswith(("'", '"')):
+            try:
+                account_hash = ast.literal_eval(account_hash)
+            except (ValueError, TypeError, SyntaxError, MemoryError, RecursionError):
+                return None
+        if not isinstance(account_hash, str) or not account_hash.isascii() or not account_hash.isalnum():
+            return None
+
+        suffix = account_hash[-4:]
+        name = self._settings.account_names.get(suffix) or f"…{suffix} (no configured name)"
+        label = discord.utils.escape_mentions(discord.utils.escape_markdown(name))
+        if len(label) > 1024:
+            return None
+        return label
+
     @staticmethod
     def _format_arguments(arguments: Mapping[str, str]) -> str:
         rendered = discord.utils.escape_mentions(format_arguments(arguments))
@@ -304,6 +339,11 @@ class DiscordApprovalManager(ApprovalManager):
                 return discord.Colour.red()
             case ApprovalDecision.EXPIRED:
                 return discord.Colour.dark_grey()
+
+    @staticmethod
+    def parse_account_names(values: Sequence[str] | None) -> Mapping[str, str]:
+        """Parse configured account names."""
+        return parse_account_names(values)
 
     @staticmethod
     def authorized_user_ids(users: Sequence[int] | None) -> frozenset[int]:

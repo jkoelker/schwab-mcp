@@ -125,6 +125,7 @@ def _select_write_mode(
     discord_channel_id: int | None,
     approver_values: tuple[str, ...],
     discord_timeout: int,
+    discord_account_name: tuple[str, ...],
     signal_api_url: str,
     signal_account: str | None,
     signal_approver: tuple[str, ...],
@@ -196,6 +197,7 @@ def _select_write_mode(
         channel_id=discord_channel_id,
         approver_ids=approver_ids,
         timeout_seconds=float(discord_timeout),
+        account_names=DiscordApprovalManager.parse_account_names(discord_account_name),
     )
     return DiscordApprovalManager(settings), True
 
@@ -239,6 +241,17 @@ def _select_write_mode(
     show_default=True,
     envvar="SCHWAB_MCP_DISCORD_TIMEOUT",
     help="Seconds to wait for Discord approval before timing out.",
+)
+@click.option(
+    "--discord-account-name",
+    type=str,
+    multiple=True,
+    help=(
+        "Friendly name to display in approval messages for an account, "
+        "keyed by the last 4 chars of its hash. Format: 'last4=Name'. "
+        "Pass multiple times, or set SCHWAB_MCP_DISCORD_ACCOUNT_NAMES to a "
+        "comma-separated value (e.g. 'A1B2=Example Brokerage')."
+    ),
 )
 @click.option(
     "--signal-api-url",
@@ -329,6 +342,7 @@ def server(
     discord_channel_id: int | None,
     discord_approver: tuple[str, ...],
     discord_timeout: int,
+    discord_account_name: tuple[str, ...],
     signal_api_url: str,
     signal_account: str | None,
     signal_approver: tuple[str, ...],
@@ -407,6 +421,13 @@ def server(
             if env_approvers:
                 approver_values = tuple(value.strip() for value in env_approvers.split(",") if value.strip())
 
+        discord_account_name_values = discord_account_name
+        if not discord_account_name_values:
+            env_discord_names = os.getenv("SCHWAB_MCP_DISCORD_ACCOUNT_NAMES")
+            if env_discord_names:
+                # Preserve spaces in names; the parser splits on commas.
+                discord_account_name_values = (env_discord_names,)
+
         # Signal env vars are comma-split by hand (not via Click's envvar=):
         # Click splits multiple=True env values on whitespace, which mangles
         # comma-separated lists and names containing spaces.
@@ -431,6 +452,7 @@ def server(
             discord_channel_id=discord_channel_id,
             approver_values=approver_values,
             discord_timeout=discord_timeout,
+            discord_account_name=discord_account_name_values,
             signal_api_url=signal_api_url,
             signal_account=signal_account,
             signal_approver=signal_approver_values,
@@ -440,6 +462,13 @@ def server(
         if write_mode is None:
             return 1
         approval_manager, allow_write = write_mode
+
+        if discord_account_name_values and not isinstance(approval_manager, DiscordApprovalManager):
+            click.echo(
+                "Warning: Discord account names are ignored because Discord approvals are not enabled.", err=True
+            )
+        if signal_account_name_values and not isinstance(approval_manager, SignalApprovalManager):
+            click.echo("Warning: Signal account names are ignored because Signal approvals are not enabled.", err=True)
 
         backend_configured = any(
             (

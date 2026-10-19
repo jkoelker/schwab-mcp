@@ -12,12 +12,13 @@ Provides the approval abstraction and the Discord- and Signal-backed implementat
   - `ApprovalManager`: async lifecycle hooks (`start()`, `stop()`) plus abstract `require()`.
   - `NoOpApprovalManager`: always approves, used when writes are disabled or explicitly bypassed.
 - `discord.py` implements `DiscordApprovalManager` around `discord.py`:
-  - `DiscordApprovalSettings` stores token, channel id, allowed approver ids, and timeout.
+  - `DiscordApprovalSettings` stores token, channel id, allowed approver ids, timeout, and optional account names keyed by the last four characters of the account hash.
   - `_ApprovalClient` is a thin `discord.Client` adapter that delegates readiness and reaction events back to the manager.
   - `_PendingApproval` ties an `ApprovalRequest`, Discord message, and `asyncio.Future[ApprovalDecision]` together while a reviewer is deciding.
 - State is intentionally in-memory and process-local: a cached Discord channel, a pending-message map keyed by Discord message id, an async lock around pending state, and an event/task pair for bot readiness/lifecycle.
 - The Discord manager requires at least one explicit approver id; unauthorized reactions are ignored and best-effort removed.
 - `signal.py` implements `SignalApprovalManager` against a local bbernhard/signal-cli-rest-api daemon (which must run in `json-rpc`/`json-rpc-native` mode so `/v1/receive` is a websocket): approval requests are sent as Signal messages, decisions arrive as quoted replies ("ok"/"no") from authorized numbers quoting the bot's own message, per-tool renderers produce friendly one-line summaries (falling back to the shared `format_arguments` fenced dump), and oversized bodies are auto-denied. Argument values arrive repr-encoded from `_format_argument` (auto-wrapped tools) or as plain strings (`place_previewed_order`); the renderers decode both, derive the last-4 `account_hash` suffix themselves, and never display the full hash. `SignalApprovalSettings.account_names` maps last-4 suffixes to friendly account names.
+- `base.parse_account_names()` parses suffix/name mappings for both backends; their static methods delegate to it. Discord shows mapped names or explicit unmapped suffixes on pending and final embeds when names are configured. The raw hash stays in Arguments. Invalid hashes and oversized names receive no Account field.
 - Shared rendering lives in `base.format_arguments()`: arguments in a fenced code block with backtick sanitization. Upstream `_format_argument` truncates each value at 256 chars before any backend sees it. Discord uses that fenced rendering, neutralizes mentions, displays the complete field when it fits Discord's 1024-character field limit, and denies oversized requests while sending a short best-effort auto-denial notice without request arguments; Signal auto-denies oversized bodies.
 
 ## Flow
@@ -36,6 +37,7 @@ Provides the approval abstraction and the Discord- and Signal-backed implementat
 - `__init__.py` re-exports the approval API for the rest of the application.
 - `cli.py` chooses the manager:
   - Discord settings are built from CLI/env inputs and enable write tools only when token, channel, and approvers are present.
+  - Names configured for an inactive backend produce a stderr warning without enabling writes.
   - Signal settings (`--signal-account`, `--signal-approver`, etc.) select `SignalApprovalManager` the same way; configuring both Discord and Signal at once is rejected.
   - `--jesus-take-the-wheel` selects `NoOpApprovalManager`, enables write tools, and warns that approvals are bypassed.
   - Without a configured backend or bypass mode, `NoOpApprovalManager` is still provided to the server, but write tools are not registered.
