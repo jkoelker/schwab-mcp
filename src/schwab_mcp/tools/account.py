@@ -53,9 +53,17 @@ def _prune_position(position: dict[str, Any]) -> dict[str, Any]:
     average_price = position.get("averagePrice")
     if average_price is not None:
         result["averagePrice"] = average_price
-    unrealized_pl = position.get("currentDayProfitLoss")
-    if unrealized_pl is not None:
-        result["unrealizedPL"] = unrealized_pl
+    # Open P/L since purchase lives in longOpenProfitLoss/shortOpenProfitLoss.
+    # currentDayProfitLoss is the current day's P/L only, and for some
+    # positions Schwab subtracts the full cost basis (currentDayCost) from it,
+    # so it is not exposed in compact output.
+    open_pl = [
+        value
+        for value in (position.get("longOpenProfitLoss"), position.get("shortOpenProfitLoss"))
+        if isinstance(value, (int, float))
+    ]
+    if open_pl:
+        result["unrealizedPL"] = sum(open_pl)
     return result
 
 
@@ -192,7 +200,7 @@ async def get_accounts(
     ctx: SchwabContext,
     include_positions: Annotated[
         bool,
-        "Request holdings/positions for each account. In compact mode (default) positions are pruned to symbol, quantity, marketValue, averagePrice, unrealizedPL; verbose=True returns the raw, unpruned position fields instead.",
+        "Request holdings/positions for each account. In compact mode (default) positions are pruned to symbol, quantity, marketValue, averagePrice, unrealizedPL (open P/L since purchase); verbose=True returns the raw, unpruned position fields instead.",
     ] = False,
     verbose: Annotated[
         bool,
@@ -201,7 +209,7 @@ async def get_accounts(
 ) -> JSONType:
     """Returns balances/info for all linked accounts (funds, cash, margin); pass include_positions=True to also include holdings.
     Includes each account's accountHash (required for account-specific calls like get_account, orders, transactions), nickname, and isDefault (the account marked as primary in Schwab user preferences).
-    By default returns compact fields only (account type/number, equity/buyingPower/cashBalance/cashAvailableForTrading/liquidationValue from currentBalances; initialBalances and projectedBalances are dropped; positions if included are reduced to symbol, net quantity (positive=long/negative=short), marketValue, averagePrice, unrealizedPL); pass verbose=True for the full raw payload (positions unpruned if include_positions=True).
+    By default returns compact fields only (account type/number, equity/buyingPower/cashBalance/cashAvailableForTrading/liquidationValue from currentBalances; initialBalances and projectedBalances are dropped; positions if included are reduced to symbol, net quantity (positive=long/negative=short), marketValue, averagePrice, unrealizedPL (open P/L since purchase)); pass verbose=True for the full raw payload (positions unpruned if include_positions=True).
     """
     return await _get_account_response(
         ctx,
@@ -215,7 +223,7 @@ async def get_account(
     account_hash: Annotated[str, "Account hash for the Schwab account (from get_accounts)"],
     include_positions: Annotated[
         bool,
-        "Request holdings/positions. In compact mode (default) positions are pruned to symbol, quantity, marketValue, averagePrice, unrealizedPL; verbose=True returns the raw, unpruned position fields instead.",
+        "Request holdings/positions. In compact mode (default) positions are pruned to symbol, quantity, marketValue, averagePrice, unrealizedPL (open P/L since purchase); verbose=True returns the raw, unpruned position fields instead.",
     ] = False,
     verbose: Annotated[
         bool,
@@ -224,7 +232,7 @@ async def get_account(
 ) -> JSONType:
     """Returns balance/info for a specific account via account_hash (from get_accounts); pass include_positions=True to also include holdings. Includes funds, cash, margin info.
     Includes the account's accountHash, nickname, and isDefault for self-describing output.
-    By default returns compact fields only (account type/number, equity/buyingPower/cashBalance/cashAvailableForTrading/liquidationValue from currentBalances; initialBalances and projectedBalances are dropped; positions if included are reduced to symbol, net quantity (positive=long/negative=short), marketValue, averagePrice, unrealizedPL); pass verbose=True for the full raw payload (positions unpruned if include_positions=True).
+    By default returns compact fields only (account type/number, equity/buyingPower/cashBalance/cashAvailableForTrading/liquidationValue from currentBalances; initialBalances and projectedBalances are dropped; positions if included are reduced to symbol, net quantity (positive=long/negative=short), marketValue, averagePrice, unrealizedPL (open P/L since purchase)); pass verbose=True for the full raw payload (positions unpruned if include_positions=True).
     """
     return await _get_account_response(
         ctx,
