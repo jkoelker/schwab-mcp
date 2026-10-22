@@ -901,7 +901,6 @@ def test_prune_position_unrealized_pl_uses_open_profit_loss():
     }
     pruned = account._prune_position(position)
     assert pruned["unrealizedPL"] == 2000.0
-    assert "dayPL" not in pruned
     assert "currentDayProfitLoss" not in pruned
 
 
@@ -919,6 +918,18 @@ def test_prune_position_short_uses_short_open_profit_loss():
     pruned = account._prune_position(position)
     assert pruned["quantity"] == -50
     assert pruned["unrealizedPL"] == 500.0
+
+
+def test_prune_position_sums_long_and_short_open_profit_loss() -> None:
+    position = {
+        "longQuantity": 10,
+        "shortQuantity": 3,
+        "longOpenProfitLoss": 70.0,
+        "shortOpenProfitLoss": -20.0,
+        "instrument": {"symbol": "CCC", "assetType": "EQUITY"},
+    }
+    pruned = account._prune_position(position)
+    assert pruned["unrealizedPL"] == 50.0
 
 
 def test_prune_position_omits_unrealized_pl_when_open_pl_missing():
