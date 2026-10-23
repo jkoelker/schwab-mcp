@@ -941,3 +941,54 @@ def test_prune_position_omits_unrealized_pl_when_open_pl_missing():
     }
     pruned = account._prune_position(position)
     assert "unrealizedPL" not in pruned
+
+
+# ---------------------------------------------------------------------------
+# cashBalance for margin accounts comes from marginBalance + shortBalance
+# ---------------------------------------------------------------------------
+
+
+def test_prune_securities_account_margin_cash_from_margin_and_short_balance():
+    """Regression: margin accounts with shorts reported cashBalance as 0.
+
+    Schwab keeps their cash in marginBalance (negative when borrowing) and
+    shortBalance (short-sale proceeds); the website shows the sum.
+    """
+    sec_account = {
+        "type": "MARGIN",
+        "currentBalances": {
+            "cashBalance": 0,
+            "equity": 10_000.0,
+            "liquidationValue": 10_000.0,
+            "marginBalance": -7_000.0,
+            "shortBalance": 7_500.0,
+        },
+    }
+    balances = account._prune_securities_account(sec_account)["currentBalances"]
+    assert balances["cashBalance"] == 500.0
+    assert "marginBalance" not in balances
+    assert "shortBalance" not in balances
+
+
+def test_prune_securities_account_margin_debit_without_shorts_is_negative_cash():
+    sec_account = {
+        "type": "MARGIN",
+        "currentBalances": {"cashBalance": 0, "marginBalance": -250.0},
+    }
+    balances = account._prune_securities_account(sec_account)["currentBalances"]
+    assert balances["cashBalance"] == -250.0
+
+
+def test_prune_securities_account_keeps_nonzero_cash_balance():
+    sec_account = {
+        "type": "MARGIN",
+        "currentBalances": {"cashBalance": 1_000.0, "marginBalance": 1_000.0, "shortBalance": 0},
+    }
+    balances = account._prune_securities_account(sec_account)["currentBalances"]
+    assert balances["cashBalance"] == 1_000.0
+
+
+def test_prune_securities_account_cash_account_without_margin_fields_unchanged():
+    sec_account = {"type": "CASH", "currentBalances": {"cashBalance": 0, "liquidationValue": 0}}
+    balances = account._prune_securities_account(sec_account)["currentBalances"]
+    assert balances["cashBalance"] == 0
