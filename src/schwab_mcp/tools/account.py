@@ -73,13 +73,14 @@ def _margin_cash_balance(balances: dict[str, Any]) -> float | None:
     For margin accounts carrying short positions or a margin debit, Schwab
     reports cashBalance as 0 and tracks cash in marginBalance (negative
     when borrowing) plus shortBalance (short-sale proceeds). Their sum is
-    the cash figure Schwab shows on its website.
+    the cash figure Schwab shows on its website. The sum is rounded to
+    cents so float addition does not leak noise into compact output.
     """
     margin_balance = balances.get("marginBalance")
     short_balance = balances.get("shortBalance", 0)
     if not isinstance(margin_balance, (int, float)) or not isinstance(short_balance, (int, float)):
         return None
-    return margin_balance + short_balance
+    return round(margin_balance + short_balance, 2)
 
 
 def _prune_securities_account(sec_account: dict[str, Any]) -> dict[str, Any]:

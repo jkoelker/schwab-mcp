@@ -970,6 +970,16 @@ def test_prune_securities_account_margin_cash_from_margin_and_short_balance():
     assert "shortBalance" not in balances
 
 
+def test_prune_securities_account_margin_cash_rounds_to_cents():
+    """Summing cent-valued floats must not leak float noise such as 500.4500000000007."""
+    sec_account = {
+        "type": "MARGIN",
+        "currentBalances": {"cashBalance": 0, "marginBalance": -12_345.67, "shortBalance": 12_846.12},
+    }
+    balances = account._prune_securities_account(sec_account)["currentBalances"]
+    assert balances["cashBalance"] == 500.45
+
+
 def test_prune_securities_account_margin_debit_without_shorts_is_negative_cash():
     sec_account = {
         "type": "MARGIN",
@@ -979,10 +989,20 @@ def test_prune_securities_account_margin_debit_without_shorts_is_negative_cash()
     assert balances["cashBalance"] == -250.0
 
 
-def test_prune_securities_account_keeps_nonzero_cash_balance():
+def test_prune_securities_account_derives_cash_when_cash_balance_missing():
     sec_account = {
         "type": "MARGIN",
-        "currentBalances": {"cashBalance": 1_000.0, "marginBalance": 1_000.0, "shortBalance": 0},
+        "currentBalances": {"marginBalance": -250.0, "shortBalance": 300.0},
+    }
+    balances = account._prune_securities_account(sec_account)["currentBalances"]
+    assert balances["cashBalance"] == 50.0
+
+
+def test_prune_securities_account_keeps_nonzero_cash_balance():
+    """A non-zero cashBalance wins even when marginBalance + shortBalance differs."""
+    sec_account = {
+        "type": "MARGIN",
+        "currentBalances": {"cashBalance": 1_000.0, "marginBalance": 1_000.0, "shortBalance": 250.0},
     }
     balances = account._prune_securities_account(sec_account)["currentBalances"]
     assert balances["cashBalance"] == 1_000.0
