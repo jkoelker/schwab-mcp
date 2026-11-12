@@ -97,7 +97,7 @@ def test_replacement_uses_immutable_preview_and_exact_bound_target(monkeypatch: 
         "instruction": "BUY_TO_OPEN",
         "order_type": "LIMIT",
         "asset_type": "OPTION",
-        "price": 1.239,
+        "price": 1.23,
         "session": "AM",
         "duration": "DAY",
     }
@@ -141,7 +141,7 @@ def test_replacement_uses_immutable_preview_and_exact_bound_target(monkeypatch: 
                 "instruction": "BUY_TO_OPEN",
                 "order_type": "LIMIT",
                 "asset_type": "OPTION",
-                "price": 0.12349,
+                "price": 0.1234,
                 "session": "PM",
                 "duration": "GTC",
             },
@@ -153,7 +153,7 @@ def test_replacement_uses_immutable_preview_and_exact_bound_target(monkeypatch: 
                 "quantity": 3,
                 "instruction": "SELL",
                 "order_type": "STOP",
-                "stop_price": 10.129,
+                "stop_price": 10.12,
             },
             "SELL 3 AAPL EQUITY STOP stop $10.12 session=NORMAL duration=DAY",
         ),
@@ -490,3 +490,29 @@ def test_valid_identifiers_are_preserved_in_schwab_http_requests() -> None:
         "account_hash": "'HASH_123-abc'",
         "order_id": "'order_123'",
     }
+
+
+@pytest.mark.parametrize(
+    ("field", "value"),
+    [("price", 1.239), ("price", 0.12349), ("stop_price", 10.129)],
+)
+def test_replacement_refuses_prices_it_cannot_send_exactly(
+    monkeypatch: pytest.MonkeyPatch, field: str, value: float
+) -> None:
+    client = ReplacementClient()
+    ctx = make_ctx(client)
+    monkeypatch.setattr(orders, "call", call_fake_client)
+    replacement: dict[str, Any] = {
+        "symbol": "AAPL",
+        "quantity": 1,
+        "instruction": "SELL",
+        "order_type": "STOP_LIMIT",
+        "price": 1.5,
+        "stop_price": 1.6,
+        field: value,
+    }
+
+    with pytest.raises(ValueError, match=field):
+        run(orders.preview_replacement_order(ctx, "account", "target", cast(orders._OrderDescInput, replacement)))
+
+    assert client.preview_payload is None

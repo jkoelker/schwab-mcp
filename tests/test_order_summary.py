@@ -282,3 +282,14 @@ def test_approval_request_carries_summary_of_placed_spec(monkeypatch: pytest.Mon
 
     assert seen["summary"] == orders._spec_summary(spec)
     assert "TSLA" in seen["summary"]
+
+
+@pytest.mark.parametrize(("price", "shown"), [(1.15, "1.15"), (19.99, "19.99"), (0.57, "0.5700")])
+def test_summary_price_matches_spec_price(fake_call: None, price: float, shown: str) -> None:
+    """The reviewer sees the same price string Schwab receives."""
+    ctx = make_ctx(SummaryClient())
+
+    entry = _stored_entry(ctx, run(orders.preview_equity_order(ctx, ACCOUNT, "AAPL", 1, "BUY", "LIMIT", price=price)))
+
+    assert entry.order_spec["price"] == shown
+    assert f"@ ${shown} " in entry.summary

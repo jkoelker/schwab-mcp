@@ -5,6 +5,7 @@ import re
 import uuid
 from collections.abc import Callable
 from dataclasses import dataclass
+from decimal import Decimal, InvalidOperation
 from typing import Annotated, Any, cast
 
 import httpx
@@ -306,21 +307,29 @@ async def _require_spec_supported_asset_types(client: ToolsClient, order_spec: d
         await _require_supported_asset_type(client, symbol)
 
 
-def _format_order_price(price: float) -> str:
-    """Format a float using schwab-py's historical truncation semantics.
+def _format_order_price(price: float, field: str = "price") -> str:
+    """Convert an order price to the exact fixed-scale string Schwab receives.
 
-    Args:
-        price: The order price supplied as a float.
-
-    Returns:
-        A decimal string truncated to four places below one or two places
-        otherwise, matching schwab-py's former float handling without emitting
-        its deprecation warning.
+    The value is read through ``Decimal(str(price))`` so ``1.15`` stays
+    ``1.15`` instead of drifting a tick low through float multiplication.
+    Prices at or above 1 allow 2 decimal places and prices below 1 allow 4;
+    a value with more precision, or one that is not a finite number above
+    zero, raises ``ValueError`` naming ``field`` rather than being rounded.
     """
-    decimal_places = 4 if abs(price) < 1 and price != 0.0 else 2
-    scale = 10**decimal_places
-    truncated = float(int(price * scale)) / scale
-    return f"{truncated:.{decimal_places}f}"
+    if isinstance(price, bool) or not isinstance(price, (int, float)):
+        raise ValueError(f"{field} must be a number, got {price!r}")
+    value = Decimal(str(price))
+    if not value.is_finite() or value <= 0:
+        raise ValueError(f"{field} must be a finite number above zero, got {price!r}")
+    places = 2 if value >= 1 else 4
+    try:
+        quantized = value.quantize(Decimal(1).scaleb(-places))
+    except InvalidOperation as exc:
+        raise ValueError(f"{field} is out of range: {price!r}") from exc
+    if quantized != value:
+        band = "at or above $1" if places == 2 else "below $1"
+        raise ValueError(f"{field} {price!r} has more than {places} decimal places, the limit for prices {band}")
+    return f"{quantized:.{places}f}"
 
 
 def _build_equity_order_spec(
@@ -346,9 +355,9 @@ def _build_equity_order_spec(
 
     args: list[Any] = [symbol, quantity]
     if needs_stop_price:
-        args.append(_format_order_price(cast(float, stop_price)))
+        args.append(_format_order_price(cast(float, stop_price), "stop_price"))
     if needs_price:
-        args.append(_format_order_price(cast(float, price)))
+        args.append(_format_order_price(cast(float, price), "price"))
     return builder_func(*args)
 
 
@@ -975,6 +984,17 @@ def _prepare_bracket_order(
 ) -> dict[str, Any]:
     if profit_price is None and loss_price is None:
         raise ValueError("At least one of profit_price or loss_price must be provided")
+    # The leg builders only know "price"/"stop_price"; check each bracket
+    # price up front so an error names the parameter the caller supplied.
+    for field, value in (
+        ("entry_price", entry_price),
+        ("entry_stop_price", entry_stop_price),
+        ("profit_price", profit_price),
+        ("loss_price", loss_price),
+        ("loss_limit_price", loss_limit_price),
+    ):
+        if value is not None:
+            _format_order_price(value, field)
     entry_instruction = entry_instruction.upper()
     if entry_instruction not in ["BUY", "SELL"]:
         raise ValueError(f"Invalid entry_instruction: {entry_instruction}. Use BUY or SELL.")

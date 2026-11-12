@@ -210,16 +210,29 @@ class TestBuildOptionOrderSpec:
     @pytest.mark.parametrize(
         ("price", "expected"),
         [
-            (19.9999999, "19.99"),
-            (20.00000001, "20.00"),
-            (1.99999, "1.99"),
-            (0.12121, "0.1212"),
-            (-12.129, "-12.12"),
+            (1.15, "1.15"),
+            (19.99, "19.99"),
+            (4.35, "4.35"),
+            (2.01, "2.01"),
+            (150, "150.00"),
+            (1.0, "1.00"),
+            (0.57, "0.5700"),
+            (0.1234, "0.1234"),
+            (0.99, "0.9900"),
         ],
     )
-    def test_format_order_price_preserves_truncation(self, price, expected):
-        """Match schwab-py's historical truncation for critical float values."""
+    def test_format_order_price_is_exact(self, price, expected):
+        """Prices reach Schwab exactly as given, at fixed scale."""
         assert _format_order_price(price) == expected
+
+    @pytest.mark.parametrize(
+        "price",
+        [1.999, 0.12345, 0, -1, -0.5, float("nan"), float("inf"), float("-inf"), 1e30, True, "1.15"],
+    )
+    def test_format_order_price_rejects_unrepresentable_values(self, price):
+        """A price that cannot be sent exactly is refused, naming the field."""
+        with pytest.raises(ValueError, match="stop_price"):
+            _format_order_price(price, "stop_price")
 
 
 class TestBuildTrailingStopOrderSpec:
