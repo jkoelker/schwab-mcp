@@ -22,6 +22,8 @@ logger = logging.getLogger(__name__)
 ToolFn = Callable[..., Awaitable[Any]]
 
 _APPROVAL_PROGRESS_INTERVAL = 5.0
+# A looping or misbehaving model must not be able to flood the reviewer.
+MAX_PENDING_APPROVALS = 3
 _APPROVAL_WAIT_MESSAGE = "Waiting for reviewer approval…"
 
 
@@ -125,18 +127,35 @@ async def run_approval(context: SchwabContext, request: ApprovalRequest) -> Appr
     Shared by the automatic write-tool approval wrapping below and by tools
     that need to build their own :class:`ApprovalRequest` (e.g. to surface
     resolved state rather than raw call arguments to the reviewer).
-    """
-    if _has_progress_token(context):
-        await context.report_progress(0, 1, _APPROVAL_WAIT_MESSAGE)
-    keepalive_task = _start_approval_keepalive(context)
 
+    At most ``MAX_PENDING_APPROVALS`` requests may wait on the reviewer at
+    once; a further request raises ``PermissionError`` without reaching the
+    approval backend.
+    """
+    server = context.schwab
+    if server.pending_approvals >= MAX_PENDING_APPROVALS:
+        message = (
+            f"Refusing approval request for tool '{request.tool_name}': {MAX_PENDING_APPROVALS} approvals are "
+            "already pending. Wait for the reviewer to answer them before requesting another."
+        )
+        logger.warning(message)
+        raise PermissionError(message)
+
+    server.pending_approvals += 1
     try:
-        decision = await context.approvals.require(request)
+        if _has_progress_token(context):
+            await context.report_progress(0, 1, _APPROVAL_WAIT_MESSAGE)
+        keepalive_task = _start_approval_keepalive(context)
+
+        try:
+            decision = await context.approvals.require(request)
+        finally:
+            if keepalive_task is not None:
+                keepalive_task.cancel()
+                with suppress(asyncio.CancelledError):
+                    await keepalive_task
     finally:
-        if keepalive_task is not None:
-            keepalive_task.cancel()
-            with suppress(asyncio.CancelledError):
-                await keepalive_task
+        server.pending_approvals -= 1
 
     await _report_approval_completion(context, decision)
     return decision

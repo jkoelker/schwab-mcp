@@ -15,7 +15,10 @@ compact defaults with `verbose=True` escape hatches where response size matters.
 - `_registration.py` centralizes FastMCP registration. `register_tool()` converts
   MCP `Context` arguments into `SchwabContext`, attaches read/write annotations,
   applies optional `result_transform`, and wraps write tools in the approval
-  workflow unless a tool supplies custom approval handling.
+  workflow unless a tool supplies custom approval handling. `run_approval()`
+  allows at most `MAX_PENDING_APPROVALS` (3) concurrent requests, tracked on
+  `SchwabServerContext.pending_approvals`, and refuses more with
+  `PermissionError` before the backend is contacted.
 - `_protocols.py` defines Protocol facades for each Schwab client namespace
   (`accounts`, `orders`, `quotes`, `options`, `price_history`, etc.). These keep
   `SchwabContext` access type-checkable without coupling tool code to concrete
@@ -30,7 +33,8 @@ compact defaults with `verbose=True` escape hatches where response size matters.
   `strip_noise`, applied as a transform in `server.py` before returning data
   to MCP callers.
 - Response shaping is intentionally local to each domain: accounts prune balances
-  and positions while enriching hashes/nicknames, quotes keep key quote fields,
+  and positions while enriching hashes/nicknames (compact output then masks
+  `accountNumber` to its last 4 characters), quotes keep key quote fields,
   options prune per-contract greeks/liquidity fields and default expiration
   windows to 60 days, and orders prune nested order payloads recursively.
 - Order construction is split between `orders.py` orchestration and
