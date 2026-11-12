@@ -115,7 +115,8 @@ def auth(
         return 0
     except Exception as e:
         click.echo(f"Authentication failed: {str(e)}", err=True)
-        return 1
+        # Click ignores a command's return value, so exit explicitly.
+        raise SystemExit(1) from e
 
 
 def _select_write_mode(

@@ -34,7 +34,7 @@ def test_auth_command_returns_error_on_exception(
     cli_runner,
     tmp_path,
 ):
-    """When easy_client raises, the auth command prints an error but does not re-raise."""
+    """When easy_client raises, the auth command prints an error and exits 1."""
 
     def fake_easy_client(**kwargs: Any) -> object:
         """Raise the authentication failure used by this test."""
@@ -56,9 +56,29 @@ def test_auth_command_returns_error_on_exception(
         ],
     )
 
-    # The command catches the exception and returns 1 via the non-zero exit path
     assert "Authentication failed: network unavailable" in result.output
-    # Note: the command returns 1 but Click converts it via the function return value
+    assert result.exit_code == 1
+
+
+def test_auth_command_exits_1_for_disallowed_callback_host(cli_runner, tmp_path):
+    """A real login-flow failure (non-loopback callback host) exits 1, not 0."""
+    result = cli_runner.invoke(
+        cli.cli,
+        [
+            "auth",
+            "--client-id",
+            "cid",
+            "--client-secret",
+            "secret",
+            "--callback-url",
+            "https://example.com:1",
+            "--token-path",
+            str(tmp_path / "token.yaml"),
+        ],
+    )
+
+    assert "Disallowed hostname" in result.output
+    assert result.exit_code == 1
 
 
 def test_cli_main_entrypoint_delegates_to_cli_group(monkeypatch):
