@@ -421,7 +421,9 @@ def _render_place_previewed_order(args: Mapping[str, Any], account_names: Mappin
     summary = args.get("order_summary") or "?"
     original_tool = args.get("original_tool") or "a preview tool"
     account = _account_label(args.get("account_hash"), account_names)
-    return f"place a previewed order in {account}: {summary} (previewed via {original_tool})."
+    # The summary is one order per line (composite orders span several), so
+    # it goes below the header rather than mid-sentence.
+    return f"place a previewed order in {account} (previewed via {original_tool}):\n{summary}"
 
 
 _TOOL_RENDERERS: Mapping[str, Any] = {

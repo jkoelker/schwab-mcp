@@ -127,7 +127,7 @@ def test_replacement_uses_immutable_preview_and_exact_bound_target(monkeypatch: 
     assert replacement_payload["order_spec"]["orderLegCollection"][0]["quantity"] == 2
     assert approval_manager.requests[0].arguments["target_order_id"] == "padded-order-9"
     assert approval_manager.requests[0].arguments["order_summary"] == (
-        "BUY_TO_OPEN 2 SPY 251219C500 LIMIT @ $1.23 OPTION session=AM duration=DAY"
+        "BUY_TO_OPEN 2 SPY 251219C500 OPTION LIMIT @ $1.23 session=AM duration=DAY"
     )
 
 
@@ -145,7 +145,7 @@ def test_replacement_uses_immutable_preview_and_exact_bound_target(monkeypatch: 
                 "session": "PM",
                 "duration": "GTC",
             },
-            "BUY_TO_OPEN 1 SPY 251219C500 LIMIT @ $0.1234 OPTION session=PM duration=GOOD_TILL_CANCEL",
+            "BUY_TO_OPEN 1 SPY 251219C500 OPTION LIMIT @ $0.1234 session=PM duration=GOOD_TILL_CANCEL",
         ),
         (
             {
@@ -155,7 +155,7 @@ def test_replacement_uses_immutable_preview_and_exact_bound_target(monkeypatch: 
                 "order_type": "STOP",
                 "stop_price": 10.129,
             },
-            "SELL 3 AAPL STOP stop $10.12 session=NORMAL duration=DAY",
+            "SELL 3 AAPL EQUITY STOP stop $10.12 session=NORMAL duration=DAY",
         ),
         (
             {
@@ -166,7 +166,7 @@ def test_replacement_uses_immutable_preview_and_exact_bound_target(monkeypatch: 
                 "trail_offset": 1.23456789,
                 "trail_type": "PERCENT",
             },
-            "SELL 3 AAPL TRAILING_STOP offset=1.23456789 PERCENT session=NORMAL duration=DAY",
+            "SELL 3 AAPL EQUITY TRAILING_STOP offset=1.23456789 link=PERCENT basis=LAST session=NORMAL duration=DAY",
         ),
     ],
 )

@@ -65,8 +65,11 @@ compact defaults with `verbose=True` escape hatches where response size matters.
     while `preview_replacement_order()` caches a typed single-leg replacement
     bound to an existing order and `replace_previewed_order()` consumes only
     REPLACE_ORDER entries. Both custom executors request approval and return
-    compact post-write order status. Replacement approval summaries reflect the
-    built payload, and replacement target IDs reject URL-unsafe values. A failed
+    compact post-write order status. Every approval summary is rendered by
+    `_spec_summary()` from the built spec (all legs, nested child orders,
+    prices, session, duration) before any API call; values it cannot show
+    faithfully fail the preview. Replacement target IDs reject URL-unsafe
+    values. A failed
     status fetch, including an HTTP transport failure, preserves the successful
     write response as a fallback. `cancel_order()` validates both identifiers
     before custom approval and the cancel request, and preserves its fallback
