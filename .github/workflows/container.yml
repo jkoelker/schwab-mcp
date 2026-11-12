@@ -44,8 +44,9 @@ jobs:
             type=ref,event=tag
             type=semver,pattern={{version}}
             type=semver,pattern={{major}}.{{minor}}
+          # auto: latest follows release tags (v*), not every push to main.
           flavor: |
-            latest=true
+            latest=auto
 
       - name: Build image (PR)
         if: github.event_name == 'pull_request'

@@ -40,7 +40,7 @@ Discord/Signal approval infrastructure for write operations.
   extras, ruff/pyright/pytest configuration, and console script definition.
 - `uv.lock`: locked dependency graph for `uv` installs.
 - `Makefile`: local helper targets for common project workflows.
-- `Containerfile`: container image build recipe.
+- `Containerfile`: container image build recipe (runtime dependencies plus the `signal` extra and `ta` group, no dev tools; runs as UID 1000 with the token directory at `/home/schwab/.local/share/schwab-mcp`).
 - `.pre-commit-config.yaml`: pre-commit hook configuration.
 - `renovate.json`: dependency update automation configuration.
 

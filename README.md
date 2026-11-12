@@ -101,12 +101,21 @@ You can configure the server using CLI flags or Environment Variables.
 
 A Docker/Podman image is available at `ghcr.io/jkoelker/schwab-mcp`.
 
+The image runs as an unprivileged user (UID 1000) and reads its token from
+`/home/schwab/.local/share/schwab-mcp`. `latest` tracks the newest release tag.
+
 ```bash
-podman run --rm -it \
-  --env SCHWAB_CLIENT_ID=... \
-  --env SCHWAB_CLIENT_SECRET=... \
-  -v ~/.local/share/schwab-mcp:/schwab-mcp \
-  ghcr.io/jkoelker/schwab-mcp:latest server --token-path /schwab-mcp/token.yaml
+# SCHWAB_CLIENT_ID / SCHWAB_CLIENT_SECRET are passed through from your shell.
+podman run --rm -it --userns=keep-id \
+  --env SCHWAB_CLIENT_ID --env SCHWAB_CLIENT_SECRET \
+  -v ~/.local/share/schwab-mcp:/home/schwab/.local/share/schwab-mcp \
+  ghcr.io/jkoelker/schwab-mcp:latest server
+
+# Docker: run as your own UID so the mounted 0600 token is readable.
+docker run --rm -it --user "$(id -u):$(id -g)" \
+  --env SCHWAB_CLIENT_ID --env SCHWAB_CLIENT_SECRET \
+  -v ~/.local/share/schwab-mcp:/home/schwab/.local/share/schwab-mcp \
+  ghcr.io/jkoelker/schwab-mcp:latest server
 ```
 
 ## Available Tools
