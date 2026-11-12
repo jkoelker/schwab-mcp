@@ -1,6 +1,7 @@
 """Order placement, management, and preview tools for the Schwab MCP server."""
 
 import logging
+import math
 import re
 import uuid
 from collections.abc import Callable
@@ -11,7 +12,14 @@ from typing import Annotated, Any, cast
 import httpx
 from mcp.server.mcpserver import MCPServer
 from mcp.types import ToolAnnotations
-from schwab.orders.common import Duration, first_triggers_second as trigger_builder, one_cancels_other as oco_builder
+from schwab.orders.common import (
+    ComplexOrderStrategyType,
+    Duration,
+    OrderType,
+    Session,
+    first_triggers_second as trigger_builder,
+    one_cancels_other as oco_builder,
+)
 from schwab.orders.generic import OrderBuilder
 from schwab.orders.options import OptionSymbol
 from schwab.utils import (
@@ -46,10 +54,13 @@ from schwab_mcp.tools.order_helpers import (
     option_sell_to_open_limit,
     option_sell_to_open_market,
 )
-from schwab_mcp.tools.utils import JSONType, ResponseHandler, SchwabAPIError, call
+from schwab_mcp.tools.utils import JSONType, ResponseHandler, SchwabAPIError, call, validate_identifier
 
 logger = logging.getLogger(__name__)
-_SAFE_ORDER_IDENTIFIER = re.compile(r"[A-Za-z0-9_-]+", re.ASCII)
+# Symbols reach the approval prompt and Schwab's order payload. Allow the
+# characters real Schwab symbols use: equities (BRK.B, BRK/B, BF-B), indexes
+# ($SPX), futures (/ES) and space-padded option symbols.
+_SAFE_SYMBOL = re.compile(r"[A-Za-z0-9 .$/-]{1,32}", re.ASCII)
 
 _COMPACT_ORDER_TOP_FIELDS = frozenset(
     {
@@ -148,11 +159,38 @@ def _normalize_duration(duration: str | Duration) -> str:
     return candidate
 
 
+_VALID_SESSIONS: frozenset[str] = frozenset(s.name for s in Session)
+_VALID_ORDER_TYPES: frozenset[str] = frozenset(t.name for t in OrderType)
+_VALID_COMPLEX_STRATEGIES: frozenset[str] = frozenset(t.name for t in ComplexOrderStrategyType)
+
+
+def _validate_symbol(symbol: Any, field: str = "symbol") -> str:
+    """Require a symbol made only of characters real Schwab symbols use."""
+    if not isinstance(symbol, str) or _SAFE_SYMBOL.fullmatch(symbol) is None or not symbol.strip():
+        raise ValueError(f"{field} must be 1 to 32 ASCII letters, digits, spaces, or . $ / -, got {symbol!r}")
+    return symbol
+
+
+def _validate_quantity(quantity: Any, field: str = "quantity") -> int:
+    """Require a positive integer quantity (bool is not a quantity)."""
+    if isinstance(quantity, bool) or not isinstance(quantity, int) or quantity <= 0:
+        raise ValueError(f"{field} must be a positive integer, got {quantity!r}")
+    return quantity
+
+
+def _normalize_choice(value: Any, allowed: frozenset[str], field: str) -> str:
+    """Upper-case a string option and require it to be one of ``allowed``."""
+    candidate = value.strip().upper() if isinstance(value, str) else None
+    if candidate not in allowed:
+        raise ValueError(f"Invalid {field}: {value!r}. Must be one of: {', '.join(sorted(allowed))}")
+    return candidate
+
+
 # Internal helper function to apply session and duration settings
 def _apply_order_settings(order_spec, session: str | None, duration: str | None):
     """Internal helper to apply session and duration to an order spec builder."""
     if session:
-        order_spec = order_spec.set_session(session)
+        order_spec = order_spec.set_session(_normalize_choice(session, _VALID_SESSIONS, "session"))
     if duration is not None:
         order_spec = order_spec.set_duration(_normalize_duration(duration))
     return order_spec
@@ -341,7 +379,9 @@ def _build_equity_order_spec(
     stop_price: float | None = None,
 ):
     """Internal helper to build the core equity order spec builder based on parameters."""
-    instruction = instruction.upper()
+    _validate_symbol(symbol)
+    _validate_quantity(quantity)
+    instruction = instruction.upper() if isinstance(instruction, str) else repr(instruction)
     order_type = order_type.upper()
 
     if order_type not in _EQUITY_ORDER_TYPES:
@@ -405,7 +445,9 @@ def _build_trailing_stop_order_spec(
     trail_offset: float,
     trail_type: str = "VALUE",
 ):
-    instruction = instruction.upper()
+    _validate_symbol(symbol)
+    _validate_quantity(quantity)
+    instruction = instruction.upper() if isinstance(instruction, str) else repr(instruction)
     trail_type = trail_type.upper()
 
     if instruction not in _EQUITY_INSTRUCTIONS:
@@ -414,6 +456,8 @@ def _build_trailing_stop_order_spec(
     if trail_type not in _TRAILING_STOP_LINK_TYPES:
         raise ValueError(f"Invalid trail_type: {trail_type}. Must be VALUE or PERCENT.")
 
+    if isinstance(trail_offset, bool) or not isinstance(trail_offset, (int, float)) or not math.isfinite(trail_offset):
+        raise ValueError(f"trail_offset must be a finite number, got {trail_offset!r}")
     if trail_offset <= 0:
         raise ValueError("trail_offset must be positive")
 
@@ -451,7 +495,9 @@ def _build_option_order_spec(
     price: float | None = None,
 ):
     """Internal helper to build the core option order spec builder based on parameters."""
-    instruction = instruction.upper()
+    _validate_symbol(symbol)
+    _validate_quantity(quantity)
+    instruction = instruction.upper() if isinstance(instruction, str) else repr(instruction)
     order_type = order_type.upper()
 
     if order_type not in _OPTION_ORDER_TYPES:
@@ -714,13 +760,6 @@ def _spec_summary(order_spec: dict[str, Any]) -> str:
     reviewer cannot fully see is never previewed.
     """
     return "\n".join(_summary_lines(order_spec, 0))
-
-
-def _validate_order_identifier(value: str, name: str) -> str:
-    """Validate an identifier before it can be interpolated into a URL path."""
-    if not isinstance(value, str) or _SAFE_ORDER_IDENTIFIER.fullmatch(value) is None:
-        raise ValueError(f"{name} must contain only ASCII letters, digits, underscores, and hyphens")
-    return value
 
 
 def _build_order_from_desc(
@@ -1035,16 +1074,33 @@ def _prepare_option_combo_order(
 ) -> dict[str, Any]:
     if not legs or len(legs) < 2:
         raise ValueError("Provide at least two option legs for a combo order")
+    validated_legs = [_validate_combo_leg(leg, index) for index, leg in enumerate(legs)]
     builder = OrderBuilder(enforce_enums=False).set_order_strategy_type("SINGLE")
     builder = _apply_order_settings(builder, session, duration)
     if complex_order_strategy_type:
-        builder = builder.set_complex_order_strategy_type(complex_order_strategy_type.upper())
-    builder = builder.set_order_type(order_type.upper())
+        builder = builder.set_complex_order_strategy_type(
+            _normalize_choice(complex_order_strategy_type, _VALID_COMPLEX_STRATEGIES, "complex_order_strategy_type")
+        )
+    builder = builder.set_order_type(_normalize_choice(order_type, _VALID_ORDER_TYPES, "order_type"))
     if price is not None:
         builder = builder.set_price(_format_order_price(price))
-    for leg in legs:
-        builder = builder.add_option_leg(leg["instruction"], leg["symbol"], leg["quantity"])
+    for instruction, symbol, quantity in validated_legs:
+        builder = builder.add_option_leg(instruction, symbol, quantity)
     return cast(dict[str, Any], builder.build())
+
+
+_COMBO_LEG_FIELDS = frozenset({"symbol", "quantity", "instruction"})
+
+
+def _validate_combo_leg(leg: Any, index: int) -> tuple[str, str, int]:
+    """Validate one option-combo leg: exactly symbol, quantity, instruction."""
+    if not isinstance(leg, dict) or set(leg) != _COMBO_LEG_FIELDS:
+        keys = sorted(leg) if isinstance(leg, dict) else type(leg).__name__
+        raise ValueError(f"legs[{index}] must have exactly the keys instruction, quantity, symbol; got {keys}")
+    instruction = _normalize_choice(leg["instruction"], _OPTION_INSTRUCTIONS, f"legs[{index}].instruction")
+    symbol = _validate_symbol(leg["symbol"], f"legs[{index}].symbol")
+    quantity = _validate_quantity(leg["quantity"], f"legs[{index}].quantity")
+    return instruction, symbol, quantity
 
 
 def _preview_action(account_hash: str, preview_id: str) -> str:
@@ -1067,7 +1123,7 @@ async def _finalize_preview(
     single call here. The reviewer summary is rendered from the spec itself
     before any API call, so an order that cannot be shown is never previewed.
     """
-    _validate_order_identifier(account_hash, "account_hash")
+    validate_identifier(account_hash, "account_hash")
     summary = _spec_summary(order_spec)
     await _require_spec_supported_asset_types(ctx.tools, order_spec)
     preview = await call(ctx.orders.preview_order, account_hash=account_hash, order_spec=order_spec)
@@ -1108,6 +1164,8 @@ async def get_order(
     summary, and recursively-pruned childOrderStrategies); pass verbose=True for
     the full raw payload. Params: account_hash, order_id.
     """
+    validate_identifier(account_hash, "account_hash")
+    validate_identifier(order_id, "order_id")
     client = ctx.orders
     result = await call(client.get_order, order_id=order_id, account_hash=account_hash)
     return result if verbose else _prune_order(result)
@@ -1140,6 +1198,7 @@ async def get_orders(
     Status options: AWAITING_PARENT_ORDER, AWAITING_CONDITION, AWAITING_STOP_CONDITION, AWAITING_MANUAL_REVIEW, ACCEPTED, AWAITING_UR_OUT, PENDING_ACTIVATION, QUEUED, WORKING, REJECTED, PENDING_CANCEL, CANCELED, PENDING_REPLACE, REPLACED, FILLED, EXPIRED, NEW, AWAITING_RELEASE_TIME, PENDING_ACKNOWLEDGEMENT, PENDING_RECALL.
     Use tomorrow's date as to_date for today's orders. Use WORKING/PENDING_ACTIVATION for open orders.
     """
+    validate_identifier(account_hash, "account_hash")
     client = ctx.orders
 
     from_date_obj = parse_date(from_date)
@@ -1195,8 +1254,8 @@ async def cancel_order(
     order_id: Annotated[str, "Order ID to cancel"],
 ) -> JSONType:
     """Cancels a pending order. Cannot cancel executed/terminal orders. Params: account_hash, order_id. Returns updated order details (compact/pruned, same shape as get_order) after cancellation; falls back to a minimal {orderId, status, note} payload if the post-cancel status fetch fails or returns no data. *Write operation.*"""
-    _validate_order_identifier(account_hash, "account_hash")
-    _validate_order_identifier(order_id, "order_id")
+    validate_identifier(account_hash, "account_hash")
+    validate_identifier(order_id, "order_id")
 
     request = ApprovalRequest(
         id=str(uuid.uuid4()),
@@ -1597,8 +1656,8 @@ async def preview_replacement_order(
     to both the account and target order and can only be executed by
     replace_previewed_order.
     """
-    _validate_order_identifier(account_hash, "account_hash")
-    normalized_order_id = _validate_order_identifier(order_id.strip(), "order_id")
+    validate_identifier(account_hash, "account_hash")
+    normalized_order_id = validate_identifier(order_id.strip(), "order_id")
     order_spec, _ = _prepare_replacement_order(cast(dict[str, Any], replacement_order))
     summary = _spec_summary(order_spec)
     await _require_spec_supported_asset_types(ctx.tools, order_spec)

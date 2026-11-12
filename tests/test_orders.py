@@ -773,11 +773,11 @@ class TestPrepareEquityOrderValidation:
 class TestPrepareOptionOrderValidation:
     def test_invalid_order_type_raises(self):
         with pytest.raises(ValueError, match="Invalid order_type"):
-            orders._prepare_option_order("SPY_C400", 1, "BUY_TO_OPEN", "STOP")
+            orders._prepare_option_order("SPY 251219C400", 1, "BUY_TO_OPEN", "STOP")
 
     def test_invalid_instruction_raises(self):
         with pytest.raises(ValueError, match="Invalid instruction"):
-            orders._prepare_option_order("SPY_C400", 1, "BUY", "MARKET")
+            orders._prepare_option_order("SPY 251219C400", 1, "BUY", "MARKET")
 
 
 class TestPrepareTrailingStopOrderValidation:
@@ -989,7 +989,7 @@ class TestPrepareOptionComboOrderValidation:
     def test_requires_at_least_two_legs(self):
         with pytest.raises(ValueError, match="at least two option legs"):
             orders._prepare_option_combo_order(
-                [{"instruction": "BUY_TO_OPEN", "symbol": "SPY_C500", "quantity": 1}],
+                [{"instruction": "BUY_TO_OPEN", "symbol": "SPY 251219C500", "quantity": 1}],
                 "NET_DEBIT",
             )
 

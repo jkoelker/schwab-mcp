@@ -61,7 +61,10 @@ compact defaults with `verbose=True` escape hatches where response size matters.
     `_finalize_preview` and in `preview_replacement_order`, so every preview
     path shares it. Preview account hashes are validated before asset lookup
     or preview requests; replacement target IDs use the same safe identifier
-    rule. `place_previewed_order()` consumes only PLACE_ORDER entries,
+    rule (`utils.validate_identifier`), which the read tools (`get_order`,
+    `get_orders`, `get_account`, `get_transactions`, `get_transaction`) also
+    apply. Order builders validate symbols (`_SAFE_SYMBOL`), positive integer
+    quantities, instructions, sessions and option-combo legs before any call. `place_previewed_order()` consumes only PLACE_ORDER entries,
     while `preview_replacement_order()` caches a typed single-leg replacement
     bound to an existing order and `replace_previewed_order()` consumes only
     REPLACE_ORDER entries. Both custom executors request approval and return

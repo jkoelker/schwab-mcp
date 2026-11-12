@@ -2,8 +2,19 @@
 
 from __future__ import annotations
 
+import re
 from collections.abc import Awaitable, Callable
 from typing import Any, TypeAlias
+
+_SAFE_IDENTIFIER = re.compile(r"[A-Za-z0-9_-]+", re.ASCII)
+
+
+def validate_identifier(value: str, name: str) -> str:
+    """Validate an identifier before it can be interpolated into a URL path."""
+    if not isinstance(value, str) or _SAFE_IDENTIFIER.fullmatch(value) is None:
+        raise ValueError(f"{name} must contain only ASCII letters, digits, underscores, and hyphens")
+    return value
+
 
 JSONPrimitive = str | int | float | bool | None
 JSONType: TypeAlias = JSONPrimitive | dict[str, Any] | list[Any]
