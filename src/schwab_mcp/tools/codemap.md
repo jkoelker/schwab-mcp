@@ -64,7 +64,10 @@ compact defaults with `verbose=True` escape hatches where response size matters.
     rule (`utils.validate_identifier`), which the read tools (`get_order`,
     `get_orders`, `get_account`, `get_transactions`, `get_transaction`) also
     apply. Order builders validate symbols (`_SAFE_SYMBOL`), positive integer
-    quantities, instructions, sessions and option-combo legs before any call. `place_previewed_order()` consumes only PLACE_ORDER entries,
+    quantities, instructions, sessions and option-combo legs before any call;
+    combo orders accept only NET_CREDIT/NET_DEBIT (price required) or
+    NET_ZERO/MARKET (no price), and the nested `_OrderDescInput` schema is
+    closed so unknown keys are refused at the MCP boundary. `place_previewed_order()` consumes only PLACE_ORDER entries,
     while `preview_replacement_order()` caches a typed single-leg replacement
     bound to an existing order and `replace_previewed_order()` consumes only
     REPLACE_ORDER entries. Both custom executors request approval and return

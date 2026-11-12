@@ -12,10 +12,10 @@ from typing import Annotated, Any, cast
 import httpx
 from mcp.server.mcpserver import MCPServer
 from mcp.types import ToolAnnotations
+from pydantic import ConfigDict, with_config
 from schwab.orders.common import (
     ComplexOrderStrategyType,
     Duration,
-    OrderType,
     Session,
     first_triggers_second as trigger_builder,
     one_cancels_other as oco_builder,
@@ -160,7 +160,10 @@ def _normalize_duration(duration: str | Duration) -> str:
 
 
 _VALID_SESSIONS: frozenset[str] = frozenset(s.name for s in Session)
-_VALID_ORDER_TYPES: frozenset[str] = frozenset(t.name for t in OrderType)
+# Combo order types and whether each needs a net price (documented on
+# preview_option_combo_order); any other type or price pairing is refused.
+_COMBO_PRICED_TYPES: frozenset[str] = frozenset({"NET_CREDIT", "NET_DEBIT"})
+_COMBO_UNPRICED_TYPES: frozenset[str] = frozenset({"NET_ZERO", "MARKET"})
 _VALID_COMPLEX_STRATEGIES: frozenset[str] = frozenset(t.name for t in ComplexOrderStrategyType)
 
 
@@ -521,6 +524,7 @@ def _build_option_order_spec(
         return limit_builder(symbol, quantity, _format_order_price(price))
 
 
+@with_config(ConfigDict(extra="forbid"))
 class _OrderDescInputRequired(TypedDict):
     """Required fields for an order leg description (TypedDict for MCP schema)."""
 
@@ -530,11 +534,13 @@ class _OrderDescInputRequired(TypedDict):
     order_type: str
 
 
+@with_config(ConfigDict(extra="forbid"))
 class _OrderDescInput(_OrderDescInputRequired, total=False):
     """TypedDict used as the MCP tool parameter type for order leg dicts.
 
     MCPServer generates the JSON schema for tool inputs from this TypedDict.
-    Raw dicts received from MCP clients are validated and converted to
+    The schema is closed (extra="forbid"), so a key the tool does not read
+    is refused at the MCP boundary instead of being dropped silently. Raw dicts received from MCP clients are validated and converted to
     ``OrderDesc`` dataclass instances via ``OrderDesc.from_dict()`` before
     any internal processing occurs.
     """
@@ -546,6 +552,11 @@ class _OrderDescInput(_OrderDescInputRequired, total=False):
     asset_type: str
     session: str
     duration: str
+
+
+_ORDER_DESC_FIELDS: frozenset[str] = frozenset(
+    _OrderDescInputRequired.__annotations__.keys() | _OrderDescInput.__annotations__.keys()
+)
 
 
 @dataclass(frozen=True)
@@ -591,6 +602,10 @@ class OrderDesc:
         ``order_type``/``asset_type`` combination. This method only checks
         that fields, when present, have the right type.
         """
+        unsupported = sorted(set(raw) - _ORDER_DESC_FIELDS)
+        if unsupported:
+            raise ValueError(f"unsupported field(s): {', '.join(map(str, unsupported))}")
+
         required = ("symbol", "quantity", "instruction", "order_type")
         missing = [field for field in required if field not in raw]
         if missing:
@@ -733,9 +748,9 @@ def _summary_lines(node: Any, depth: int) -> list[str]:
     if not isinstance(children, list):
         raise ValueError(f"Order field 'childOrderStrategies' cannot be shown in the approval summary: {children!r}")
 
-    strategy = _summary_value("orderStrategyType", node.get("orderStrategyType", "SINGLE"))
+    strategy = node.get("orderStrategyType")
     pad = "  " * depth
-    head = [] if strategy == "SINGLE" else [strategy]
+    head = [] if strategy is None else [_summary_value("orderStrategyType", strategy)]
     if len(legs) == 1:
         head.append(_summary_leg(legs[0]))
     head += _summary_order_terms(node)
@@ -925,20 +940,7 @@ def _validate_replacement_fields(replacement_order: dict[str, Any], desc: OrderD
 
 def _prepare_replacement_order(replacement_order: dict[str, Any]) -> tuple[dict[str, Any], OrderDesc]:
     """Validate and build a complete single-order replacement description."""
-    allowed_fields = {
-        "symbol",
-        "quantity",
-        "instruction",
-        "order_type",
-        "price",
-        "stop_price",
-        "trail_offset",
-        "trail_type",
-        "asset_type",
-        "session",
-        "duration",
-    }
-    unsupported = sorted(set(replacement_order) - allowed_fields)
+    unsupported = sorted(set(replacement_order) - _ORDER_DESC_FIELDS)
     if unsupported:
         raise ValueError(f"replacement_order has unsupported field(s): {', '.join(unsupported)}")
     desc = OrderDesc.from_dict(replacement_order)
@@ -1075,13 +1077,18 @@ def _prepare_option_combo_order(
     if not legs or len(legs) < 2:
         raise ValueError("Provide at least two option legs for a combo order")
     validated_legs = [_validate_combo_leg(leg, index) for index, leg in enumerate(legs)]
+    combo_type = _normalize_choice(order_type, _COMBO_PRICED_TYPES | _COMBO_UNPRICED_TYPES, "order_type")
+    if combo_type in _COMBO_PRICED_TYPES and price is None:
+        raise ValueError(f"{combo_type} combo orders require a price")
+    if combo_type in _COMBO_UNPRICED_TYPES and price is not None:
+        raise ValueError(f"{combo_type} combo orders must not include a price")
     builder = OrderBuilder(enforce_enums=False).set_order_strategy_type("SINGLE")
     builder = _apply_order_settings(builder, session, duration)
     if complex_order_strategy_type:
         builder = builder.set_complex_order_strategy_type(
             _normalize_choice(complex_order_strategy_type, _VALID_COMPLEX_STRATEGIES, "complex_order_strategy_type")
         )
-    builder = builder.set_order_type(_normalize_choice(order_type, _VALID_ORDER_TYPES, "order_type"))
+    builder = builder.set_order_type(combo_type)
     if price is not None:
         builder = builder.set_price(_format_order_price(price))
     for instruction, symbol, quantity in validated_legs:

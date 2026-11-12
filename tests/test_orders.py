@@ -1566,7 +1566,7 @@ class TestPreviewReplacementOrder:
         assert entry.target_order_id == "order-9"
         assert entry.order_spec["orderType"] == "LIMIT"
         assert entry.order_spec["orderLegCollection"][0]["instruction"] == "BUY"
-        assert entry.summary == "BUY 100 AAPL EQUITY LIMIT @ $150.00 session=NORMAL duration=DAY"
+        assert entry.summary == "SINGLE BUY 100 AAPL EQUITY LIMIT @ $150.00 session=NORMAL duration=DAY"
 
     def test_rejects_raw_or_composite_fields(self):
         """Replacement validation rejects Schwab payload and composite fields."""
@@ -2230,7 +2230,7 @@ class TestPreviewOptionComboOrder:
 
         entry = ctx.previews.pop(result["preview_id"], "acc123", operation=orders.PreviewOperation.PLACE_ORDER)
         assert entry.tool_name == "preview_option_combo_order"
-        assert entry.summary.startswith("NET_CREDIT")
+        assert entry.summary.startswith("SINGLE NET_CREDIT")
         assert "leg 2:" in entry.summary
 
     def test_rejects_single_leg(self):

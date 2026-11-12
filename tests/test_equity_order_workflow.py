@@ -145,7 +145,7 @@ def assert_approval_request(
     assert request.tool_name == "place_previewed_order"
     assert request.arguments == {
         "original_tool": "preview_equity_order",
-        "order_summary": "BUY 3 MSFT EQUITY MARKET session=NORMAL duration=DAY",
+        "order_summary": "SINGLE BUY 3 MSFT EQUITY MARKET session=NORMAL duration=DAY",
         "preview_id": preview_id,
         "account_hash": ACCOUNT_HASH,
     }
