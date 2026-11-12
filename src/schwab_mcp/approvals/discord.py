@@ -21,6 +21,9 @@ from schwab_mcp.approvals.base import (
 
 logger = logging.getLogger(__name__)
 
+# How long start() waits for the bot to log in and become ready.
+_START_TIMEOUT_SECONDS = 30.0
+
 
 @dataclass(slots=True, frozen=True)
 class DiscordApprovalSettings:
@@ -80,13 +83,41 @@ class DiscordApprovalManager(ApprovalManager):
         self._lock = asyncio.Lock()
 
     async def start(self) -> None:
-        """Start the Discord bot and wait until it is ready."""
+        """Start the Discord bot and wait until it is ready.
+
+        Waits on whichever finishes first: the ready event or the runner task.
+        A login failure (bad token, network error) is raised here instead of
+        leaving startup blocked on a ready event that never fires, and the
+        wait is bounded by ``_START_TIMEOUT_SECONDS``.
+        """
         if self._runner is not None:
             return
 
         loop = asyncio.get_running_loop()
-        self._runner = loop.create_task(self._run_client())
-        await self._ready.wait()
+        runner = loop.create_task(self._run_client())
+        self._runner = runner
+        if self._ready.is_set():
+            return
+        ready = loop.create_task(self._ready.wait())
+        try:
+            await asyncio.wait({ready, runner}, timeout=_START_TIMEOUT_SECONDS, return_when=asyncio.FIRST_COMPLETED)
+        finally:
+            ready.cancel()
+        if self._ready.is_set():
+            return
+
+        if runner.done():
+            self._runner = None
+            error = None if runner.cancelled() else runner.exception()
+            if error is not None:
+                raise error
+            raise RuntimeError("Discord approval client stopped before it was ready")
+
+        # A login stuck on the network may ignore close(); cancel the runner
+        # so stop() does not wait on it.
+        runner.cancel()
+        await self.stop()
+        raise TimeoutError(f"Discord approval client was not ready within {_START_TIMEOUT_SECONDS:g}s")
 
     async def stop(self) -> None:
         """Shut down the Discord bot and clean up its task."""

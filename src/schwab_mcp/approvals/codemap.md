@@ -23,7 +23,7 @@ Provides the approval abstraction and the Discord- and Signal-backed implementat
 
 ## Flow
 
-1. The server lifecycle calls `approval_manager.start()` before exposing the MCPServer context and `stop()` during shutdown.
+1. The server lifecycle calls `approval_manager.start()` before exposing the MCPServer context and `stop()` during shutdown. Discord's `start()` waits for whichever comes first, the ready event or the bot task ending, re-raises a login failure, and gives up after `_START_TIMEOUT_SECONDS` (30 s).
 2. A write consumer builds an `ApprovalRequest` and calls `ApprovalManager.require()` (usually through `tools._registration.run_approval()`).
 3. For Discord approvals, `require()` ensures the bot is connected and the configured channel is messageable, posts an orange pending embed, and adds ✅/❌ reactions. Oversized requests are denied without an approval embed or reactions; a short best-effort notice is sent without exposing arguments.
 4. The request is stored in `_pending` with a future. `require()` waits for that future with `timeout_seconds`.
