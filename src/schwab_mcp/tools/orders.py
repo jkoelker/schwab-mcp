@@ -1237,7 +1237,12 @@ async def get_orders(
                         if order_id and order_id not in seen_order_ids:
                             seen_order_ids.add(order_id)
                             all_orders.append(order)
-            result = all_orders if all_orders else []
+            if max_results is not None:
+                # Each per-status call returns up to max_results, so cap the
+                # merged list, keeping the most recently entered orders.
+                all_orders.sort(key=lambda order: str(order.get("enteredTime") or ""), reverse=True)
+                all_orders = all_orders[:max_results]
+            result = all_orders
     else:
         result = await call(
             client.get_orders_for_account,

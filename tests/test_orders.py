@@ -145,6 +145,24 @@ class TestGetOrders:
         order_ids = {order["orderId"] for order in result}
         assert order_ids == {"order_FILLED", "order_CANCELED"}
 
+    def test_status_list_respects_max_results_overall(self, monkeypatch):
+        """max_results caps the merged result, keeping the most recent orders."""
+
+        async def fake_call(func, *args, **kwargs):
+            status = kwargs["status"].name
+            assert kwargs["max_results"] == 2
+            return [
+                {"orderId": f"{status}-{day}", "enteredTime": f"2026-01-0{day}T15:00:00+0000"}
+                for day in ((1, 4, 5) if status == "WORKING" else (2, 3, 6))
+            ]
+
+        monkeypatch.setattr(orders, "call", fake_call)
+        ctx = make_ctx(DummyOrdersClient())
+
+        result = run(orders.get_orders(ctx, "xyz789", max_results=2, status=["WORKING", "FILLED"], verbose=True))
+
+        assert [order["orderId"] for order in cast(list[Any], result)] == ["FILLED-6", "WORKING-5"]
+
 
 class TestGetOrder:
     def test_calls_client_with_correct_args(self, monkeypatch):
