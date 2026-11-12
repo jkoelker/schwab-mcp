@@ -394,6 +394,9 @@ def server(
                 details={"client_type": type(client).__name__},
             )
             return 1
+    except schwab_auth.LoginRequiredError as e:
+        send_error_response(str(e), code=401, details={"token_expired": True})
+        return 1
     except Exception as e:
         send_error_response(
             f"Error initializing Schwab client: {str(e)}",

@@ -426,3 +426,22 @@ def test_client_from_login_flow_times_out(
                 interactive=False,
                 callback_timeout=1.0,
             )
+
+
+@patch("schwab_mcp.auth.client_from_login_flow")
+@patch("schwab_mcp.auth.auth.client_from_access_functions")
+@pytest.mark.parametrize("exists", [True, False])
+def test_easy_client_non_interactive_never_starts_login_flow(mock_caf: Any, mock_login: Any, exists: bool) -> None:
+    """Server mode (interactive=False) raises instead of opening a browser login."""
+    mock_caf.return_value = _make_dummy_client(token_age=6 * 24 * 60 * 60)
+
+    with pytest.raises(mcp_auth.LoginRequiredError, match="schwab-mcp auth"):
+        mcp_auth.easy_client(
+            client_id=FAKE_CLIENT_ID,
+            client_secret=FAKE_CLIENT_SECRET,
+            callback_url=VALID_CALLBACK_URL,
+            token_manager=DummyTokenManager(exists=exists),
+            interactive=False,
+        )
+
+    mock_login.assert_not_called()

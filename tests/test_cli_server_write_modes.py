@@ -956,3 +956,34 @@ def test_unused_account_names_warn_without_selecting_backend(
     assert result.exit_code == 0
     assert f"Warning: {warning} account names are ignored" in result.stderr
     assert sociable_cli_server["allow_write"] is bool(options)
+
+
+@pytest.mark.parametrize("token_exists", [True, False])
+def test_server_with_stale_or_missing_token_exits_401_without_login_flow(
+    monkeypatch, cli_runner, tmp_path, token_exists: bool
+) -> None:
+    """Server mode reports an expired token as 401 instead of starting a browser login."""
+    from schwab import auth as schwab_auth
+
+    from schwab_mcp import auth as mcp_auth
+
+    class AgedClient:
+        def token_age(self) -> int:
+            return 6 * 24 * 60 * 60
+
+    token = tmp_path / "token.yaml"
+    if token_exists:
+        token.write_text("---\ncreation_timestamp: 0\n")
+    login_calls: list[Any] = []
+    monkeypatch.setattr(schwab_auth, "client_from_access_functions", lambda *a, **k: AgedClient())
+    monkeypatch.setattr(mcp_auth, "client_from_login_flow", lambda *a, **k: login_calls.append(k))
+
+    result = cli_runner.invoke(
+        cli.cli,
+        ["server", "--client-id", "cid", "--client-secret", "secret", "--token-path", str(token)],
+    )
+
+    assert login_calls == []
+    assert result.exit_code != 0
+    assert '"code":401' in result.output
+    assert "schwab-mcp auth" in result.output
