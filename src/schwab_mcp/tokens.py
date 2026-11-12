@@ -6,6 +6,7 @@ import contextlib
 import json
 import os
 import pathlib
+import stat
 import tempfile
 from collections.abc import Callable
 from dataclasses import dataclass
@@ -18,6 +19,45 @@ from platformdirs import user_data_dir
 def _private_dir(directory: str) -> None:
     """Create ``directory`` (and parents) with the leaf readable only by its owner."""
     pathlib.Path(directory).mkdir(mode=0o700, parents=True, exist_ok=True)
+
+
+def _tighten(path: str, mode: int, *, directory: bool) -> None:
+    """Drop group and other access from an existing secret file or directory.
+
+    ``mkdir(mode=...)`` and atomic rewrites only cover new objects, so a data
+    directory or secret file left loose by an older version stays readable
+    until this runs. It opens ``path`` without following a symlink (a symlink
+    is left alone, never chmodded through) and changes only a regular file
+    or directory owned by the current user. Missing paths are ignored.
+    """
+    if not hasattr(os, "getuid"):  # no POSIX ownership or modes (Windows)
+        return
+    flags = os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK | (os.O_DIRECTORY if directory else 0)
+    try:
+        fd = os.open(path, flags)
+    except OSError:  # missing, a symlink (ELOOP), or not the expected kind
+        return
+    try:
+        info = os.fstat(fd)
+        kind_ok = stat.S_ISDIR(info.st_mode) if directory else stat.S_ISREG(info.st_mode)
+        if kind_ok and info.st_uid == os.getuid() and stat.S_IMODE(info.st_mode) & 0o077:
+            os.fchmod(fd, mode)
+    finally:
+        os.close(fd)
+
+
+def _private_data_path(app_name: str, filename: str) -> str:
+    """Return ``filename`` in the app data directory, both owner-only.
+
+    Creates the directory 0700, tightens an existing loose one to 0700, and
+    tightens an existing loose secret file in it to 0600.
+    """
+    data_dir = user_data_dir(app_name)
+    _private_dir(data_dir)
+    _tighten(data_dir, 0o700, directory=True)
+    path = os.path.join(data_dir, filename)
+    _tighten(path, 0o600, directory=False)
+    return path
 
 
 def _write_private_atomic(path: str, write: Callable[[IO[str]], None]) -> None:
@@ -63,9 +103,7 @@ def token_path(app_name: str, filename: str = "token.yaml") -> str:
     Returns:
         The path to the token file
     """
-    data_dir = user_data_dir(app_name)
-    _private_dir(data_dir)
-    return os.path.join(data_dir, filename)
+    return _private_data_path(app_name, filename)
 
 
 class TokenWriter(Protocol):
@@ -139,6 +177,7 @@ def token_loader(token_path: str) -> Callable[[], dict[str, Any]]:
         Returns:
             The OAuth token data as a dictionary
         """
+        _tighten(token_path, 0o600, directory=False)
         with open(token_path) as f:
             if token_path.endswith(".json"):
                 return json.load(f)
@@ -180,9 +219,7 @@ def credentials_path(app_name: str, filename: str = "credentials.yaml") -> str:
     Returns:
         The path to the credentials file
     """
-    data_dir = user_data_dir(app_name)
-    _private_dir(data_dir)
-    return os.path.join(data_dir, filename)
+    return _private_data_path(app_name, filename)
 
 
 def load_credentials(path: str) -> Credentials:
@@ -197,6 +234,7 @@ def load_credentials(path: str) -> Credentials:
     if not os.path.exists(path):
         return Credentials()
 
+    _tighten(path, 0o600, directory=False)
     with open(path) as f:
         data = yaml.safe_load(f)
 
