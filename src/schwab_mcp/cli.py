@@ -2,6 +2,7 @@
 
 import os
 import sys
+import urllib.parse
 from collections.abc import Callable
 from typing import Any
 
@@ -69,6 +70,33 @@ def _common_options(token_path_help: str) -> Callable[[Callable[..., Any]], Call
     return apply
 
 
+def _url_host(url: str) -> str | None:
+    """Return a URL's hostname, or None when it cannot be parsed."""
+    try:
+        return urllib.parse.urlparse(url).hostname
+    except ValueError:
+        return None
+
+
+def _base_url_problem(base_url: str) -> str | None:
+    """Explain why a Schwab base URL is unsafe, or return None if it is fine.
+
+    The base URL receives the OAuth token and the client secret, so it must
+    be https unless it points at this machine (a local proxy).
+    """
+    try:
+        scheme = urllib.parse.urlparse(base_url).scheme.lower()
+    except ValueError:
+        scheme = ""
+    host = _url_host(base_url)
+    if host and (scheme == "https" or (scheme == "http" and is_loopback_host(host))):
+        return None
+    return (
+        f"--base-url/SCHWAB_BASE_URL must use https (plain http is allowed only for a loopback host); "
+        f"got {base_url!r}. It carries the Schwab token and client secret."
+    )
+
+
 @click.group()
 def cli():
     """Schwab Model Context Protocol CLI."""
@@ -84,6 +112,10 @@ def auth(
     base_url: str,
 ) -> int:
     """Initialize Schwab client authentication."""
+    base_url_problem = _base_url_problem(base_url)
+    if base_url_problem:
+        click.echo(f"Error: {base_url_problem}", err=True)
+        raise SystemExit(1)
     creds = tokens.load_credentials(tokens.credentials_path(APP_NAME))
     client_id = client_id or creds.client_id
     client_secret = client_secret or creds.client_secret
@@ -131,6 +163,7 @@ def _select_write_mode(
     signal_approver: tuple[str, ...],
     signal_timeout: int,
     signal_account_name: tuple[str, ...],
+    signal_allow_remote: bool = False,
 ) -> tuple[ApprovalManager, bool] | None:
     """Choose write access and its approval manager from resolved CLI values."""
     if jesus_take_the_wheel:
@@ -146,6 +179,15 @@ def _select_write_mode(
         )
         return None
     if signal_requested:
+        if not signal_allow_remote and not is_loopback_host(_url_host(signal_api_url)):
+            send_error_response(
+                f"Refusing Signal daemon at {signal_api_url!r}: its API is unauthenticated, so whatever answers "
+                "there can approve trades. Run it on 127.0.0.1, or pass --signal-allow-remote if the network "
+                "path to it is trusted.",
+                code=400,
+                details={"signal_api_url": signal_api_url},
+            )
+            return None
         approver_numbers = SignalApprovalManager.authorized_numbers(signal_approver)
         if not signal_account or not approver_numbers:
             send_error_response(
@@ -267,6 +309,12 @@ def _select_write_mode(
     ),
 )
 @click.option(
+    "--signal-allow-remote",
+    default=False,
+    is_flag=True,
+    help="Allow a --signal-api-url that is not on loopback. The daemon API is unauthenticated.",
+)
+@click.option(
     "--signal-account",
     type=str,
     envvar="SCHWAB_MCP_SIGNAL_ACCOUNT",
@@ -356,6 +404,7 @@ def server(
     discord_timeout: int,
     discord_account_name: tuple[str, ...],
     signal_api_url: str,
+    signal_allow_remote: bool,
     signal_account: str | None,
     signal_approver: tuple[str, ...],
     signal_timeout: int,
@@ -384,6 +433,10 @@ def server(
             code=400,
             details={"host": host},
         )
+        return 1
+    base_url_problem = _base_url_problem(base_url)
+    if base_url_problem:
+        send_error_response(base_url_problem, code=400, details={"base_url": base_url})
         return 1
     creds = tokens.load_credentials(tokens.credentials_path(APP_NAME))
     client_id = client_id or creds.client_id
@@ -488,6 +541,7 @@ def server(
             signal_approver=signal_approver_values,
             signal_timeout=signal_timeout,
             signal_account_name=signal_account_name_values,
+            signal_allow_remote=signal_allow_remote,
         )
         if write_mode is None:
             return 1

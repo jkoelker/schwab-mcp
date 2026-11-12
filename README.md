@@ -97,6 +97,9 @@ You can configure the server using CLI flags or Environment Variables.
 | `--client-id` | `SCHWAB_CLIENT_ID` | **Required**. Schwab App Key. |
 | `--client-secret` | `SCHWAB_CLIENT_SECRET` | **Required**. Schwab App Secret. |
 | `--callback-url` | `SCHWAB_CALLBACK_URL` | Redirect URL (default: `https://127.0.0.1:8182`). |
+| `--base-url` | `SCHWAB_BASE_URL` | Schwab API base URL (default: `https://api.schwabapi.com`). Must be `https`, except for a loopback host. |
+| `--signal-api-url` | `SCHWAB_MCP_SIGNAL_API_URL` | signal-cli REST daemon URL (default: `http://127.0.0.1:8080`). Must be loopback unless `--signal-allow-remote` is set: the daemon API is unauthenticated, so whatever answers there can approve trades. |
+| `--signal-allow-remote` | N/A | Allow a non-loopback `--signal-api-url`. |
 | `--token-path` | N/A | Path to save/load token (default: `~/.local/share/...`). |
 | `--http` | N/A | Use streamable-http transport instead of stdio. |
 | `--host` | `MCP_HOST` | Bind address when using `--http` (default: `127.0.0.1`). Non-loopback values are refused without `--http-allow-remote`. |
