@@ -2,15 +2,52 @@
 
 from __future__ import annotations
 
+import contextlib
 import json
 import os
 import pathlib
+import tempfile
 from collections.abc import Callable
 from dataclasses import dataclass
-from typing import Any, Protocol
+from typing import IO, Any, Protocol
 
 import yaml
 from platformdirs import user_data_dir
+
+
+def _private_dir(directory: str) -> None:
+    """Create ``directory`` (and parents) with the leaf readable only by its owner."""
+    pathlib.Path(directory).mkdir(mode=0o700, parents=True, exist_ok=True)
+
+
+def _write_private_atomic(path: str, write: Callable[[IO[str]], None]) -> None:
+    """Write a secret file owner-only (0600) and atomically.
+
+    The content goes to a temp file created 0600 in the same directory, is
+    flushed and fsynced, then ``os.replace``-d over ``path``. A crash or
+    failed write leaves the previous file untouched, a pre-existing file with
+    looser permissions is replaced rather than reused, and a symlink at
+    ``path`` is replaced instead of written through.
+    """
+    directory = os.path.dirname(os.path.abspath(path))
+    fd, tmp_path = tempfile.mkstemp(prefix=f".{os.path.basename(path)}.", suffix=".tmp", dir=directory)
+    try:
+        with os.fdopen(fd, "w") as f:
+            write(f)
+            f.flush()
+            os.fsync(f.fileno())
+        os.replace(tmp_path, path)
+    except BaseException:
+        with contextlib.suppress(FileNotFoundError):
+            os.unlink(tmp_path)
+        raise
+    # Persist the rename itself; not supported on every platform.
+    with contextlib.suppress(OSError):
+        dir_fd = os.open(directory, os.O_RDONLY)
+        try:
+            os.fsync(dir_fd)
+        finally:
+            os.close(dir_fd)
 
 
 def token_path(app_name: str, filename: str = "token.yaml") -> str:
@@ -27,7 +64,7 @@ def token_path(app_name: str, filename: str = "token.yaml") -> str:
         The path to the token file
     """
     data_dir = user_data_dir(app_name)
-    pathlib.Path(data_dir).mkdir(mode=0o700, parents=True, exist_ok=True)
+    _private_dir(data_dir)
     return os.path.join(data_dir, filename)
 
 
@@ -64,18 +101,20 @@ def token_writer(token_path: str) -> TokenWriter:
         if not token:
             return
 
-        fd = os.open(token_path, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
-        with open(fd, "w") as f:
+        def dump(f: IO[str]) -> None:
             if token_path.endswith(".json"):
-                return json.dump(token, f)
+                json.dump(token, f)
+                return
 
             # Round Trip the token through JSON to ensure it's serializable
-            return yaml.safe_dump(
+            yaml.safe_dump(
                 json.loads(json.dumps(token)),
                 f,
                 default_flow_style=False,
                 explicit_start=True,
             )
+
+        _write_private_atomic(token_path, dump)
 
     return write_token
 
@@ -142,7 +181,7 @@ def credentials_path(app_name: str, filename: str = "credentials.yaml") -> str:
         The path to the credentials file
     """
     data_dir = user_data_dir(app_name)
-    pathlib.Path(data_dir).mkdir(parents=True, exist_ok=True)
+    _private_dir(data_dir)
     return os.path.join(data_dir, filename)
 
 
@@ -176,21 +215,21 @@ def load_credentials(path: str) -> Credentials:
 def save_credentials(path: str, client_id: str, client_secret: str) -> None:
     """Write client credentials to a YAML file with restricted permissions.
 
-    The file is created with ``0o600`` permissions so that only the owning
-    user can read or write it.
+    The file is written atomically with ``0o600`` permissions so that only
+    the owning user can read or write it, even if an older copy was looser.
 
     Args:
         path: Path to the credentials file
         client_id: Schwab client ID
         client_secret: Schwab client secret
     """
-    pathlib.Path(path).parent.mkdir(parents=True, exist_ok=True)
-
-    fd = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
-    with os.fdopen(fd, "w") as f:
-        yaml.safe_dump(
+    _private_dir(str(pathlib.Path(path).parent))
+    _write_private_atomic(
+        path,
+        lambda f: yaml.safe_dump(
             {"client_id": client_id, "client_secret": client_secret},
             f,
             default_flow_style=False,
             explicit_start=True,
-        )
+        ),
+    )
