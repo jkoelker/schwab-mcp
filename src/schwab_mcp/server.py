@@ -16,6 +16,7 @@ from schwab_mcp.approvals import ApprovalManager
 from schwab_mcp.context import SchwabServerContext
 from schwab_mcp.resources import register_resources
 from schwab_mcp.tools import register_tools
+from schwab_mcp.tools._registration import verify_closed_arguments
 from schwab_mcp.tools.normalize import strip_noise
 
 logger = logging.getLogger(__name__)
@@ -94,6 +95,7 @@ class SchwabMCPServer:
             result_transform=result_transform,
         )
         register_resources(self._server)
+        verify_closed_arguments(self._server)
 
     async def run(
         self,
