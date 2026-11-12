@@ -42,3 +42,27 @@ jobs:
 
       - name: Run tests
         run: uv run pytest
+
+  wheel-install:
+    # pip ignores uv-only configuration, so prove a plain pip install of the
+    # built wheel resolves the right dependencies and starts.
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        # yamllint disable-line rule:line-length rule:comments
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
+
+      - name: Install uv
+        # yamllint disable-line rule:line-length rule:comments
+        uses: astral-sh/setup-uv@1c37ad07a6a961277cf70c0d37d6f313000f5884  # v10.3.0
+
+      - name: Build wheel
+        run: uv build --wheel --out-dir dist
+
+      - name: Install the wheel with pip into a clean venv
+        run: |
+          python3 -m venv /tmp/wheel-venv
+          wheel="$(ls dist/*.whl)"
+          /tmp/wheel-venv/bin/pip install "schwab-mcp[ta,signal] @ file://$PWD/$wheel"
+          /tmp/wheel-venv/bin/schwab-mcp --help
+          /tmp/wheel-venv/bin/python -I -c "import schwab_mcp.auth, pandas_ta_classic, websockets"

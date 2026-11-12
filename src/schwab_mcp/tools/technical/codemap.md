@@ -36,8 +36,8 @@ move helpers.
 
 1. Parent `tools.register_tools(..., enable_technical=True)` calls
    `technical.register()`.
-2. `technical.register()` returns immediately if `pandas_ta_classic` is not
-   installed; otherwise it imports `moving_average`, `momentum`, `trend`,
+2. `technical.register()` logs a warning (install `schwab-mcp[ta]`) and returns
+   if `pandas_ta_classic` is not installed; otherwise it imports `moving_average`, `momentum`, `trend`,
    `overlays`, and `volatility`, then calls each module's `register()`.
 3. An indicator invocation validates local parameters and computes a padded bar
    window with `compute_window()` or tool-specific sizing.

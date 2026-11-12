@@ -24,10 +24,25 @@ For most users, installing via `uv tool` or `pip` is easiest:
 
 ```bash
 # Using uv (recommended for isolation)
-uv tool install git+https://github.com/jkoelker/schwab-mcp.git
+uv tool install 'schwab-mcp[ta] @ git+https://github.com/jkoelker/schwab-mcp.git'
 
 # Using pip
-pip install git+https://github.com/jkoelker/schwab-mcp.git
+pip install 'schwab-mcp[ta] @ git+https://github.com/jkoelker/schwab-mcp.git'
+```
+
+The `ta` extra installs pandas and pandas-ta-classic for the technical-analysis
+tools (SMA, RSI, ...). Without it those tools are skipped at startup with a
+warning; pass `--no-technical-tools` to run without them deliberately. Add the
+`signal` extra (`schwab-mcp[ta,signal]`) for Signal approvals.
+
+Pass secrets through environment variables (or `schwab-mcp save-credentials`)
+rather than command-line flags, which are visible to other local users in
+`ps` and end up in shell history:
+
+```bash
+export SCHWAB_CLIENT_ID=YOUR_KEY
+export SCHWAB_CLIENT_SECRET=YOUR_SECRET
+export SCHWAB_MCP_DISCORD_TOKEN=BOT_TOKEN   # only for Discord approvals
 ```
 
 ### Authentication
@@ -35,11 +50,11 @@ pip install git+https://github.com/jkoelker/schwab-mcp.git
 Before running the server, you must authenticate with Schwab to generate a token file.
 
 ```bash
-# If installed via uv tool
-schwab-mcp auth --client-id YOUR_KEY --client-secret YOUR_SECRET --callback-url https://127.0.0.1:8182
+# If installed via uv tool or pip (with SCHWAB_CLIENT_ID / SCHWAB_CLIENT_SECRET exported)
+schwab-mcp auth --callback-url https://127.0.0.1:8182
 
 # If running from source
-uv run schwab-mcp auth --client-id YOUR_KEY --client-secret YOUR_SECRET --callback-url https://127.0.0.1:8182
+uv run schwab-mcp auth --callback-url https://127.0.0.1:8182
 ```
 
 This will open a browser window for you to log in to Schwab. Once complete, a token will be saved to `~/.local/share/schwab-mcp/token.yaml`.
@@ -49,18 +64,16 @@ This will open a browser window for you to log in to Schwab. Once complete, a to
 Start the MCP server to expose the tools to your MCP client.
 
 ```bash
+# Credentials come from SCHWAB_CLIENT_ID / SCHWAB_CLIENT_SECRET (see above).
+
 # Basic Read-Only Mode (Safest)
-schwab-mcp server --client-id YOUR_KEY --client-secret YOUR_SECRET
+schwab-mcp server
 
 # Streamable HTTP (for reverse proxies / remote MCP connectors)
-schwab-mcp server --client-id YOUR_KEY --client-secret YOUR_SECRET \
-  --http --host 127.0.0.1 --port 8000
+schwab-mcp server --http --host 127.0.0.1 --port 8000
 
-# With Trading Enabled (Requires Discord Approval)
+# With Trading Enabled (Requires Discord Approval; token from SCHWAB_MCP_DISCORD_TOKEN)
 schwab-mcp server \
-  --client-id YOUR_KEY \
-  --client-secret YOUR_SECRET \
-  --discord-token BOT_TOKEN \
   --discord-channel-id CHANNEL_ID \
   --discord-approver YOUR_USER_ID
 
@@ -68,8 +81,6 @@ schwab-mcp server \
 # daemon running in MODE=json-rpc or json-rpc-native; other modes cannot
 # stream replies and silently consume them)
 schwab-mcp server \
-  --client-id YOUR_KEY \
-  --client-secret YOUR_SECRET \
   --signal-account +15555550100 \
   --signal-approver +15555550199
 ```

@@ -17,8 +17,10 @@ Discord/Signal approval infrastructure for write operations.
 - `src/schwab_mcp/server.py`: `SchwabMCPServer` construction, lifespan wiring,
   tool/resource registration, result transformation, and stdio serving.
 - `src/schwab_mcp/tools/__init__.py`: MCP tool registration aggregator.
-- `pyproject.toml`: package metadata, dependency groups, console script, and
-  tool configuration.
+- `pyproject.toml`: package metadata (schwab-py pinned to the fork commit as a
+  direct reference so pip and uv agree), `signal` and `ta` extras, dependency
+  groups, console script, and tool configuration.
+- `SECURITY.md`: private vulnerability reporting route.
 - `Containerfile`: container runtime packaging for the MCP server.
 
 ## Directory Map

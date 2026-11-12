@@ -2857,6 +2857,11 @@ signal = [
     { name = "websockets", version = "16.1.1", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version < '3.11'" },
     { name = "websockets", version = "17.1", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version >= '3.11'" },
 ]
+ta = [
+    { name = "pandas", version = "2.3.3", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version < '3.11'" },
+    { name = "pandas", version = "3.0.6", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version >= '3.11'" },
+    { name = "pandas-ta-classic" },
+]
 
 [package.dev-dependencies]
 dev = [
@@ -2884,14 +2889,16 @@ requires-dist = [
     { name = "discord-py", specifier = ">=2.4.0" },
     { name = "httpx", specifier = ">=0.27.2" },
     { name = "mcp", specifier = ">=2.0.0,<3" },
+    { name = "pandas", marker = "extra == 'ta'", specifier = ">=2.2.2" },
+    { name = "pandas-ta-classic", marker = "extra == 'ta'", specifier = ">=0.3.36" },
     { name = "platformdirs", specifier = ">=4.5.0" },
     { name = "python-toon", specifier = ">=0.1.2" },
     { name = "pyyaml", specifier = ">=6.0.3" },
-    { name = "schwab-py", git = "https://github.com/jkoelker/schwab-py.git?rev=proxy_support" },
+    { name = "schwab-py", git = "https://github.com/jkoelker/schwab-py?rev=fef17718b811b88dcf5391f1d0cf1b39c12c0236" },
     { name = "typing-extensions", specifier = ">=4.12.0" },
     { name = "websockets", marker = "extra == 'signal'", specifier = ">=14.0" },
 ]
-provides-extras = ["signal"]
+provides-extras = ["signal", "ta"]
 
 [package.metadata.requires-dev]
 dev = [
@@ -2913,7 +2920,7 @@ ta = [
 [[package]]
 name = "schwab-py"
 version = "1.5.1"
-source = { git = "https://github.com/jkoelker/schwab-py.git?rev=proxy_support#fef17718b811b88dcf5391f1d0cf1b39c12c0236" }
+source = { git = "https://github.com/jkoelker/schwab-py?rev=fef17718b811b88dcf5391f1d0cf1b39c12c0236#fef17718b811b88dcf5391f1d0cf1b39c12c0236" }
 dependencies = [
     { name = "authlib" },
     { name = "autopep8" },
