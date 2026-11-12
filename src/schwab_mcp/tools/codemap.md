@@ -18,7 +18,9 @@ compact defaults with `verbose=True` escape hatches where response size matters.
   workflow unless a tool supplies custom approval handling. `run_approval()`
   allows at most `MAX_PENDING_APPROVALS` (3) concurrent requests, tracked on
   `SchwabServerContext.pending_approvals`, and refuses more with
-  `PermissionError` before the backend is contacted.
+  `PermissionError` before the backend is contacted. The previewed-order
+  executors call `ensure_approval_capacity()` before consuming the preview,
+  so a refusal leaves it usable.
 - `_protocols.py` defines Protocol facades for each Schwab client namespace
   (`accounts`, `orders`, `quotes`, `options`, `price_history`, etc.). These keep
   `SchwabContext` access type-checkable without coupling tool code to concrete

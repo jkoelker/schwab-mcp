@@ -11,7 +11,8 @@ from conftest import make_ctx, run
 
 from schwab_mcp.approvals import ApprovalDecision, ApprovalManager, ApprovalRequest
 from schwab_mcp.approvals.discord import DiscordApprovalManager, DiscordApprovalSettings
-from schwab_mcp.tools import _registration, account
+from schwab_mcp.previews import PreviewOperation
+from schwab_mcp.tools import _registration, account, orders
 
 
 def _request(index: int) -> ApprovalRequest:
@@ -159,3 +160,34 @@ def test_verbose_accounts_keep_full_number(account_ctx: Any) -> None:
     result = run(account.get_accounts(account_ctx, verbose=True))
 
     assert [item["securitiesAccount"]["accountNumber"] for item in result] == ["12345678", "87654321"]
+
+
+# A cap refusal must not consume the single-use preview.
+
+
+@pytest.mark.parametrize(
+    ("tool", "operation", "target"),
+    [
+        ("place_previewed_order", "PLACE_ORDER", None),
+        ("replace_previewed_order", "REPLACE_ORDER", "order-9"),
+    ],
+)
+def test_cap_refusal_keeps_preview_usable(tool: str, operation: str, target: str | None) -> None:
+    ctx = make_ctx(object())
+    ctx.schwab.approval_manager = GatedApprovals()
+    account_hash = "A" * 64
+    preview_id = ctx.previews.put(
+        account_hash,
+        {"orderStrategyType": "SINGLE"},
+        "preview_equity_order",
+        "SINGLE BUY 1 AAPL EQUITY MARKET",
+        operation=PreviewOperation[operation],
+        target_order_id=target,
+    )
+    ctx.schwab.pending_approvals = _registration.MAX_PENDING_APPROVALS
+
+    with pytest.raises(PermissionError, match="already pending"):
+        run(getattr(orders, tool)(ctx, account_hash, preview_id))
+
+    entry = ctx.previews.pop(preview_id, account_hash, operation=PreviewOperation[operation])
+    assert entry.summary == "SINGLE BUY 1 AAPL EQUITY MARKET"

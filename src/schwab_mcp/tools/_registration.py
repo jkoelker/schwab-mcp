@@ -120,6 +120,23 @@ def _format_argument(value: Any) -> str:
     return text
 
 
+def ensure_approval_capacity(context: SchwabContext, tool_name: str) -> None:
+    """Raise ``PermissionError`` when ``MAX_PENDING_APPROVALS`` are already waiting.
+
+    Tools that consume single-use state before approval (the previewed-order
+    executors) call this first, so a refusal leaves that state usable. With no
+    await between this check and :func:`run_approval`'s own check, the two
+    cannot disagree.
+    """
+    if context.schwab.pending_approvals >= MAX_PENDING_APPROVALS:
+        message = (
+            f"Refusing approval request for tool '{tool_name}': {MAX_PENDING_APPROVALS} approvals are "
+            "already pending. Wait for the reviewer to answer them before requesting another."
+        )
+        logger.warning(message)
+        raise PermissionError(message)
+
+
 async def run_approval(context: SchwabContext, request: ApprovalRequest) -> ApprovalDecision:
     """Run an approval request through progress reporting and the configured
     :class:`ApprovalManager`, returning the resulting decision.
@@ -133,13 +150,7 @@ async def run_approval(context: SchwabContext, request: ApprovalRequest) -> Appr
     approval backend.
     """
     server = context.schwab
-    if server.pending_approvals >= MAX_PENDING_APPROVALS:
-        message = (
-            f"Refusing approval request for tool '{request.tool_name}': {MAX_PENDING_APPROVALS} approvals are "
-            "already pending. Wait for the reviewer to answer them before requesting another."
-        )
-        logger.warning(message)
-        raise PermissionError(message)
+    ensure_approval_capacity(context, request.tool_name)
 
     server.pending_approvals += 1
     try:

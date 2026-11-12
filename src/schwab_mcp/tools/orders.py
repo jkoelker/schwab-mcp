@@ -25,7 +25,7 @@ from schwab_mcp.context import SchwabContext
 from schwab_mcp.previews import PreviewOperation
 from schwab_mcp.tools._dates import parse_date
 from schwab_mcp.tools._protocols import ToolsClient
-from schwab_mcp.tools._registration import register_tool, run_approval
+from schwab_mcp.tools._registration import ensure_approval_capacity, register_tool, run_approval
 from schwab_mcp.tools.order_helpers import (
     equity_buy_limit,
     equity_buy_market,
@@ -1550,6 +1550,7 @@ async def place_previewed_order(
     {orderId, accountHash, note} payload if the post-placement status fetch
     fails or returns no data. *Write operation.*
     """
+    ensure_approval_capacity(ctx, "place_previewed_order")
     entry = ctx.previews.pop(preview_id, account_hash, operation=PreviewOperation.PLACE_ORDER)
 
     request = ApprovalRequest(
@@ -1597,6 +1598,7 @@ async def replace_previewed_order(
     Approval is requested only after the account, operation, and target order
     binding have been validated.
     """
+    ensure_approval_capacity(ctx, "replace_previewed_order")
     entry = ctx.previews.pop(preview_id, account_hash, operation=PreviewOperation.REPLACE_ORDER)
     target_order_id = entry.target_order_id.strip() if entry.target_order_id is not None else None
     if not target_order_id:
