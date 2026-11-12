@@ -20,6 +20,13 @@ from schwab_mcp.tools.normalize import strip_noise
 
 logger = logging.getLogger(__name__)
 
+LOOPBACK_HOSTS = frozenset({"127.0.0.1", "::1", "localhost"})
+
+
+def is_loopback_host(host: str | None) -> bool:
+    """Return True for the loopback names the server treats as local-only."""
+    return host is not None and host.strip().lower() in LOOPBACK_HOSTS
+
 
 def _client_lifespan(
     client: AsyncClient,
@@ -100,10 +107,20 @@ class SchwabMCPServer:
         transport: str = "stdio",
         host: str = "127.0.0.1",
         port: int = 8000,
+        allow_remote: bool = False,
     ) -> None:
-        """Run the server over stdio (default) or streamable-http for gateway use."""
+        """Run the server over stdio (default) or streamable-http for gateway use.
+
+        Streamable-http has no client authentication, so a non-loopback
+        ``host`` is refused unless ``allow_remote`` is set explicitly.
+        """
         resolved = transport.strip().lower()
         if resolved in ("http", "streamable_http", "streamable-http"):
+            if not allow_remote and not is_loopback_host(host):
+                raise ValueError(
+                    f"Refusing to serve HTTP on non-loopback host {host!r}; bind a loopback address "
+                    "and put an authenticating proxy in front."
+                )
             await self._server.run_streamable_http_async(host=host, port=port)
             return
         if resolved == "stdio":

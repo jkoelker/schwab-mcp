@@ -18,7 +18,7 @@ from schwab_mcp.approvals import (
     SignalApprovalManager,
     SignalApprovalSettings,
 )
-from schwab_mcp.server import SchwabMCPServer, send_error_response
+from schwab_mcp.server import SchwabMCPServer, is_loopback_host, send_error_response
 
 APP_NAME = "schwab-mcp"
 TOKEN_MAX_AGE_SECONDS = schwab_auth.DEFAULT_MAX_TOKEN_AGE_SECONDS
@@ -321,7 +321,19 @@ def _select_write_mode(
     default="127.0.0.1",
     envvar="MCP_HOST",
     show_default=True,
-    help="Host interface to bind when using --http (use 0.0.0.0 for gateway).",
+    help=(
+        "Host interface to bind when using --http. HTTP mode has no client authentication: keep the "
+        "loopback default and put an authenticating reverse proxy in front."
+    ),
+)
+@click.option(
+    "--http-allow-remote",
+    default=False,
+    is_flag=True,
+    help=(
+        "Allow --http to bind a non-loopback --host (for example inside a container behind a published "
+        "port). Only do this when an authenticating proxy is the sole route to the port."
+    ),
 )
 @click.option(
     "--port",
@@ -352,9 +364,27 @@ def server(
     json_output: bool,
     use_http: bool,
     host: str,
+    http_allow_remote: bool,
     port: int,
 ) -> int:
     """Run the Schwab MCP server."""
+    if use_http and jesus_take_the_wheel:
+        send_error_response(
+            "--http cannot be combined with --jesus-take-the-wheel: HTTP mode has no client authentication, "
+            "so any client that reaches the port could place orders with no approval.",
+            code=400,
+            details={"http": True, "jesus_take_the_wheel": True},
+        )
+        return 1
+    if use_http and not is_loopback_host(host) and not http_allow_remote:
+        send_error_response(
+            f"Refusing to serve --http on non-loopback host {host!r}: HTTP mode has no client authentication. "
+            "Bind 127.0.0.1 and put an authenticating reverse proxy in front, or pass --http-allow-remote if "
+            "that proxy must reach this server over the network.",
+            code=400,
+            details={"host": host},
+        )
+        return 1
     creds = tokens.load_credentials(tokens.credentials_path(APP_NAME))
     client_id = client_id or creds.client_id
     client_secret = client_secret or creds.client_secret
@@ -490,8 +520,14 @@ def server(
             enable_technical_tools=not no_technical_tools,
             use_json=json_output,
         )
+        if use_http and not is_loopback_host(host):
+            click.echo(
+                f"Warning: serving unauthenticated HTTP on {host}:{port}. Only an authenticating proxy "
+                "should be able to reach this port.",
+                err=True,
+            )
         transport = "streamable-http" if use_http else "stdio"
-        anyio.run(server.run, transport, host, port, backend="asyncio")
+        anyio.run(server.run, transport, host, port, http_allow_remote, backend="asyncio")
         return 0
     except Exception as e:
         send_error_response(f"Error running server: {str(e)}", code=500, details={"error": str(e)})
