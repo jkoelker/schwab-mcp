@@ -32,7 +32,7 @@ Key architectural patterns are lifespan-scoped dependency injection, protocol-ba
 
 - Entry points: `schwab_mcp.main()`, Click commands in `cli.py`, and `SchwabMCPServer.run()` for FastMCP stdio transport.
 - Schwab integration: `auth.py` delegates to `schwab.auth` and returns `schwab.client.Client` or `AsyncClient`; server mode requires `AsyncClient` and passes it through typed facades in `context.py`.
-- MCP integration: `server.py` uses `mcp.server.fastmcp.FastMCP`; `context.py` subclasses FastMCP `Context`; `resources.py` registers URI-addressable resources; `tools.register_tools()` registers callable Schwab operations.
+- MCP integration: `server.py` uses `mcp.server.fastmcp.FastMCP`; `context.py` subclasses FastMCP `Context`; `resources.py` registers URI-addressable resources; `tools.register_tools()` registers callable Schwab operations, and `SchwabMCPServer.__init__()` refuses to start if any registered tool accepts unknown top-level arguments (`verify_closed_arguments()`).
 - Approval integration: `cli.py` constructs `NoOpApprovalManager`, `DiscordApprovalManager`, or `SignalApprovalManager`; `server._client_lifespan()` owns start/stop; `tools._registration.register_tool()` wraps write tools with approval requests and progress reporting.
 - Persistence/security integration: `tokens.py` stores OAuth tokens and credentials in the user data directory, supports YAML/JSON tokens, and uses restricted file modes for sensitive data.
 - Output integration: server results are normalized with `schwab_mcp.tools.normalize.strip_noise`; non-JSON mode requires `toon.encode` to produce compact string payloads for MCP clients.

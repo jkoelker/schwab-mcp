@@ -12,7 +12,9 @@ from contextlib import suppress
 from typing import Annotated, Any, Union, cast, get_args, get_origin, get_type_hints
 
 from mcp.server.mcpserver import Context as MCPContext, MCPServer
+from mcp.server.mcpserver.utilities.func_metadata import ArgModelBase
 from mcp.types import ToolAnnotations
+from pydantic import ConfigDict, ValidationError
 
 from schwab_mcp.approvals import ApprovalDecision, ApprovalRequest
 from schwab_mcp.context import SchwabContext
@@ -288,6 +290,58 @@ def _wrap_result_transform(func: ToolFn, transform: Callable[[Any], Any]) -> Too
     return cast(ToolFn, wrapper)
 
 
+def _forbid_unknown_arguments(server: MCPServer, name: str) -> None:
+    """Make the registered tool ``name`` refuse unknown top-level arguments.
+
+    MCPServer builds each tool's argument model with pydantic's default of
+    ignoring extra keys, so a misnamed argument (``stop_loss`` for
+    ``loss_price``) would be dropped and the call would run without it. This
+    swaps in a subclass with ``extra="forbid"``, so such a call is refused
+    before conversion or execution, and advertises the closed schema. The SDK
+    reads ``fn_metadata.arg_model`` on every call, so the swap takes effect at
+    once. Registration fails rather than leaving a tool open if the SDK no
+    longer exposes what this relies on.
+    """
+    tool = server._tool_manager.get_tool(name)
+    if tool is None:
+        raise RuntimeError(f"Tool {name!r} was not registered; cannot close its argument model")
+    base: type[ArgModelBase] = tool.fn_metadata.arg_model
+    closed = cast(
+        type[ArgModelBase],
+        types.new_class(
+            base.__name__,
+            (base,),
+            exec_body=lambda ns: ns.update(__module__=base.__module__, model_config=ConfigDict(extra="forbid")),
+        ),
+    )
+    tool.fn_metadata.arg_model = closed
+    tool.parameters = closed.model_json_schema(by_alias=True)
+
+
+_UNKNOWN_ARGUMENT_PROBE = "schwab_mcp_unknown_argument_probe"
+
+
+def verify_closed_arguments(server: MCPServer) -> None:
+    """Refuse to start if any registered tool accepts unknown top-level arguments.
+
+    Probes each tool's real validator with an unknown key and checks that the
+    published schema says ``additionalProperties: false``. This catches a tool
+    registered around :func:`register_tool` and an SDK change that would make
+    :func:`_forbid_unknown_arguments` silently stop working.
+    """
+    open_tools: list[str] = []
+    for tool in server._tool_manager.list_tools():
+        try:
+            tool.fn_metadata.validate_arguments({_UNKNOWN_ARGUMENT_PROBE: None})
+        except ValidationError as exc:
+            refused = any(error["type"] == "extra_forbidden" for error in exc.errors())
+            if refused and tool.parameters.get("additionalProperties") is False:
+                continue
+        open_tools.append(tool.name)
+    if open_tools:
+        raise RuntimeError(f"Refusing to start: these tools accept unknown arguments: {', '.join(sorted(open_tools))}")
+
+
 def register_tool(
     server: MCPServer,
     func: ToolFn,
@@ -328,6 +382,7 @@ def register_tool(
         description=func.__doc__,
         annotations=tool_annotations,
     )(func)
+    _forbid_unknown_arguments(server, func.__name__)
 
 
-__all__ = ["register_tool", "run_approval"]
+__all__ = ["register_tool", "run_approval", "verify_closed_arguments"]
