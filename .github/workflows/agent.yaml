@@ -41,7 +41,8 @@ jobs:
        github.event.requested_reviewer.login == 'dobbyphus[bot]') ||
       (github.event_name == 'pull_request_review' &&
        github.event.review.user.login != 'dobbyphus[bot]' &&
-       contains(github.event.review.body, '@dobbyphus')) ||
+       contains(github.event.review.body, '@dobbyphus') &&
+       contains(fromJSON('["OWNER", "MEMBER", "COLLABORATOR"]'), github.event.review.author_association)) ||
       (github.event_name == 'pull_request_review_comment' &&
        contains(github.event.comment.body, '@dobbyphus') &&
        github.event.comment.user.login != 'dobbyphus[bot]' &&
@@ -83,7 +84,9 @@ jobs:
         uses: astral-sh/ruff-action@278981a28ce3188b1e39527901f38254bf3aac89  # v4.1.0
 
       - name: Run Agent
-        uses: dobbyphus/action@main
+        # Pinned to the revision main pointed at when this was written.
+        # yamllint disable-line rule:line-length rule:comments
+        uses: dobbyphus/action@7673b541ac94fec539cf474ab5b7dd23c78d19b1  # main
         with:
           bot_name: dobbyphus
           auth_json: ${{ secrets.COPILOT_AUTH_JSON }}
