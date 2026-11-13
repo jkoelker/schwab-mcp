@@ -78,6 +78,14 @@ Default transport is **stdio** (Claude Desktop and most local MCP clients).
 Use `--http` for FastMCP streamable-http when fronting the server with a
 gateway or remote connector (MCP endpoint is `/mcp` on the bound host:port).
 
+> **HTTP mode has no client authentication.** Anyone who can reach the port can
+> read your accounts. The server therefore refuses a non-loopback `--host`
+> unless you pass `--http-allow-remote`, and refuses `--http` together with
+> `--jesus-take-the-wheel` outright. Keep the `127.0.0.1` default and put an
+> authenticating reverse proxy in front; use `--http-allow-remote` only when
+> that proxy is the sole route to the port (for example a container whose
+> published port only the proxy can reach).
+
 > **Note**: For trading capabilities, you must set up an approval backend: either a Discord bot (see [Discord Setup Guide](docs/discord-setup.md)) or Signal via a local [signal-cli REST daemon](https://github.com/bbernhard/signal-cli-rest-api) running in `MODE=json-rpc` (or `json-rpc-native`). Configure either backend, not both. (The `signal` extra declares the websockets dependency explicitly; a default install already includes it transitively.)
 
 ## Configuration
@@ -89,9 +97,13 @@ You can configure the server using CLI flags or Environment Variables.
 | `--client-id` | `SCHWAB_CLIENT_ID` | **Required**. Schwab App Key. |
 | `--client-secret` | `SCHWAB_CLIENT_SECRET` | **Required**. Schwab App Secret. |
 | `--callback-url` | `SCHWAB_CALLBACK_URL` | Redirect URL (default: `https://127.0.0.1:8182`). |
+| `--base-url` | `SCHWAB_BASE_URL` | Schwab API base URL (default: `https://api.schwabapi.com`). Must be `https`, except for a loopback host. |
+| `--signal-api-url` | `SCHWAB_MCP_SIGNAL_API_URL` | signal-cli REST daemon URL (default: `http://127.0.0.1:8080`). Must be loopback unless `--signal-allow-remote` is set: the daemon API is unauthenticated, so whatever answers there can approve trades. |
+| `--signal-allow-remote` | N/A | Allow a non-loopback `--signal-api-url`. |
 | `--token-path` | N/A | Path to save/load token (default: `~/.local/share/...`). |
 | `--http` | N/A | Use streamable-http transport instead of stdio. |
-| `--host` | `MCP_HOST` | Bind address when using `--http` (default: `127.0.0.1`). |
+| `--host` | `MCP_HOST` | Bind address when using `--http` (default: `127.0.0.1`). Non-loopback values are refused without `--http-allow-remote`. |
+| `--http-allow-remote` | N/A | Allow `--http` on a non-loopback `--host`. Only behind an authenticating proxy. |
 | `--port` | `MCP_PORT` | Bind port when using `--http` (default: `8000`). |
 | `--jesus-take-the-wheel`| N/A | **DANGER**. Bypasses Discord approval for trades. |
 | `--no-technical-tools` | N/A | Disables technical analysis tools (SMA, RSI, etc.). |

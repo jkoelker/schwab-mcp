@@ -2,6 +2,7 @@
 
 import os
 import sys
+import urllib.parse
 from collections.abc import Callable
 from typing import Any
 
@@ -18,7 +19,7 @@ from schwab_mcp.approvals import (
     SignalApprovalManager,
     SignalApprovalSettings,
 )
-from schwab_mcp.server import SchwabMCPServer, send_error_response
+from schwab_mcp.server import SchwabMCPServer, is_loopback_host, send_error_response
 
 APP_NAME = "schwab-mcp"
 TOKEN_MAX_AGE_SECONDS = schwab_auth.DEFAULT_MAX_TOKEN_AGE_SECONDS
@@ -69,6 +70,33 @@ def _common_options(token_path_help: str) -> Callable[[Callable[..., Any]], Call
     return apply
 
 
+def _url_host(url: str) -> str | None:
+    """Return a URL's hostname, or None when it cannot be parsed."""
+    try:
+        return urllib.parse.urlparse(url).hostname
+    except ValueError:
+        return None
+
+
+def _base_url_problem(base_url: str) -> str | None:
+    """Explain why a Schwab base URL is unsafe, or return None if it is fine.
+
+    The base URL receives the OAuth token and the client secret, so it must
+    be https unless it points at this machine (a local proxy).
+    """
+    try:
+        scheme = urllib.parse.urlparse(base_url).scheme.lower()
+    except ValueError:
+        scheme = ""
+    host = _url_host(base_url)
+    if host and (scheme == "https" or (scheme == "http" and is_loopback_host(host))):
+        return None
+    return (
+        f"--base-url/SCHWAB_BASE_URL must use https (plain http is allowed only for a loopback host); "
+        f"got {base_url!r}. It carries the Schwab token and client secret."
+    )
+
+
 @click.group()
 def cli():
     """Schwab Model Context Protocol CLI."""
@@ -84,6 +112,10 @@ def auth(
     base_url: str,
 ) -> int:
     """Initialize Schwab client authentication."""
+    base_url_problem = _base_url_problem(base_url)
+    if base_url_problem:
+        click.echo(f"Error: {base_url_problem}", err=True)
+        raise SystemExit(1)
     creds = tokens.load_credentials(tokens.credentials_path(APP_NAME))
     client_id = client_id or creds.client_id
     client_secret = client_secret or creds.client_secret
@@ -131,6 +163,7 @@ def _select_write_mode(
     signal_approver: tuple[str, ...],
     signal_timeout: int,
     signal_account_name: tuple[str, ...],
+    signal_allow_remote: bool = False,
 ) -> tuple[ApprovalManager, bool] | None:
     """Choose write access and its approval manager from resolved CLI values."""
     if jesus_take_the_wheel:
@@ -146,6 +179,15 @@ def _select_write_mode(
         )
         return None
     if signal_requested:
+        if not signal_allow_remote and not is_loopback_host(_url_host(signal_api_url)):
+            send_error_response(
+                f"Refusing Signal daemon at {signal_api_url!r}: its API is unauthenticated, so whatever answers "
+                "there can approve trades. Run it on 127.0.0.1, or pass --signal-allow-remote if the network "
+                "path to it is trusted.",
+                code=400,
+                details={"signal_api_url": signal_api_url},
+            )
+            return None
         approver_numbers = SignalApprovalManager.authorized_numbers(signal_approver)
         if not signal_account or not approver_numbers:
             send_error_response(
@@ -267,6 +309,12 @@ def _select_write_mode(
     ),
 )
 @click.option(
+    "--signal-allow-remote",
+    default=False,
+    is_flag=True,
+    help="Allow a --signal-api-url that is not on loopback. The daemon API is unauthenticated.",
+)
+@click.option(
     "--signal-account",
     type=str,
     envvar="SCHWAB_MCP_SIGNAL_ACCOUNT",
@@ -321,7 +369,19 @@ def _select_write_mode(
     default="127.0.0.1",
     envvar="MCP_HOST",
     show_default=True,
-    help="Host interface to bind when using --http (use 0.0.0.0 for gateway).",
+    help=(
+        "Host interface to bind when using --http. HTTP mode has no client authentication: keep the "
+        "loopback default and put an authenticating reverse proxy in front."
+    ),
+)
+@click.option(
+    "--http-allow-remote",
+    default=False,
+    is_flag=True,
+    help=(
+        "Allow --http to bind a non-loopback --host (for example inside a container behind a published "
+        "port). Only do this when an authenticating proxy is the sole route to the port."
+    ),
 )
 @click.option(
     "--port",
@@ -344,6 +404,7 @@ def server(
     discord_timeout: int,
     discord_account_name: tuple[str, ...],
     signal_api_url: str,
+    signal_allow_remote: bool,
     signal_account: str | None,
     signal_approver: tuple[str, ...],
     signal_timeout: int,
@@ -352,9 +413,31 @@ def server(
     json_output: bool,
     use_http: bool,
     host: str,
+    http_allow_remote: bool,
     port: int,
 ) -> int:
     """Run the Schwab MCP server."""
+    if use_http and jesus_take_the_wheel:
+        send_error_response(
+            "--http cannot be combined with --jesus-take-the-wheel: HTTP mode has no client authentication, "
+            "so any client that reaches the port could place orders with no approval.",
+            code=400,
+            details={"http": True, "jesus_take_the_wheel": True},
+        )
+        return 1
+    if use_http and not is_loopback_host(host) and not http_allow_remote:
+        send_error_response(
+            f"Refusing to serve --http on non-loopback host {host!r}: HTTP mode has no client authentication. "
+            "Bind 127.0.0.1 and put an authenticating reverse proxy in front, or pass --http-allow-remote if "
+            "that proxy must reach this server over the network.",
+            code=400,
+            details={"host": host},
+        )
+        return 1
+    base_url_problem = _base_url_problem(base_url)
+    if base_url_problem:
+        send_error_response(base_url_problem, code=400, details={"base_url": base_url})
+        return 1
     creds = tokens.load_credentials(tokens.credentials_path(APP_NAME))
     client_id = client_id or creds.client_id
     client_secret = client_secret or creds.client_secret
@@ -458,6 +541,7 @@ def server(
             signal_approver=signal_approver_values,
             signal_timeout=signal_timeout,
             signal_account_name=signal_account_name_values,
+            signal_allow_remote=signal_allow_remote,
         )
         if write_mode is None:
             return 1
@@ -490,8 +574,14 @@ def server(
             enable_technical_tools=not no_technical_tools,
             use_json=json_output,
         )
+        if use_http and not is_loopback_host(host):
+            click.echo(
+                f"Warning: serving unauthenticated HTTP on {host}:{port}. Only an authenticating proxy "
+                "should be able to reach this port.",
+                err=True,
+            )
         transport = "streamable-http" if use_http else "stdio"
-        anyio.run(server.run, transport, host, port, backend="asyncio")
+        anyio.run(server.run, transport, host, port, http_allow_remote, backend="asyncio")
         return 0
     except Exception as e:
         send_error_response(f"Error running server: {str(e)}", code=500, details={"error": str(e)})
