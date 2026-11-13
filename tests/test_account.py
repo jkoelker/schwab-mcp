@@ -302,7 +302,7 @@ class TestGetAccounts:
 
         assert isinstance(result, list)
         sec = result[0]["securitiesAccount"]
-        assert sec["accountNumber"] == "123"
+        assert sec["accountNumber"] == "...123"
         assert sec["type"] == "MARGIN"
         assert "initialBalances" not in sec
         assert "projectedBalances" not in sec
@@ -459,7 +459,7 @@ class TestGetAccount:
 
         assert isinstance(result, dict)
         sec = result["securitiesAccount"]
-        assert sec["accountNumber"] == "123"
+        assert sec["accountNumber"] == "...123"
         assert "initialBalances" not in sec
         assert "projectedBalances" not in sec
         balances = sec["currentBalances"]
@@ -782,7 +782,7 @@ def test_get_accounts_compact_output_enriches_identities_and_nets_positions() ->
     assert len(result) == 1
     securities_account = result[0]["securitiesAccount"]
     assert securities_account["type"] == "MARGIN"
-    assert securities_account["accountNumber"] == "100"
+    assert securities_account["accountNumber"] == "...100"
     assert securities_account["accountHash"] == "hash-100"
     assert securities_account["nickname"] == "Primary"
     assert securities_account["isDefault"] is True
@@ -847,7 +847,7 @@ def test_get_accounts_keeps_compact_balances_when_preferences_fail() -> None:
     assert isinstance(result, list)
     assert len(result) == 1
     securities_account = result[0]["securitiesAccount"]
-    assert securities_account["accountNumber"] == "300"
+    assert securities_account["accountNumber"] == "...300"
     assert securities_account["accountHash"] is None
     assert securities_account["nickname"] is None
     assert securities_account["isDefault"] is False

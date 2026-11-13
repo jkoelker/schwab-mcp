@@ -253,7 +253,8 @@ class DiscordApprovalManager(ApprovalManager):
         embed.add_field(name="Request ID", value=request.request_id, inline=False)
         embed.add_field(name="Approval ID", value=request.id, inline=False)
         if request.client_id:
-            embed.add_field(name="Client ID", value=request.client_id, inline=False)
+            # Client-supplied request metadata, not an authenticated identity.
+            embed.add_field(name="Client ID (unverified)", value=request.client_id, inline=False)
         if request.arguments:
             embed.add_field(
                 name="Arguments",
@@ -283,7 +284,8 @@ class DiscordApprovalManager(ApprovalManager):
         embed.add_field(name="Request ID", value=request.request_id, inline=False)
         embed.add_field(name="Approval ID", value=request.id, inline=False)
         if request.client_id:
-            embed.add_field(name="Client ID", value=request.client_id, inline=False)
+            # Client-supplied request metadata, not an authenticated identity.
+            embed.add_field(name="Client ID (unverified)", value=request.client_id, inline=False)
         if request.arguments:
             embed.add_field(
                 name="Arguments",

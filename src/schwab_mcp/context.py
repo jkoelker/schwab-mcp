@@ -41,6 +41,8 @@ class SchwabServerContext:
     quotes: QuotesClient = field(init=False)
     transactions: TransactionsClient = field(init=False)
     preview_store: PreviewStore = field(default_factory=PreviewStore)
+    pending_approvals: int = field(default=0, init=False)
+    """Approval requests currently waiting on the reviewer (see run_approval)."""
 
     def __post_init__(self) -> None:
         self.tools = cast(ToolsClient, self.client)
