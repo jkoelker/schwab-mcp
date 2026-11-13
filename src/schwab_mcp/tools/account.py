@@ -8,7 +8,7 @@ from mcp.server.mcpserver import MCPServer
 
 from schwab_mcp.context import SchwabContext
 from schwab_mcp.tools._registration import register_tool
-from schwab_mcp.tools.utils import JSONType, SchwabAPIError, call
+from schwab_mcp.tools.utils import JSONType, SchwabAPIError, call, validate_identifier
 
 _COMPACT_ACCOUNT_FIELDS = frozenset({"type", "accountNumber", "roundTrips", "isDayTrader"})
 
@@ -170,6 +170,8 @@ async def _get_account_response(
     verbose: bool,
 ) -> JSONType:
     """Fetch, shape, and enrich an account endpoint response."""
+    if account_hash is not None:
+        validate_identifier(account_hash, "account_hash")
     identity_map = await _get_identity_map(ctx)
     kwargs: dict[str, Any] = {}
     if include_positions:

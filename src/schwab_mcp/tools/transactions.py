@@ -8,7 +8,7 @@ from mcp.server.mcpserver import MCPServer
 from schwab_mcp.context import SchwabContext
 from schwab_mcp.tools._dates import parse_date
 from schwab_mcp.tools._registration import register_tool
-from schwab_mcp.tools.utils import JSONType, call
+from schwab_mcp.tools.utils import JSONType, call, validate_identifier
 
 
 async def get_transactions(
@@ -29,6 +29,7 @@ async def get_transactions(
     Params: account_hash, start_date (YYYY-MM-DD), end_date (YYYY-MM-DD), transaction_type (list/str: TRADE/DIVIDEND_OR_INTEREST/etc.), symbol.
     Use tomorrow's date as end_date for today's transactions. See full type list in original docstring if needed.
     """
+    validate_identifier(account_hash, "account_hash")
     client = ctx.transactions
 
     start_date_obj = parse_date(start_date)
@@ -59,6 +60,8 @@ async def get_transaction(
     """Get detailed info for a specific transaction by ID.
     Params: account_hash, transaction_id (from get_transactions).
     """
+    validate_identifier(account_hash, "account_hash")
+    validate_identifier(transaction_id, "transaction_id")
     client = ctx.transactions
     return await call(client.get_transaction, account_hash, transaction_id)
 

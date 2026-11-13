@@ -1,16 +1,25 @@
 """Order placement, management, and preview tools for the Schwab MCP server."""
 
 import logging
+import math
 import re
 import uuid
 from collections.abc import Callable
 from dataclasses import dataclass
+from decimal import Decimal, InvalidOperation
 from typing import Annotated, Any, cast
 
 import httpx
 from mcp.server.mcpserver import MCPServer
 from mcp.types import ToolAnnotations
-from schwab.orders.common import Duration, first_triggers_second as trigger_builder, one_cancels_other as oco_builder
+from pydantic import ConfigDict, with_config
+from schwab.orders.common import (
+    ComplexOrderStrategyType,
+    Duration,
+    Session,
+    first_triggers_second as trigger_builder,
+    one_cancels_other as oco_builder,
+)
 from schwab.orders.generic import OrderBuilder
 from schwab.orders.options import OptionSymbol
 from schwab.utils import (
@@ -45,10 +54,13 @@ from schwab_mcp.tools.order_helpers import (
     option_sell_to_open_limit,
     option_sell_to_open_market,
 )
-from schwab_mcp.tools.utils import JSONType, ResponseHandler, SchwabAPIError, call
+from schwab_mcp.tools.utils import JSONType, ResponseHandler, SchwabAPIError, call, validate_identifier
 
 logger = logging.getLogger(__name__)
-_SAFE_ORDER_IDENTIFIER = re.compile(r"[A-Za-z0-9_-]+", re.ASCII)
+# Symbols reach the approval prompt and Schwab's order payload. Allow the
+# characters real Schwab symbols use: equities (BRK.B, BRK/B, BF-B), indexes
+# ($SPX), futures (/ES) and space-padded option symbols.
+_SAFE_SYMBOL = re.compile(r"[A-Za-z0-9 .$/-]{1,32}", re.ASCII)
 
 _COMPACT_ORDER_TOP_FIELDS = frozenset(
     {
@@ -147,11 +159,41 @@ def _normalize_duration(duration: str | Duration) -> str:
     return candidate
 
 
+_VALID_SESSIONS: frozenset[str] = frozenset(s.name for s in Session)
+# Combo order types and whether each needs a net price (documented on
+# preview_option_combo_order); any other type or price pairing is refused.
+_COMBO_PRICED_TYPES: frozenset[str] = frozenset({"NET_CREDIT", "NET_DEBIT"})
+_COMBO_UNPRICED_TYPES: frozenset[str] = frozenset({"NET_ZERO", "MARKET"})
+_VALID_COMPLEX_STRATEGIES: frozenset[str] = frozenset(t.name for t in ComplexOrderStrategyType)
+
+
+def _validate_symbol(symbol: Any, field: str = "symbol") -> str:
+    """Require a symbol made only of characters real Schwab symbols use."""
+    if not isinstance(symbol, str) or _SAFE_SYMBOL.fullmatch(symbol) is None or not symbol.strip():
+        raise ValueError(f"{field} must be 1 to 32 ASCII letters, digits, spaces, or . $ / -, got {symbol!r}")
+    return symbol
+
+
+def _validate_quantity(quantity: Any, field: str = "quantity") -> int:
+    """Require a positive integer quantity (bool is not a quantity)."""
+    if isinstance(quantity, bool) or not isinstance(quantity, int) or quantity <= 0:
+        raise ValueError(f"{field} must be a positive integer, got {quantity!r}")
+    return quantity
+
+
+def _normalize_choice(value: Any, allowed: frozenset[str], field: str) -> str:
+    """Upper-case a string option and require it to be one of ``allowed``."""
+    candidate = value.strip().upper() if isinstance(value, str) else None
+    if candidate not in allowed:
+        raise ValueError(f"Invalid {field}: {value!r}. Must be one of: {', '.join(sorted(allowed))}")
+    return candidate
+
+
 # Internal helper function to apply session and duration settings
 def _apply_order_settings(order_spec, session: str | None, duration: str | None):
     """Internal helper to apply session and duration to an order spec builder."""
     if session:
-        order_spec = order_spec.set_session(session)
+        order_spec = order_spec.set_session(_normalize_choice(session, _VALID_SESSIONS, "session"))
     if duration is not None:
         order_spec = order_spec.set_duration(_normalize_duration(duration))
     return order_spec
@@ -306,21 +348,29 @@ async def _require_spec_supported_asset_types(client: ToolsClient, order_spec: d
         await _require_supported_asset_type(client, symbol)
 
 
-def _format_order_price(price: float) -> str:
-    """Format a float using schwab-py's historical truncation semantics.
+def _format_order_price(price: float, field: str = "price") -> str:
+    """Convert an order price to the exact fixed-scale string Schwab receives.
 
-    Args:
-        price: The order price supplied as a float.
-
-    Returns:
-        A decimal string truncated to four places below one or two places
-        otherwise, matching schwab-py's former float handling without emitting
-        its deprecation warning.
+    The value is read through ``Decimal(str(price))`` so ``1.15`` stays
+    ``1.15`` instead of drifting a tick low through float multiplication.
+    Prices at or above 1 allow 2 decimal places and prices below 1 allow 4;
+    a value with more precision, or one that is not a finite number above
+    zero, raises ``ValueError`` naming ``field`` rather than being rounded.
     """
-    decimal_places = 4 if abs(price) < 1 and price != 0.0 else 2
-    scale = 10**decimal_places
-    truncated = float(int(price * scale)) / scale
-    return f"{truncated:.{decimal_places}f}"
+    if isinstance(price, bool) or not isinstance(price, (int, float)):
+        raise ValueError(f"{field} must be a number, got {price!r}")
+    value = Decimal(str(price))
+    if not value.is_finite() or value <= 0:
+        raise ValueError(f"{field} must be a finite number above zero, got {price!r}")
+    places = 2 if value >= 1 else 4
+    try:
+        quantized = value.quantize(Decimal(1).scaleb(-places))
+    except InvalidOperation as exc:
+        raise ValueError(f"{field} is out of range: {price!r}") from exc
+    if quantized != value:
+        band = "at or above $1" if places == 2 else "below $1"
+        raise ValueError(f"{field} {price!r} has more than {places} decimal places, the limit for prices {band}")
+    return f"{quantized:.{places}f}"
 
 
 def _build_equity_order_spec(
@@ -332,7 +382,9 @@ def _build_equity_order_spec(
     stop_price: float | None = None,
 ):
     """Internal helper to build the core equity order spec builder based on parameters."""
-    instruction = instruction.upper()
+    _validate_symbol(symbol)
+    _validate_quantity(quantity)
+    instruction = instruction.upper() if isinstance(instruction, str) else repr(instruction)
     order_type = order_type.upper()
 
     if order_type not in _EQUITY_ORDER_TYPES:
@@ -346,9 +398,9 @@ def _build_equity_order_spec(
 
     args: list[Any] = [symbol, quantity]
     if needs_stop_price:
-        args.append(_format_order_price(cast(float, stop_price)))
+        args.append(_format_order_price(cast(float, stop_price), "stop_price"))
     if needs_price:
-        args.append(_format_order_price(cast(float, price)))
+        args.append(_format_order_price(cast(float, price), "price"))
     return builder_func(*args)
 
 
@@ -396,7 +448,9 @@ def _build_trailing_stop_order_spec(
     trail_offset: float,
     trail_type: str = "VALUE",
 ):
-    instruction = instruction.upper()
+    _validate_symbol(symbol)
+    _validate_quantity(quantity)
+    instruction = instruction.upper() if isinstance(instruction, str) else repr(instruction)
     trail_type = trail_type.upper()
 
     if instruction not in _EQUITY_INSTRUCTIONS:
@@ -405,6 +459,8 @@ def _build_trailing_stop_order_spec(
     if trail_type not in _TRAILING_STOP_LINK_TYPES:
         raise ValueError(f"Invalid trail_type: {trail_type}. Must be VALUE or PERCENT.")
 
+    if isinstance(trail_offset, bool) or not isinstance(trail_offset, (int, float)) or not math.isfinite(trail_offset):
+        raise ValueError(f"trail_offset must be a finite number, got {trail_offset!r}")
     if trail_offset <= 0:
         raise ValueError("trail_offset must be positive")
 
@@ -442,7 +498,9 @@ def _build_option_order_spec(
     price: float | None = None,
 ):
     """Internal helper to build the core option order spec builder based on parameters."""
-    instruction = instruction.upper()
+    _validate_symbol(symbol)
+    _validate_quantity(quantity)
+    instruction = instruction.upper() if isinstance(instruction, str) else repr(instruction)
     order_type = order_type.upper()
 
     if order_type not in _OPTION_ORDER_TYPES:
@@ -466,6 +524,7 @@ def _build_option_order_spec(
         return limit_builder(symbol, quantity, _format_order_price(price))
 
 
+@with_config(ConfigDict(extra="forbid"))
 class _OrderDescInputRequired(TypedDict):
     """Required fields for an order leg description (TypedDict for MCP schema)."""
 
@@ -475,11 +534,13 @@ class _OrderDescInputRequired(TypedDict):
     order_type: str
 
 
+@with_config(ConfigDict(extra="forbid"))
 class _OrderDescInput(_OrderDescInputRequired, total=False):
     """TypedDict used as the MCP tool parameter type for order leg dicts.
 
     MCPServer generates the JSON schema for tool inputs from this TypedDict.
-    Raw dicts received from MCP clients are validated and converted to
+    The schema is closed (extra="forbid"), so a key the tool does not read
+    is refused at the MCP boundary instead of being dropped silently. Raw dicts received from MCP clients are validated and converted to
     ``OrderDesc`` dataclass instances via ``OrderDesc.from_dict()`` before
     any internal processing occurs.
     """
@@ -491,6 +552,11 @@ class _OrderDescInput(_OrderDescInputRequired, total=False):
     asset_type: str
     session: str
     duration: str
+
+
+_ORDER_DESC_FIELDS: frozenset[str] = frozenset(
+    _OrderDescInputRequired.__annotations__.keys() | _OrderDescInput.__annotations__.keys()
+)
 
 
 @dataclass(frozen=True)
@@ -536,6 +602,10 @@ class OrderDesc:
         ``order_type``/``asset_type`` combination. This method only checks
         that fields, when present, have the right type.
         """
+        unsupported = sorted(set(raw) - _ORDER_DESC_FIELDS)
+        if unsupported:
+            raise ValueError(f"unsupported field(s): {', '.join(map(str, unsupported))}")
+
         required = ("symbol", "quantity", "instruction", "order_type")
         missing = [field for field in required if field not in raw]
         if missing:
@@ -586,28 +656,125 @@ class OrderDesc:
         )
 
 
-def _replacement_summary(order_spec: dict[str, Any]) -> str:
-    """Describe the exact normalized replacement payload for reviewer approval."""
-    leg = order_spec["orderLegCollection"][0]
+# ---------------------------------------------------------------------------
+# _spec_summary: the reviewer-facing text for an approval, rendered from the
+# exact order spec that will be sent, so the prompt cannot omit a leg, price,
+# session or duration. Unknown scalar fields are shown as key=value; values
+# that cannot be shown faithfully (nested data, control characters) raise.
+# ---------------------------------------------------------------------------
+
+_SUMMARY_NODE_FIELDS = frozenset(
+    {
+        "orderStrategyType",
+        "orderType",
+        "complexOrderStrategyType",
+        "orderLegCollection",
+        "childOrderStrategies",
+        "price",
+        "stopPrice",
+        "stopPriceOffset",
+        "stopPriceLinkType",
+        "stopPriceLinkBasis",
+        "session",
+        "duration",
+    }
+)
+_SUMMARY_LEG_FIELDS = frozenset({"instruction", "quantity", "instrument"})
+_SUMMARY_INSTRUMENT_FIELDS = frozenset({"symbol", "assetType"})
+
+
+def _summary_value(name: str, value: Any) -> str:
+    """Render one scalar spec value, refusing anything that could mislead."""
+    if isinstance(value, bool) or not isinstance(value, (str, int, float)):
+        raise ValueError(f"Order field {name!r} cannot be shown in the approval summary: {value!r}")
+    text = str(value)
+    if not text or not text.isprintable():
+        raise ValueError(f"Order field {name!r} cannot be shown in the approval summary: {value!r}")
+    return text
+
+
+def _summary_extras(fields: dict[str, Any], known: frozenset[str]) -> list[str]:
+    """Render fields without a dedicated label as key=value, in spec order."""
+    return [f"{key}={_summary_value(key, value)}" for key, value in fields.items() if key not in known]
+
+
+def _summary_leg(leg: Any) -> str:
+    if not isinstance(leg, dict) or not isinstance(leg.get("instrument"), dict):
+        raise ValueError(f"Order leg cannot be shown in the approval summary: {leg!r}")
     instrument = leg["instrument"]
-    parts = [leg["instruction"], str(leg["quantity"]), instrument["symbol"], order_spec["orderType"]]
-    if "price" in order_spec:
-        parts.append(f"@ ${order_spec['price']}")
-    if "stopPrice" in order_spec:
-        parts.append(f"stop ${order_spec['stopPrice']}")
-    if "stopPriceOffset" in order_spec:
-        parts.append(f"offset={order_spec['stopPriceOffset']} {order_spec.get('stopPriceLinkType', 'VALUE')}")
-    if instrument.get("assetType") == "OPTION":
-        parts.append("OPTION")
-    parts.extend(f"{field.lower()}={order_spec[field]}" for field in ("session", "duration") if field in order_spec)
+    parts = [
+        _summary_value("instruction", leg.get("instruction")),
+        _summary_value("quantity", leg.get("quantity")),
+        _summary_value("symbol", instrument.get("symbol")),
+        _summary_value("assetType", instrument.get("assetType")),
+    ]
+    parts += _summary_extras(instrument, _SUMMARY_INSTRUMENT_FIELDS)
+    parts += _summary_extras(leg, _SUMMARY_LEG_FIELDS)
     return " ".join(parts)
 
 
-def _validate_order_identifier(value: str, name: str) -> str:
-    """Validate an identifier before it can be interpolated into a URL path."""
-    if not isinstance(value, str) or _SAFE_ORDER_IDENTIFIER.fullmatch(value) is None:
-        raise ValueError(f"{name} must contain only ASCII letters, digits, underscores, and hyphens")
-    return value
+def _summary_order_terms(node: dict[str, Any]) -> list[str]:
+    """Order-level terms: type, prices, trail, session, duration, extras."""
+    terms: list[str] = []
+    if "orderType" in node:
+        terms.append(_summary_value("orderType", node["orderType"]))
+    if "complexOrderStrategyType" in node:
+        terms.append(_summary_value("complexOrderStrategyType", node["complexOrderStrategyType"]))
+    if "price" in node:
+        terms.append(f"@ ${_summary_value('price', node['price'])}")
+    if "stopPrice" in node:
+        terms.append(f"stop ${_summary_value('stopPrice', node['stopPrice'])}")
+    if "stopPriceOffset" in node:
+        terms.append(f"offset={_summary_value('stopPriceOffset', node['stopPriceOffset'])}")
+    for field, label in (
+        ("stopPriceLinkType", "link"),
+        ("stopPriceLinkBasis", "basis"),
+        ("session", "session"),
+        ("duration", "duration"),
+    ):
+        if field in node:
+            terms.append(f"{label}={_summary_value(field, node[field])}")
+    terms += _summary_extras(node, _SUMMARY_NODE_FIELDS)
+    return terms
+
+
+def _summary_lines(node: Any, depth: int) -> list[str]:
+    if not isinstance(node, dict):
+        raise ValueError(f"Order node cannot be shown in the approval summary: {node!r}")
+    legs = node.get("orderLegCollection", [])
+    children = node.get("childOrderStrategies", [])
+    if not isinstance(legs, list):
+        raise ValueError(f"Order field 'orderLegCollection' cannot be shown in the approval summary: {legs!r}")
+    if not isinstance(children, list):
+        raise ValueError(f"Order field 'childOrderStrategies' cannot be shown in the approval summary: {children!r}")
+
+    strategy = node.get("orderStrategyType")
+    pad = "  " * depth
+    head = [] if strategy is None else [_summary_value("orderStrategyType", strategy)]
+    if len(legs) == 1:
+        head.append(_summary_leg(legs[0]))
+    head += _summary_order_terms(node)
+    lines = [pad + " ".join(head) + (":" if not legs and children else "")]
+    if len(legs) > 1:
+        lines += [f"{pad}  leg {index}: {_summary_leg(leg)}" for index, leg in enumerate(legs, start=1)]
+    for child in children:
+        child_lines = _summary_lines(child, depth + 1)
+        if strategy == "TRIGGER" and legs:
+            child_lines[0] = f"{pad}  then {child_lines[0].lstrip()}"
+        lines += child_lines
+    return lines
+
+
+def _spec_summary(order_spec: dict[str, Any]) -> str:
+    """Render the reviewer-facing summary of an order spec, one order per line.
+
+    Walks the spec and its childOrderStrategies, showing for every order its
+    strategy, type, complex strategy, legs (instruction, quantity, symbol,
+    asset type), prices, trailing offset, session and duration. Raises
+    ValueError when a value cannot be shown faithfully, so an order the
+    reviewer cannot fully see is never previewed.
+    """
+    return "\n".join(_summary_lines(order_spec, 0))
 
 
 def _build_order_from_desc(
@@ -773,20 +940,7 @@ def _validate_replacement_fields(replacement_order: dict[str, Any], desc: OrderD
 
 def _prepare_replacement_order(replacement_order: dict[str, Any]) -> tuple[dict[str, Any], OrderDesc]:
     """Validate and build a complete single-order replacement description."""
-    allowed_fields = {
-        "symbol",
-        "quantity",
-        "instruction",
-        "order_type",
-        "price",
-        "stop_price",
-        "trail_offset",
-        "trail_type",
-        "asset_type",
-        "session",
-        "duration",
-    }
-    unsupported = sorted(set(replacement_order) - allowed_fields)
+    unsupported = sorted(set(replacement_order) - _ORDER_DESC_FIELDS)
     if unsupported:
         raise ValueError(f"replacement_order has unsupported field(s): {', '.join(unsupported)}")
     desc = OrderDesc.from_dict(replacement_order)
@@ -871,6 +1025,17 @@ def _prepare_bracket_order(
 ) -> dict[str, Any]:
     if profit_price is None and loss_price is None:
         raise ValueError("At least one of profit_price or loss_price must be provided")
+    # The leg builders only know "price"/"stop_price"; check each bracket
+    # price up front so an error names the parameter the caller supplied.
+    for field, value in (
+        ("entry_price", entry_price),
+        ("entry_stop_price", entry_stop_price),
+        ("profit_price", profit_price),
+        ("loss_price", loss_price),
+        ("loss_limit_price", loss_limit_price),
+    ):
+        if value is not None:
+            _format_order_price(value, field)
     entry_instruction = entry_instruction.upper()
     if entry_instruction not in ["BUY", "SELL"]:
         raise ValueError(f"Invalid entry_instruction: {entry_instruction}. Use BUY or SELL.")
@@ -911,37 +1076,38 @@ def _prepare_option_combo_order(
 ) -> dict[str, Any]:
     if not legs or len(legs) < 2:
         raise ValueError("Provide at least two option legs for a combo order")
+    validated_legs = [_validate_combo_leg(leg, index) for index, leg in enumerate(legs)]
+    combo_type = _normalize_choice(order_type, _COMBO_PRICED_TYPES | _COMBO_UNPRICED_TYPES, "order_type")
+    if combo_type in _COMBO_PRICED_TYPES and price is None:
+        raise ValueError(f"{combo_type} combo orders require a price")
+    if combo_type in _COMBO_UNPRICED_TYPES and price is not None:
+        raise ValueError(f"{combo_type} combo orders must not include a price")
     builder = OrderBuilder(enforce_enums=False).set_order_strategy_type("SINGLE")
     builder = _apply_order_settings(builder, session, duration)
     if complex_order_strategy_type:
-        builder = builder.set_complex_order_strategy_type(complex_order_strategy_type.upper())
-    builder = builder.set_order_type(order_type.upper())
+        builder = builder.set_complex_order_strategy_type(
+            _normalize_choice(complex_order_strategy_type, _VALID_COMPLEX_STRATEGIES, "complex_order_strategy_type")
+        )
+    builder = builder.set_order_type(combo_type)
     if price is not None:
         builder = builder.set_price(_format_order_price(price))
-    for leg in legs:
-        builder = builder.add_option_leg(leg["instruction"], leg["symbol"], leg["quantity"])
+    for instruction, symbol, quantity in validated_legs:
+        builder = builder.add_option_leg(instruction, symbol, quantity)
     return cast(dict[str, Any], builder.build())
 
 
-# ---------------------------------------------------------------------------
-# _order_summary — builds a short human-readable summary for Discord reviewers.
-# ---------------------------------------------------------------------------
+_COMBO_LEG_FIELDS = frozenset({"symbol", "quantity", "instruction"})
 
 
-def _order_summary_equity(
-    instruction: str,
-    quantity: int,
-    symbol: str,
-    order_type: str,
-    price: float | None = None,
-    stop_price: float | None = None,
-) -> str:
-    parts = [instruction.upper(), str(quantity), symbol, order_type.upper()]
-    if price is not None:
-        parts.append(f"@ ${price:.2f}")
-    if stop_price is not None:
-        parts.append(f"stop ${stop_price:.2f}")
-    return " ".join(parts)
+def _validate_combo_leg(leg: Any, index: int) -> tuple[str, str, int]:
+    """Validate one option-combo leg: exactly symbol, quantity, instruction."""
+    if not isinstance(leg, dict) or set(leg) != _COMBO_LEG_FIELDS:
+        keys = sorted(leg) if isinstance(leg, dict) else type(leg).__name__
+        raise ValueError(f"legs[{index}] must have exactly the keys instruction, quantity, symbol; got {keys}")
+    instruction = _normalize_choice(leg["instruction"], _OPTION_INSTRUCTIONS, f"legs[{index}].instruction")
+    symbol = _validate_symbol(leg["symbol"], f"legs[{index}].symbol")
+    quantity = _validate_quantity(leg["quantity"], f"legs[{index}].quantity")
+    return instruction, symbol, quantity
 
 
 def _preview_action(account_hash: str, preview_id: str) -> str:
@@ -956,15 +1122,16 @@ async def _finalize_preview(
     account_hash: str,
     order_spec: dict[str, Any],
     tool_name: str,
-    summary: str,
 ) -> dict[str, Any]:
     """Preview an order and cache its successful result.
 
     Applies the upfront assetType guard before Schwab's previewOrder is
     invoked, so every preview tool (current and future) is covered by the
-    single call here.
+    single call here. The reviewer summary is rendered from the spec itself
+    before any API call, so an order that cannot be shown is never previewed.
     """
-    _validate_order_identifier(account_hash, "account_hash")
+    validate_identifier(account_hash, "account_hash")
+    summary = _spec_summary(order_spec)
     await _require_spec_supported_asset_types(ctx.tools, order_spec)
     preview = await call(ctx.orders.preview_order, account_hash=account_hash, order_spec=order_spec)
     preview_id = ctx.previews.put(
@@ -1004,6 +1171,8 @@ async def get_order(
     summary, and recursively-pruned childOrderStrategies); pass verbose=True for
     the full raw payload. Params: account_hash, order_id.
     """
+    validate_identifier(account_hash, "account_hash")
+    validate_identifier(order_id, "order_id")
     client = ctx.orders
     result = await call(client.get_order, order_id=order_id, account_hash=account_hash)
     return result if verbose else _prune_order(result)
@@ -1036,6 +1205,7 @@ async def get_orders(
     Status options: AWAITING_PARENT_ORDER, AWAITING_CONDITION, AWAITING_STOP_CONDITION, AWAITING_MANUAL_REVIEW, ACCEPTED, AWAITING_UR_OUT, PENDING_ACTIVATION, QUEUED, WORKING, REJECTED, PENDING_CANCEL, CANCELED, PENDING_REPLACE, REPLACED, FILLED, EXPIRED, NEW, AWAITING_RELEASE_TIME, PENDING_ACKNOWLEDGEMENT, PENDING_RECALL.
     Use tomorrow's date as to_date for today's orders. Use WORKING/PENDING_ACTIVATION for open orders.
     """
+    validate_identifier(account_hash, "account_hash")
     client = ctx.orders
 
     from_date_obj = parse_date(from_date)
@@ -1074,7 +1244,12 @@ async def get_orders(
                         if order_id and order_id not in seen_order_ids:
                             seen_order_ids.add(order_id)
                             all_orders.append(order)
-            result = all_orders if all_orders else []
+            if max_results is not None:
+                # Each per-status call returns up to max_results, so cap the
+                # merged list, keeping the most recently entered orders.
+                all_orders.sort(key=lambda order: str(order.get("enteredTime") or ""), reverse=True)
+                all_orders = all_orders[:max_results]
+            result = all_orders
     else:
         result = await call(
             client.get_orders_for_account,
@@ -1091,8 +1266,8 @@ async def cancel_order(
     order_id: Annotated[str, "Order ID to cancel"],
 ) -> JSONType:
     """Cancels a pending order. Cannot cancel executed/terminal orders. Params: account_hash, order_id. Returns updated order details (compact/pruned, same shape as get_order) after cancellation; falls back to a minimal {orderId, status, note} payload if the post-cancel status fetch fails or returns no data. *Write operation.*"""
-    _validate_order_identifier(account_hash, "account_hash")
-    _validate_order_identifier(order_id, "order_id")
+    validate_identifier(account_hash, "account_hash")
+    validate_identifier(order_id, "order_id")
 
     request = ApprovalRequest(
         id=str(uuid.uuid4()),
@@ -1228,8 +1403,7 @@ async def preview_equity_order(
     order_spec_dict = _prepare_equity_order(
         symbol, quantity, instruction, order_type, price, stop_price, session, duration
     )
-    summary = _order_summary_equity(instruction, quantity, symbol, order_type, price, stop_price)
-    return await _finalize_preview(ctx, account_hash, order_spec_dict, "preview_equity_order", summary)
+    return await _finalize_preview(ctx, account_hash, order_spec_dict, "preview_equity_order")
 
 
 async def preview_option_order(
@@ -1255,8 +1429,7 @@ async def preview_option_order(
     exact order. Params: same as this order shape's fields below.
     """
     order_spec_dict = _prepare_option_order(symbol, quantity, instruction, order_type, price, session, duration)
-    summary = _order_summary_equity(instruction, quantity, symbol, order_type, price)
-    return await _finalize_preview(ctx, account_hash, order_spec_dict, "preview_option_order", summary)
+    return await _finalize_preview(ctx, account_hash, order_spec_dict, "preview_option_order")
 
 
 async def preview_equity_trailing_stop_order(
@@ -1287,15 +1460,7 @@ async def preview_equity_trailing_stop_order(
     order_spec_dict = _prepare_trailing_stop_order(
         symbol, quantity, instruction, trail_offset, trail_type, session, duration
     )
-    eff_trail_type = (trail_type or "VALUE").upper()
-    summary = f"{instruction.upper()} {quantity} {symbol} TRAILING_STOP offset={trail_offset} {eff_trail_type}"
-    return await _finalize_preview(
-        ctx,
-        account_hash,
-        order_spec_dict,
-        "preview_equity_trailing_stop_order",
-        summary,
-    )
+    return await _finalize_preview(ctx, account_hash, order_spec_dict, "preview_equity_trailing_stop_order")
 
 
 async def preview_oco_order(
@@ -1331,8 +1496,7 @@ async def preview_oco_order(
         session,
         duration,
     )
-    summary = f"OCO: {first_order['instruction']} {first_order['quantity']} {first_order['symbol']} + 1 other"
-    return await _finalize_preview(ctx, account_hash, order_spec_dict, "preview_oco_order", summary)
+    return await _finalize_preview(ctx, account_hash, order_spec_dict, "preview_oco_order")
 
 
 async def preview_trigger_order(
@@ -1371,11 +1535,7 @@ async def preview_trigger_order(
         session,
         duration,
     )
-    summary = (
-        f"TRIGGER: {entry_order['instruction']} {entry_order['quantity']} "
-        f"{entry_order['symbol']} + {len(exit_orders)} exit(s)"
-    )
-    return await _finalize_preview(ctx, account_hash, order_spec_dict, "preview_trigger_order", summary)
+    return await _finalize_preview(ctx, account_hash, order_spec_dict, "preview_trigger_order")
 
 
 async def preview_bracket_order(
@@ -1446,19 +1606,13 @@ async def preview_bracket_order(
         loss_type=loss_type,
         loss_limit_price=loss_limit_price,
     )
-    summary = (
-        f"BRACKET: {entry_instruction.upper()} {quantity} {symbol} {entry_type.upper()}"
-        + (f" @ ${entry_price:.2f}" if entry_price else "")
-        + " + exits"
-        + (f" (loss: {loss_type.upper()})" if loss_price is not None and loss_type.upper() != "STOP" else "")
-    )
     resolved_leg_types: dict[str, str] = {"entry": entry_type.upper()}
     if profit_price is not None:
         resolved_leg_types["profit"] = "LIMIT"
     if loss_price is not None:
         resolved_leg_types["loss"] = loss_type.upper()
     return {
-        **await _finalize_preview(ctx, account_hash, bracket_order_dict, "preview_bracket_order", summary),
+        **await _finalize_preview(ctx, account_hash, bracket_order_dict, "preview_bracket_order"),
         "resolved_leg_types": resolved_leg_types,
     }
 
@@ -1493,8 +1647,7 @@ async def preview_option_combo_order(
     order_spec_dict = _prepare_option_combo_order(
         legs, order_type, price, session, duration, complex_order_strategy_type
     )
-    summary = f"COMBO: {len(legs)} option legs, {order_type.upper()}"
-    return await _finalize_preview(ctx, account_hash, order_spec_dict, "preview_option_combo_order", summary)
+    return await _finalize_preview(ctx, account_hash, order_spec_dict, "preview_option_combo_order")
 
 
 async def preview_replacement_order(
@@ -1515,16 +1668,17 @@ async def preview_replacement_order(
     to both the account and target order and can only be executed by
     replace_previewed_order.
     """
-    _validate_order_identifier(account_hash, "account_hash")
-    normalized_order_id = _validate_order_identifier(order_id.strip(), "order_id")
+    validate_identifier(account_hash, "account_hash")
+    normalized_order_id = validate_identifier(order_id.strip(), "order_id")
     order_spec, _ = _prepare_replacement_order(cast(dict[str, Any], replacement_order))
+    summary = _spec_summary(order_spec)
     await _require_spec_supported_asset_types(ctx.tools, order_spec)
     preview = await call(ctx.orders.preview_order, account_hash=account_hash, order_spec=order_spec)
     preview_id = ctx.previews.put(
         account_hash,
         order_spec,
         "preview_replacement_order",
-        _replacement_summary(order_spec),
+        summary,
         operation=PreviewOperation.REPLACE_ORDER,
         target_order_id=normalized_order_id,
     )

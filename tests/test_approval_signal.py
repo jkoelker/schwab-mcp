@@ -388,8 +388,8 @@ def test_render_body_place_previewed_order_with_account_name() -> None:
     body = manager._render_body(_request(tool_name="place_previewed_order", arguments=_previewed_args()))
 
     assert (
-        "schwab-mcp wants to place a previewed order in the Rollover IRA account: "
-        "BUY 5 XYZ LIMIT @ 12.34 (previewed via preview_equity_order)." in body
+        "schwab-mcp wants to place a previewed order in the Rollover IRA account "
+        "(previewed via preview_equity_order):\nBUY 5 XYZ LIMIT @ 12.34" in body
     )
     assert _FULL_HASH not in body
 

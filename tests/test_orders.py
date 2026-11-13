@@ -145,6 +145,24 @@ class TestGetOrders:
         order_ids = {order["orderId"] for order in result}
         assert order_ids == {"order_FILLED", "order_CANCELED"}
 
+    def test_status_list_respects_max_results_overall(self, monkeypatch):
+        """max_results caps the merged result, keeping the most recent orders."""
+
+        async def fake_call(func, *args, **kwargs):
+            status = kwargs["status"].name
+            assert kwargs["max_results"] == 2
+            return [
+                {"orderId": f"{status}-{day}", "enteredTime": f"2026-01-0{day}T15:00:00+0000"}
+                for day in ((1, 4, 5) if status == "WORKING" else (2, 3, 6))
+            ]
+
+        monkeypatch.setattr(orders, "call", fake_call)
+        ctx = make_ctx(DummyOrdersClient())
+
+        result = run(orders.get_orders(ctx, "xyz789", max_results=2, status=["WORKING", "FILLED"], verbose=True))
+
+        assert [order["orderId"] for order in cast(list[Any], result)] == ["FILLED-6", "WORKING-5"]
+
 
 class TestGetOrder:
     def test_calls_client_with_correct_args(self, monkeypatch):
@@ -773,11 +791,11 @@ class TestPrepareEquityOrderValidation:
 class TestPrepareOptionOrderValidation:
     def test_invalid_order_type_raises(self):
         with pytest.raises(ValueError, match="Invalid order_type"):
-            orders._prepare_option_order("SPY_C400", 1, "BUY_TO_OPEN", "STOP")
+            orders._prepare_option_order("SPY 251219C400", 1, "BUY_TO_OPEN", "STOP")
 
     def test_invalid_instruction_raises(self):
         with pytest.raises(ValueError, match="Invalid instruction"):
-            orders._prepare_option_order("SPY_C400", 1, "BUY", "MARKET")
+            orders._prepare_option_order("SPY 251219C400", 1, "BUY", "MARKET")
 
 
 class TestPrepareTrailingStopOrderValidation:
@@ -989,7 +1007,7 @@ class TestPrepareOptionComboOrderValidation:
     def test_requires_at_least_two_legs(self):
         with pytest.raises(ValueError, match="at least two option legs"):
             orders._prepare_option_combo_order(
-                [{"instruction": "BUY_TO_OPEN", "symbol": "SPY_C500", "quantity": 1}],
+                [{"instruction": "BUY_TO_OPEN", "symbol": "SPY 251219C500", "quantity": 1}],
                 "NET_DEBIT",
             )
 
@@ -1548,7 +1566,7 @@ class TestPreviewReplacementOrder:
         assert entry.target_order_id == "order-9"
         assert entry.order_spec["orderType"] == "LIMIT"
         assert entry.order_spec["orderLegCollection"][0]["instruction"] == "BUY"
-        assert entry.summary == "BUY 100 AAPL LIMIT @ $150.00 session=NORMAL duration=DAY"
+        assert entry.summary == "SINGLE BUY 100 AAPL EQUITY LIMIT @ $150.00 session=NORMAL duration=DAY"
 
     def test_rejects_raw_or_composite_fields(self):
         """Replacement validation rejects Schwab payload and composite fields."""
@@ -2089,8 +2107,9 @@ class TestPreviewBracketOrder:
 
         entry = ctx.previews.pop(result["preview_id"], "acc123", operation=orders.PreviewOperation.PLACE_ORDER)
         assert entry.tool_name == "preview_bracket_order"
-        assert "BRACKET" in entry.summary
-        assert "AAPL" in entry.summary
+        assert entry.summary.startswith("TRIGGER BUY 100 AAPL EQUITY MARKET")
+        assert "SELL 100 AAPL EQUITY LIMIT @ $160.00" in entry.summary
+        assert "SELL 100 AAPL EQUITY STOP stop $140.00" in entry.summary
 
     def test_rejects_missing_exit_prices(self):
         client = DummyPreviewClient()
@@ -2211,8 +2230,8 @@ class TestPreviewOptionComboOrder:
 
         entry = ctx.previews.pop(result["preview_id"], "acc123", operation=orders.PreviewOperation.PLACE_ORDER)
         assert entry.tool_name == "preview_option_combo_order"
-        assert "COMBO" in entry.summary
-        assert "NET_CREDIT" in entry.summary
+        assert entry.summary.startswith("SINGLE NET_CREDIT")
+        assert "leg 2:" in entry.summary
 
     def test_rejects_single_leg(self):
         client = DummyPreviewClient()

@@ -61,12 +61,21 @@ compact defaults with `verbose=True` escape hatches where response size matters.
     `_finalize_preview` and in `preview_replacement_order`, so every preview
     path shares it. Preview account hashes are validated before asset lookup
     or preview requests; replacement target IDs use the same safe identifier
-    rule. `place_previewed_order()` consumes only PLACE_ORDER entries,
+    rule (`utils.validate_identifier`), which the read tools (`get_order`,
+    `get_orders`, `get_account`, `get_transactions`, `get_transaction`) also
+    apply. Order builders validate symbols (`_SAFE_SYMBOL`), positive integer
+    quantities, instructions, sessions and option-combo legs before any call;
+    combo orders accept only NET_CREDIT/NET_DEBIT (price required) or
+    NET_ZERO/MARKET (no price), and the nested `_OrderDescInput` schema is
+    closed so unknown keys are refused at the MCP boundary. `place_previewed_order()` consumes only PLACE_ORDER entries,
     while `preview_replacement_order()` caches a typed single-leg replacement
     bound to an existing order and `replace_previewed_order()` consumes only
     REPLACE_ORDER entries. Both custom executors request approval and return
-    compact post-write order status. Replacement approval summaries reflect the
-    built payload, and replacement target IDs reject URL-unsafe values. A failed
+    compact post-write order status. Every approval summary is rendered by
+    `_spec_summary()` from the built spec (all legs, nested child orders,
+    prices, session, duration) before any API call; values it cannot show
+    faithfully fail the preview. Replacement target IDs reject URL-unsafe
+    values. A failed
     status fetch, including an HTTP transport failure, preserves the successful
     write response as a fallback. `cancel_order()` validates both identifiers
     before custom approval and the cancel request, and preserves its fallback
