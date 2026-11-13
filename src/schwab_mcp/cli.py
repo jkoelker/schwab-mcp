@@ -115,7 +115,8 @@ def auth(
         return 0
     except Exception as e:
         click.echo(f"Authentication failed: {str(e)}", err=True)
-        return 1
+        # Click ignores a command's return value, so exit explicitly.
+        raise SystemExit(1) from e
 
 
 def _select_write_mode(
@@ -394,6 +395,9 @@ def server(
                 details={"client_type": type(client).__name__},
             )
             return 1
+    except schwab_auth.LoginRequiredError as e:
+        send_error_response(str(e), code=401, details={"token_expired": True})
+        return 1
     except Exception as e:
         send_error_response(
             f"Error initializing Schwab client: {str(e)}",

@@ -22,6 +22,10 @@ else:  # pragma: no cover - runtime fallback for multiprocess
 client_from_access_functions = auth.client_from_access_functions
 
 
+class LoginRequiredError(RuntimeError):
+    """Raised when no usable token exists and the caller cannot run a browser login."""
+
+
 def easy_client(
     client_id: str,
     client_secret: str,
@@ -35,7 +39,12 @@ def easy_client(
     requested_browser: str | None = None,
     base_url: str = auth.DEFAULT_BASE_URL,
 ) -> AsyncClient | Client:
-    """Return an authenticated Schwab client, reusing a cached token when valid."""
+    """Return an authenticated Schwab client, reusing a cached token when valid.
+
+    With ``interactive=False`` (server mode) a missing or expired token raises
+    ``LoginRequiredError`` instead of opening a browser and a local callback
+    listener inside a headless process.
+    """
     effective_max_token_age = 0 if max_token_age is None else max_token_age
 
     if effective_max_token_age < 0:
@@ -64,6 +73,12 @@ def easy_client(
     # Return early on success
     if client is not None:
         return client
+
+    if not interactive:
+        reason = "is older than the maximum token age" if token_manager.exists() else "does not exist"
+        raise LoginRequiredError(
+            f"The Schwab token at {token_manager.path} {reason}. Run 'schwab-mcp auth' to log in again."
+        )
 
     client = client_from_login_flow(
         client_id,

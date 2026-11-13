@@ -923,3 +923,54 @@ async def test_no_names_preserves_malformed_arguments() -> None:
         fields = {field.name: field.value for field in embed.fields}
         assert "Account" not in fields
         assert "'x', {[]}" in (fields["Arguments"] or "")
+
+
+@pytest.mark.anyio
+async def test_start_raises_login_failure_instead_of_hanging(monkeypatch) -> None:
+    """A rejected token surfaces from start() rather than blocking on ready forever."""
+    mgr = make_manager()
+
+    async def reject(token: str) -> None:
+        raise discord.LoginFailure("Improper token has been passed.")
+
+    monkeypatch.setattr(mgr._client, "start", reject)
+
+    with pytest.raises(discord.LoginFailure):
+        await asyncio.wait_for(mgr.start(), 3)
+
+    assert mgr._runner is None
+
+
+@pytest.mark.anyio
+async def test_start_raises_when_runner_exits_before_ready(monkeypatch) -> None:
+    mgr = make_manager()
+
+    async def quit_early(token: str) -> None:
+        return None
+
+    monkeypatch.setattr(mgr._client, "start", quit_early)
+
+    with pytest.raises(RuntimeError, match="before it was ready"):
+        await asyncio.wait_for(mgr.start(), 3)
+
+
+@pytest.mark.anyio
+async def test_start_wait_is_bounded(monkeypatch) -> None:
+    from schwab_mcp.approvals import discord as discord_approvals
+
+    mgr = make_manager()
+    monkeypatch.setattr(discord_approvals, "_START_TIMEOUT_SECONDS", 0.05)
+
+    async def hang(token: str) -> None:
+        await asyncio.sleep(60)
+
+    async def close() -> None:
+        return None
+
+    monkeypatch.setattr(mgr._client, "start", hang)
+    monkeypatch.setattr(mgr._client, "close", close)
+
+    with pytest.raises(TimeoutError, match="not ready within"):
+        await asyncio.wait_for(mgr.start(), 3)
+
+    assert mgr._runner is None
