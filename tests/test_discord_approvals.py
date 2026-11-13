@@ -618,7 +618,9 @@ async def test_conflicting_reactions_keep_first_decision_during_message_edit() -
 
 @pytest.mark.anyio
 async def test_require_returns_decision_without_waiting_for_message_edit() -> None:
-    mgr = make_manager(make_settings(timeout_seconds=0.05))
+    # The approval timeout must outlast a slow runner: if it fires before the
+    # reaction lands, require() expires and blocks in the held edit itself.
+    mgr = make_manager(make_settings(timeout_seconds=30.0))
     mgr._ready.set()
     channel = make_fake_channel()
     msg = make_fake_message(channel)
