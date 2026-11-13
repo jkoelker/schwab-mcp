@@ -1,3 +1,4 @@
+import logging
 import math
 from types import SimpleNamespace
 from typing import Any, cast
@@ -5,6 +6,7 @@ from typing import Any, cast
 import pandas as pd
 import pytest
 from conftest import run
+from mcp.server.mcpserver import MCPServer
 
 from schwab_mcp.context import SchwabContext
 from schwab_mcp.tools.technical import (
@@ -1564,3 +1566,16 @@ def test_expected_move_raises_when_atm_strike_has_no_matching_put(monkeypatch, d
 
     with pytest.raises(ValueError, match="Unable to locate at-the-money"):
         run(volatility.expected_move(dummy_ctx, "HOOD"))
+
+
+def test_register_warns_when_ta_extra_missing(monkeypatch, caplog):
+    """A missing ta extra is visible at the default log level, not silent."""
+    from schwab_mcp.tools import technical
+
+    monkeypatch.setattr(technical, "_pandas_ta", None)
+    server = MCPServer(name="t")
+
+    with caplog.at_level(logging.WARNING, logger=technical.__name__):
+        technical.register(server, allow_write=False)
+
+    assert "schwab-mcp[ta]" in caplog.text

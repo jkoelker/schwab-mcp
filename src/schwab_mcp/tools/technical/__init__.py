@@ -31,7 +31,12 @@ def register(
     _ = allow_write
 
     if _pandas_ta is None:
-        logger.debug("Skipping technical analysis tools because pandas_ta_classic is not installed.")
+        # WARNING, not DEBUG: the tools are on by default, so a missing extra
+        # would otherwise silently drop advertised tools.
+        logger.warning(
+            "Technical analysis tools are disabled: install 'schwab-mcp[ta]', or pass --no-technical-tools "
+            "to silence this warning."
+        )
         return
 
     for module in _load_modules():
