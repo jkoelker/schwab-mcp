@@ -150,6 +150,9 @@ async def run_approval(context: SchwabContext, request: ApprovalRequest) -> Appr
     At most ``MAX_PENDING_APPROVALS`` requests may wait on the reviewer at
     once; a further request raises ``PermissionError`` without reaching the
     approval backend.
+
+    Every decision is logged here at INFO, so each gate leaves the same audit
+    record whether the reviewer approved or refused it.
     """
     server = context.schwab
     ensure_approval_capacity(context, request.tool_name)
@@ -170,6 +173,14 @@ async def run_approval(context: SchwabContext, request: ApprovalRequest) -> Appr
     finally:
         server.pending_approvals -= 1
 
+    logger.info(
+        "Approval decision %s for tool '%s' (approval_id=%s, client_id=%s, request_id=%s)",
+        decision.value,
+        request.tool_name,
+        request.id,
+        request.client_id or "<unknown>",
+        request.request_id,
+    )
     await _report_approval_completion(context, decision)
     return decision
 
@@ -217,14 +228,6 @@ def _wrap_with_approval(func: ToolFn) -> ToolFn:
         )
 
         decision = await run_approval(context, request)
-        logger.info(
-            "Approval decision %s for tool '%s' (approval_id=%s, client_id=%s, request_id=%s)",
-            decision.value,
-            func.__name__,
-            request.id,
-            request.client_id or "<unknown>",
-            request.request_id,
-        )
         if decision is ApprovalDecision.APPROVED:
             result = func(*bound.args, **bound.kwargs)
             if inspect.isawaitable(result):

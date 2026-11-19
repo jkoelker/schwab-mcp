@@ -1,4 +1,5 @@
 import datetime
+import logging
 from enum import Enum
 from typing import Any, cast
 from unittest.mock import AsyncMock
@@ -647,6 +648,30 @@ class TestPlacePreviewedOrder:
 
         assert result == {"location": "https://api.schwabapi.com/orders/123"}
         assert len(calls) == 1
+
+    def test_approved_placement_logs_decision_from_real_approval(self, monkeypatch, caplog, account_hash, order_spec):
+        """An approved placement logs its decision through the real run_approval."""
+        from schwab_mcp.tools import orders as orders_mod
+
+        ctx, preview_id = self._make_preview_context(account_hash, order_spec)
+        placed_order = {"orderId": 42, "status": "WORKING", "quantity": 100, "filledQuantity": 0}
+        calls: list[dict] = []
+
+        async def fake_call(func, *args, **kwargs):
+            """Return a placement response followed by the placed order."""
+            calls.append({"func": func, "kwargs": kwargs})
+            if len(calls) == 1:
+                return {"orderId": 42, "accountHash": account_hash}
+            return placed_order
+
+        monkeypatch.setattr(orders_mod, "call", fake_call)
+
+        with caplog.at_level(logging.INFO, logger="schwab_mcp.tools._registration"):
+            run(orders.place_previewed_order(ctx, account_hash, preview_id))
+
+        decisions = [r.getMessage() for r in caplog.records if r.getMessage().startswith("Approval decision ")]
+        assert len(decisions) == 1
+        assert decisions[0].startswith("Approval decision approved for tool 'place_previewed_order' (approval_id=")
 
     @pytest.mark.parametrize(
         ("decision", "expected_exception", "message", "log_message"),
