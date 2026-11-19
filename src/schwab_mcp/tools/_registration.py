@@ -139,6 +139,22 @@ def ensure_approval_capacity(context: SchwabContext, tool_name: str) -> None:
         raise PermissionError(message)
 
 
+def raise_unless_approved(decision: ApprovalDecision, *, denied: str, expired: str) -> None:
+    """Return on APPROVED; otherwise log and raise (fail closed).
+
+    A DENIED decision logs ``denied`` and raises ``PermissionError``. Any other
+    non-approved decision logs ``expired`` and raises ``TimeoutError``, so an
+    unknown decision never runs the write.
+    """
+    if decision is ApprovalDecision.APPROVED:
+        return
+    message = denied if decision is ApprovalDecision.DENIED else expired
+    logger.warning(message)
+    if decision is ApprovalDecision.DENIED:
+        raise PermissionError(message)
+    raise TimeoutError(message)
+
+
 async def run_approval(context: SchwabContext, request: ApprovalRequest) -> ApprovalDecision:
     """Run an approval request through progress reporting and the configured
     :class:`ApprovalManager`, returning the resulting decision.
@@ -150,6 +166,9 @@ async def run_approval(context: SchwabContext, request: ApprovalRequest) -> Appr
     At most ``MAX_PENDING_APPROVALS`` requests may wait on the reviewer at
     once; a further request raises ``PermissionError`` without reaching the
     approval backend.
+
+    Every decision is logged here at INFO, so each gate leaves the same audit
+    record whether the reviewer approved or refused it.
     """
     server = context.schwab
     ensure_approval_capacity(context, request.tool_name)
@@ -170,6 +189,14 @@ async def run_approval(context: SchwabContext, request: ApprovalRequest) -> Appr
     finally:
         server.pending_approvals -= 1
 
+    logger.info(
+        "Approval decision %s for tool '%s' (approval_id=%s, client_id=%s, request_id=%s)",
+        decision.value,
+        request.tool_name,
+        request.id,
+        request.client_id or "<unknown>",
+        request.request_id,
+    )
     await _report_approval_completion(context, decision)
     return decision
 
@@ -217,30 +244,15 @@ def _wrap_with_approval(func: ToolFn) -> ToolFn:
         )
 
         decision = await run_approval(context, request)
-        logger.info(
-            "Approval decision %s for tool '%s' (approval_id=%s, client_id=%s, request_id=%s)",
-            decision.value,
-            func.__name__,
-            request.id,
-            request.client_id or "<unknown>",
-            request.request_id,
+        raise_unless_approved(
+            decision,
+            denied=f"Write operation for tool '{func.__name__}' denied by reviewer.",
+            expired=f"Approval request for tool '{func.__name__}' expired.",
         )
-        if decision is ApprovalDecision.APPROVED:
-            result = func(*bound.args, **bound.kwargs)
-            if inspect.isawaitable(result):
-                return await result
-            return result
-
-        message = (
-            f"Write operation for tool '{func.__name__}' denied by reviewer."
-            if decision is ApprovalDecision.DENIED
-            else f"Approval request for tool '{func.__name__}' expired."
-        )
-        logger.warning(message)
-
-        if decision is ApprovalDecision.DENIED:
-            raise PermissionError(message)
-        raise TimeoutError(message)
+        result = func(*bound.args, **bound.kwargs)
+        if inspect.isawaitable(result):
+            return await result
+        return result
 
     wrapper_globals = cast(dict[str, Any], getattr(wrapper, "__globals__", {}))
     module = inspect.getmodule(func)

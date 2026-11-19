@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import logging
 from types import SimpleNamespace
 from typing import Any, cast
 
@@ -148,3 +149,19 @@ def test_registered_cancel_executes_and_returns_updated_order_when_approved() ->
         "filledQuantity": 0,
         "remainingQuantity": 2,
     }
+
+
+def test_registered_cancel_logs_approved_decision(caplog: pytest.LogCaptureFixture) -> None:
+    """An approved cancel leaves one audit record of the reviewer decision."""
+    tool, context, _, _ = registered_cancel_tool(ApprovalDecision.APPROVED)
+
+    with caplog.at_level(logging.INFO, logger="schwab_mcp.tools._registration"):
+        asyncio.run(tool.fn(context, ACCOUNT_HASH, ORDER_ID))
+
+    decisions = [
+        record.getMessage() for record in caplog.records if record.getMessage().startswith("Approval decision ")
+    ]
+    assert len(decisions) == 1
+    assert decisions[0].startswith("Approval decision approved for tool 'cancel_order' (approval_id=")
+    assert "client_id=mcp-client-7" in decisions[0]
+    assert "request_id=request-123" in decisions[0]

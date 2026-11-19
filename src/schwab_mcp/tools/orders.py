@@ -29,12 +29,17 @@ from schwab.utils import (
 )
 from typing_extensions import TypedDict
 
-from schwab_mcp.approvals import ApprovalDecision, ApprovalRequest
+from schwab_mcp.approvals import ApprovalRequest
 from schwab_mcp.context import SchwabContext
 from schwab_mcp.previews import PreviewOperation
 from schwab_mcp.tools._dates import parse_date
 from schwab_mcp.tools._protocols import ToolsClient
-from schwab_mcp.tools._registration import ensure_approval_capacity, register_tool, run_approval
+from schwab_mcp.tools._registration import (
+    ensure_approval_capacity,
+    raise_unless_approved,
+    register_tool,
+    run_approval,
+)
 from schwab_mcp.tools.order_helpers import (
     equity_buy_limit,
     equity_buy_market,
@@ -1277,16 +1282,11 @@ async def cancel_order(
         arguments={"account_hash": repr(account_hash), "order_id": repr(order_id)},
     )
     decision = await run_approval(ctx, request)
-    if decision is not ApprovalDecision.APPROVED:
-        message = (
-            "Write operation for tool 'cancel_order' denied by reviewer."
-            if decision is ApprovalDecision.DENIED
-            else "Approval request for tool 'cancel_order' expired."
-        )
-        logger.warning(message)
-        if decision is ApprovalDecision.DENIED:
-            raise PermissionError(message)
-        raise TimeoutError(message)
+    raise_unless_approved(
+        decision,
+        denied="Write operation for tool 'cancel_order' denied by reviewer.",
+        expired="Approval request for tool 'cancel_order' expired.",
+    )
 
     client = ctx.orders
     await call(client.cancel_order, order_id=order_id, account_hash=account_hash)
@@ -1721,24 +1721,18 @@ async def place_previewed_order(
     )
 
     decision = await run_approval(ctx, request)
-    if decision is ApprovalDecision.APPROVED:
-        placed = await call(
-            ctx.orders.place_order,
-            account_hash=account_hash,
-            order_spec=entry.order_spec,
-            response_handler=_order_response_handler(ctx, account_hash),
-        )
-        return await _post_write_order_result(ctx, account_hash, placed, "Order placed; status fetch failed")
-
-    message = (
-        "Order placement denied by reviewer."
-        if decision is ApprovalDecision.DENIED
-        else "Approval request for order placement expired."
+    raise_unless_approved(
+        decision,
+        denied="Order placement denied by reviewer.",
+        expired="Approval request for order placement expired.",
     )
-    logger.warning(message)
-    if decision is ApprovalDecision.DENIED:
-        raise PermissionError(message)
-    raise TimeoutError(message)
+    placed = await call(
+        ctx.orders.place_order,
+        account_hash=account_hash,
+        order_spec=entry.order_spec,
+        response_handler=_order_response_handler(ctx, account_hash),
+    )
+    return await _post_write_order_result(ctx, account_hash, placed, "Order placed; status fetch failed")
 
 
 async def replace_previewed_order(
@@ -1774,25 +1768,19 @@ async def replace_previewed_order(
     )
 
     decision = await run_approval(ctx, request)
-    if decision is ApprovalDecision.APPROVED:
-        replaced = await call(
-            ctx.orders.replace_order,
-            account_hash=account_hash,
-            order_id=target_order_id,
-            order_spec=entry.order_spec,
-            response_handler=_order_response_handler(ctx, account_hash),
-        )
-        return await _post_write_order_result(ctx, account_hash, replaced, "Order replaced; status fetch failed")
-
-    message = (
-        "Order replacement denied by reviewer."
-        if decision is ApprovalDecision.DENIED
-        else "Approval request for order replacement expired."
+    raise_unless_approved(
+        decision,
+        denied="Order replacement denied by reviewer.",
+        expired="Approval request for order replacement expired.",
     )
-    logger.warning(message)
-    if decision is ApprovalDecision.DENIED:
-        raise PermissionError(message)
-    raise TimeoutError(message)
+    replaced = await call(
+        ctx.orders.replace_order,
+        account_hash=account_hash,
+        order_id=target_order_id,
+        order_spec=entry.order_spec,
+        response_handler=_order_response_handler(ctx, account_hash),
+    )
+    return await _post_write_order_result(ctx, account_hash, replaced, "Order replaced; status fetch failed")
 
 
 _READ_ONLY_TOOLS = (

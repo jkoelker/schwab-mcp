@@ -9,6 +9,7 @@ from typing import Any, cast
 import pytest
 from conftest import make_ctx, run
 
+from schwab_mcp.approvals import ApprovalDecision
 from schwab_mcp.approvals.discord import DiscordApprovalManager
 from schwab_mcp.approvals.signal import _BODY_LIMIT, SignalApprovalManager, SignalApprovalSettings
 from schwab_mcp.context import SchwabContext
@@ -273,7 +274,7 @@ def test_approval_request_carries_summary_of_placed_spec(monkeypatch: pytest.Mon
 
     async def approve(_ctx: Any, request: Any) -> Any:
         seen["summary"] = request.arguments["order_summary"]
-        return orders.ApprovalDecision.DENIED
+        return ApprovalDecision.DENIED
 
     monkeypatch.setattr(orders, "run_approval", approve)
 

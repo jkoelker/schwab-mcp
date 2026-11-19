@@ -1,4 +1,5 @@
 import asyncio
+import logging
 from collections.abc import Awaitable
 from contextlib import suppress
 from types import SimpleNamespace
@@ -145,6 +146,19 @@ def test_write_tool_timeout_raises_timeout_error(caplog: pytest.LogCaptureFixtur
     assert [record.getMessage() for record in caplog.records] == [
         "Approval request for tool 'sample_write_tool' expired."
     ]
+
+
+def test_write_tool_logs_approved_decision_exactly_once(caplog: pytest.LogCaptureFixture) -> None:
+    """The decision is logged once, so the wrapper must not repeat run_approval's log."""
+    ctx, _, _, _ = make_ctx(ApprovalDecision.APPROVED)
+    tool, _ = wrapped_tool()
+
+    with caplog.at_level(logging.INFO, logger="schwab_mcp.tools._registration"):
+        await_result(tool(ctx, "spy"))
+
+    decisions = [r.getMessage() for r in caplog.records if r.getMessage().startswith("Approval decision ")]
+    assert len(decisions) == 1
+    assert decisions[0].startswith("Approval decision approved for tool 'sample_write_tool' (approval_id=")
 
 
 def test_write_tool_accepts_base_context() -> None:
