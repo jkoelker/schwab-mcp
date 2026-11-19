@@ -24,6 +24,14 @@ class DummyOrdersClient:
     async def get_orders_for_account(self, *args, **kwargs):
         return None
 
+    async def get_order(self, *args, **kwargs):
+        """Return no order for single-order lookups."""
+        return None
+
+    async def cancel_order(self, *args, **kwargs):
+        """Return no response for cancel requests."""
+        return None
+
 
 class TestNormalizeDuration:
     @pytest.mark.parametrize(
@@ -69,14 +77,9 @@ class TestNormalizeDuration:
 
 
 class TestGetOrders:
-    def test_maps_single_status_and_dates(self, monkeypatch):
-        captured: dict[str, Any] = {}
+    def test_maps_single_status_and_dates(self, monkeypatch, fake_call_factory):
 
-        async def fake_call(func, *args, **kwargs):
-            captured["func"] = func
-            captured["args"] = args
-            captured["kwargs"] = kwargs
-            return "ok"
+        captured, fake_call = fake_call_factory()
 
         monkeypatch.setattr(orders, "call", fake_call)
 
@@ -166,21 +169,13 @@ class TestGetOrders:
 
 
 class TestGetOrder:
-    def test_calls_client_with_correct_args(self, monkeypatch):
-        captured: dict[str, Any] = {}
+    def test_calls_client_with_correct_args(self, monkeypatch, fake_call_factory):
 
-        async def fake_call(func, *args, **kwargs):
-            captured["func"] = func
-            captured["kwargs"] = kwargs
-            return {"orderId": "12345", "status": "FILLED"}
+        captured, fake_call = fake_call_factory(return_value={"orderId": "12345", "status": "FILLED"})
 
         monkeypatch.setattr(orders, "call", fake_call)
 
-        class DummyClient:
-            async def get_order(self, *args, **kwargs):
-                return None
-
-        client = DummyClient()
+        client = DummyOrdersClient()
         ctx = make_ctx(client)
         result = run(orders.get_order(ctx, "hash123", "order456"))
 
@@ -268,11 +263,7 @@ class TestGetOrderCompact:
 
         monkeypatch.setattr(orders, "call", fake_call)
 
-        class DummyClient:
-            async def get_order(self, *args, **kwargs):
-                return None
-
-        ctx = make_ctx(DummyClient())
+        ctx = make_ctx(DummyOrdersClient())
         result = run(orders.get_order(ctx, "hash123", "99"))
 
         assert isinstance(result, dict)
@@ -298,19 +289,14 @@ class TestGetOrderCompact:
         assert "orderActivityCollection" not in child
         assert child["legs"] == [{"symbol": "AAPL", "instruction": "SELL", "quantity": 10.0}]
 
-    def test_verbose_returns_raw_payload(self, monkeypatch):
+    def test_verbose_returns_raw_payload(self, monkeypatch, fake_call_factory):
         raw = dict(self._RAW_ORDER)
 
-        async def fake_call(func, *args, **kwargs):
-            return raw
+        _, fake_call = fake_call_factory(return_value=raw)
 
         monkeypatch.setattr(orders, "call", fake_call)
 
-        class DummyClient:
-            async def get_order(self, *args, **kwargs):
-                return None
-
-        ctx = make_ctx(DummyClient())
+        ctx = make_ctx(DummyOrdersClient())
         result = run(orders.get_order(ctx, "hash123", "99", verbose=True))
 
         assert result is raw
@@ -319,7 +305,7 @@ class TestGetOrderCompact:
 
 
 class TestGetOrdersCompact:
-    def test_compact_default_prunes_list(self, monkeypatch):
+    def test_compact_default_prunes_list(self, monkeypatch, fake_call_factory):
         raw_orders = [
             {
                 "orderId": "1",
@@ -349,8 +335,7 @@ class TestGetOrdersCompact:
             }
         ]
 
-        async def fake_call(func, *args, **kwargs):
-            return raw_orders
+        _, fake_call = fake_call_factory(return_value=raw_orders)
 
         monkeypatch.setattr(orders, "call", fake_call)
 
@@ -366,11 +351,10 @@ class TestGetOrdersCompact:
         assert "orderActivityCollection" not in order
         assert order["legs"] == [{"symbol": "MSFT", "instruction": "BUY", "quantity": 5.0}]
 
-    def test_verbose_returns_raw_list(self, monkeypatch):
+    def test_verbose_returns_raw_list(self, monkeypatch, fake_call_factory):
         raw_orders = [{"orderId": "1", "status": "FILLED", "tag": "noise"}]
 
-        async def fake_call(func, *args, **kwargs):
-            return raw_orders
+        _, fake_call = fake_call_factory(return_value=raw_orders)
 
         monkeypatch.setattr(orders, "call", fake_call)
 
@@ -447,14 +431,7 @@ class TestCancelOrder:
 
         monkeypatch.setattr(orders, "call", fake_call)
 
-        class DummyClient:
-            async def cancel_order(self, *args, **kwargs):
-                return None
-
-            async def get_order(self, *args, **kwargs):
-                return None
-
-        client = DummyClient()
+        client = DummyOrdersClient()
         ctx = make_ctx(client)
         result = run(orders.cancel_order(ctx, "hash123", "order456"))
 
@@ -473,14 +450,7 @@ class TestCancelOrder:
 
         monkeypatch.setattr(orders, "call", fake_call)
 
-        class DummyClient:
-            async def cancel_order(self, *args, **kwargs):
-                return None
-
-            async def get_order(self, *args, **kwargs):
-                return None
-
-        client = DummyClient()
+        client = DummyOrdersClient()
         ctx = make_ctx(client)
 
         with pytest.raises(SchwabAPIError):
@@ -1561,14 +1531,12 @@ class TestPreviewReplacementOrder:
         "price": 150.0,
     }
 
-    def test_previews_single_typed_order_and_binds_target(self, monkeypatch):
+    def test_previews_single_typed_order_and_binds_target(self, monkeypatch, fake_call_factory):
         """A replacement preview stores a normalized single-leg specification."""
         client = DummyPreviewClient()
         ctx = make_ctx(client)
 
-        async def fake_call(func, *args, **kwargs):
-            """Return a projected replacement response."""
-            return {"projected": True}
+        _, fake_call = fake_call_factory(return_value={"projected": True})
 
         monkeypatch.setattr(orders, "call", fake_call)
 
@@ -1627,13 +1595,11 @@ class TestPreviewReplacementOrder:
         with pytest.raises(ValueError, match="incompatible"):
             orders._prepare_replacement_order(replacement)
 
-    def test_normalizes_padded_target_order_id(self, monkeypatch):
+    def test_normalizes_padded_target_order_id(self, monkeypatch, fake_call_factory):
         """Replacement previews strip target order ID padding before binding."""
         ctx = make_ctx(DummyPreviewClient())
 
-        async def fake_call(func, *args, **kwargs):
-            """Return a projected replacement response."""
-            return {}
+        _, fake_call = fake_call_factory(return_value={})
 
         monkeypatch.setattr(orders, "call", fake_call)
 
@@ -1815,16 +1781,11 @@ def test_registers_replacement_tools_with_write_annotations():
 
 
 class TestPreviewEquityOrder:
-    def test_returns_preview_id_preview_and_action(self, monkeypatch):
+    def test_returns_preview_id_preview_and_action(self, monkeypatch, fake_call_factory):
         client = DummyPreviewClient()
         ctx = make_ctx(client)
 
-        captured: dict[str, Any] = {}
-
-        async def fake_call(func, *args, **kwargs):
-            captured["func"] = func
-            captured["kwargs"] = kwargs
-            return {"orderId": 42}
+        captured, fake_call = fake_call_factory(return_value={"orderId": 42})
 
         monkeypatch.setattr(orders, "call", fake_call)
 
@@ -1837,16 +1798,11 @@ class TestPreviewEquityOrder:
         assert "acc123" in result["action"]
         assert result["preview_id"] in result["action"]
 
-    def test_calls_preview_order_with_correct_spec(self, monkeypatch):
+    def test_calls_preview_order_with_correct_spec(self, monkeypatch, fake_call_factory):
         client = DummyPreviewClient()
         ctx = make_ctx(client)
 
-        captured: dict[str, Any] = {}
-
-        async def fake_call(func, *args, **kwargs):
-            captured["func"] = func
-            captured["kwargs"] = kwargs
-            return {}
+        captured, fake_call = fake_call_factory(return_value={})
 
         monkeypatch.setattr(orders, "call", fake_call)
 
@@ -1859,12 +1815,11 @@ class TestPreviewEquityOrder:
         assert spec["orderLegCollection"][0]["instruction"] == "BUY"
         assert spec["orderLegCollection"][0]["quantity"] == 100
 
-    def test_stores_entry_in_previews(self, monkeypatch):
+    def test_stores_entry_in_previews(self, monkeypatch, fake_call_factory):
         client = DummyPreviewClient()
         ctx = make_ctx(client)
 
-        async def fake_call(func, *args, **kwargs):
-            return {}
+        _, fake_call = fake_call_factory(return_value={})
 
         monkeypatch.setattr(orders, "call", fake_call)
 
@@ -1899,12 +1854,11 @@ class TestPreviewEquityOrder:
 
 
 class TestPreviewOptionOrder:
-    def test_returns_preview_shape(self, monkeypatch):
+    def test_returns_preview_shape(self, monkeypatch, fake_call_factory):
         client = DummyPreviewClient()
         ctx = make_ctx(client)
 
-        async def fake_call(func, *args, **kwargs):
-            return {"orderId": 77}
+        _, fake_call = fake_call_factory(return_value={"orderId": 77})
 
         monkeypatch.setattr(orders, "call", fake_call)
 
@@ -1922,12 +1876,11 @@ class TestPreviewOptionOrder:
         with pytest.raises(ValueError, match="Invalid instruction"):
             run(orders.preview_option_order(ctx, "acc123", "SPY 230616C400", 1, "BOGUS", "LIMIT", price=2.50))
 
-    def test_stores_correct_spec_in_previews(self, monkeypatch):
+    def test_stores_correct_spec_in_previews(self, monkeypatch, fake_call_factory):
         client = DummyPreviewClient()
         ctx = make_ctx(client)
 
-        async def fake_call(func, *args, **kwargs):
-            return {}
+        _, fake_call = fake_call_factory(return_value={})
 
         monkeypatch.setattr(orders, "call", fake_call)
 
@@ -1939,12 +1892,11 @@ class TestPreviewOptionOrder:
 
 
 class TestPreviewEquityTrailingStopOrder:
-    def test_returns_preview_shape(self, monkeypatch):
+    def test_returns_preview_shape(self, monkeypatch, fake_call_factory):
         client = DummyPreviewClient()
         ctx = make_ctx(client)
 
-        async def fake_call(func, *args, **kwargs):
-            return {}
+        _, fake_call = fake_call_factory(return_value={})
 
         monkeypatch.setattr(orders, "call", fake_call)
 
@@ -1953,12 +1905,11 @@ class TestPreviewEquityTrailingStopOrder:
         assert "preview_id" in result
         assert "action" in result
 
-    def test_stores_entry_in_previews(self, monkeypatch):
+    def test_stores_entry_in_previews(self, monkeypatch, fake_call_factory):
         client = DummyPreviewClient()
         ctx = make_ctx(client)
 
-        async def fake_call(func, *args, **kwargs):
-            return {}
+        _, fake_call = fake_call_factory(return_value={})
 
         monkeypatch.setattr(orders, "call", fake_call)
 
@@ -1985,12 +1936,11 @@ class TestPreviewOcoOrder:
         "stop_price": 140.0,
     }
 
-    def test_returns_preview_shape(self, monkeypatch):
+    def test_returns_preview_shape(self, monkeypatch, fake_call_factory):
         client = DummyPreviewClient()
         ctx = make_ctx(client)
 
-        async def fake_call(func, *args, **kwargs):
-            return {}
+        _, fake_call = fake_call_factory(return_value={})
 
         monkeypatch.setattr(orders, "call", fake_call)
 
@@ -2001,12 +1951,11 @@ class TestPreviewOcoOrder:
         assert "preview_id" in result
         assert "preview" in result
 
-    def test_stores_entry_with_correct_tool_name(self, monkeypatch):
+    def test_stores_entry_with_correct_tool_name(self, monkeypatch, fake_call_factory):
         client = DummyPreviewClient()
         ctx = make_ctx(client)
 
-        async def fake_call(func, *args, **kwargs):
-            return {}
+        _, fake_call = fake_call_factory(return_value={})
 
         monkeypatch.setattr(orders, "call", fake_call)
 
@@ -2028,12 +1977,11 @@ class TestPreviewTriggerOrder:
             "order_type": order_type,
         }
 
-    def test_returns_preview_shape(self, monkeypatch):
+    def test_returns_preview_shape(self, monkeypatch, fake_call_factory):
         client = DummyPreviewClient()
         ctx = make_ctx(client)
 
-        async def fake_call(func, *args, **kwargs):
-            return {}
+        _, fake_call = fake_call_factory(return_value={})
 
         monkeypatch.setattr(orders, "call", fake_call)
 
@@ -2051,12 +1999,11 @@ class TestPreviewTriggerOrder:
         assert "preview_id" in result
         assert "action" in result
 
-    def test_stores_entry_in_previews(self, monkeypatch):
+    def test_stores_entry_in_previews(self, monkeypatch, fake_call_factory):
         client = DummyPreviewClient()
         ctx = make_ctx(client)
 
-        async def fake_call(func, *args, **kwargs):
-            return {}
+        _, fake_call = fake_call_factory(return_value={})
 
         monkeypatch.setattr(orders, "call", fake_call)
 
@@ -2083,12 +2030,11 @@ class TestPreviewTriggerOrder:
 
 
 class TestPreviewBracketOrder:
-    def test_returns_preview_shape(self, monkeypatch):
+    def test_returns_preview_shape(self, monkeypatch, fake_call_factory):
         client = DummyPreviewClient()
         ctx = make_ctx(client)
 
-        async def fake_call(func, *args, **kwargs):
-            return {}
+        _, fake_call = fake_call_factory(return_value={})
 
         monkeypatch.setattr(orders, "call", fake_call)
 
@@ -2108,12 +2054,11 @@ class TestPreviewBracketOrder:
         assert "preview_id" in result
         assert "preview" in result
 
-    def test_stores_entry_in_previews(self, monkeypatch):
+    def test_stores_entry_in_previews(self, monkeypatch, fake_call_factory):
         client = DummyPreviewClient()
         ctx = make_ctx(client)
 
-        async def fake_call(func, *args, **kwargs):
-            return {}
+        _, fake_call = fake_call_factory(return_value={})
 
         monkeypatch.setattr(orders, "call", fake_call)
 
@@ -2142,12 +2087,11 @@ class TestPreviewBracketOrder:
         with pytest.raises(ValueError, match="At least one of profit_price or loss_price"):
             run(orders.preview_bracket_order(ctx, "acc123", "AAPL", 100, "BUY", "MARKET"))
 
-    def test_resolved_leg_types_full_bracket_default_loss(self, monkeypatch):
+    def test_resolved_leg_types_full_bracket_default_loss(self, monkeypatch, fake_call_factory):
         client = DummyPreviewClient()
         ctx = make_ctx(client)
 
-        async def fake_call(func, *args, **kwargs):
-            return {}
+        _, fake_call = fake_call_factory(return_value={})
 
         monkeypatch.setattr(orders, "call", fake_call)
 
@@ -2170,12 +2114,11 @@ class TestPreviewBracketOrder:
             "loss": "STOP",
         }
 
-    def test_resolved_leg_types_loss_limit_no_profit(self, monkeypatch):
+    def test_resolved_leg_types_loss_limit_no_profit(self, monkeypatch, fake_call_factory):
         client = DummyPreviewClient()
         ctx = make_ctx(client)
 
-        async def fake_call(func, *args, **kwargs):
-            return {}
+        _, fake_call = fake_call_factory(return_value={})
 
         monkeypatch.setattr(orders, "call", fake_call)
 
@@ -2194,12 +2137,11 @@ class TestPreviewBracketOrder:
 
         assert result["resolved_leg_types"] == {"entry": "MARKET", "loss": "LIMIT"}
 
-    def test_resolved_leg_types_stop_limit_loss(self, monkeypatch):
+    def test_resolved_leg_types_stop_limit_loss(self, monkeypatch, fake_call_factory):
         client = DummyPreviewClient()
         ctx = make_ctx(client)
 
-        async def fake_call(func, *args, **kwargs):
-            return {}
+        _, fake_call = fake_call_factory(return_value={})
 
         monkeypatch.setattr(orders, "call", fake_call)
 
@@ -2227,12 +2169,11 @@ class TestPreviewOptionComboOrder:
         {"instruction": "BUY_TO_OPEN", "symbol": "SPY 251121C510", "quantity": 1},
     ]
 
-    def test_returns_preview_shape(self, monkeypatch):
+    def test_returns_preview_shape(self, monkeypatch, fake_call_factory):
         client = DummyPreviewClient()
         ctx = make_ctx(client)
 
-        async def fake_call(func, *args, **kwargs):
-            return {}
+        _, fake_call = fake_call_factory(return_value={})
 
         monkeypatch.setattr(orders, "call", fake_call)
 
@@ -2242,12 +2183,11 @@ class TestPreviewOptionComboOrder:
         assert "preview" in result
         assert "action" in result
 
-    def test_stores_entry_in_previews(self, monkeypatch):
+    def test_stores_entry_in_previews(self, monkeypatch, fake_call_factory):
         client = DummyPreviewClient()
         ctx = make_ctx(client)
 
-        async def fake_call(func, *args, **kwargs):
-            return {}
+        _, fake_call = fake_call_factory(return_value={})
 
         monkeypatch.setattr(orders, "call", fake_call)
 
