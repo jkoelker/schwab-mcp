@@ -7,26 +7,17 @@ from typing import Any, cast
 
 import httpx
 import pytest
+from conftest import RecordingApprovalManager
 from mcp.server.mcpserver import Context as MCPContext, MCPServer
 from mcp.server.mcpserver.tools import Tool
 from schwab.client import AsyncClient
 
-from schwab_mcp.approvals import ApprovalDecision, ApprovalManager, ApprovalRequest
+from schwab_mcp.approvals import ApprovalDecision
 from schwab_mcp.context import SchwabServerContext
 from schwab_mcp.tools import orders
 
 ACCOUNT_HASH = "account-hash-42"
 ORDER_ID = "order-987"
-
-
-class FixedApprovalManager(ApprovalManager):
-    def __init__(self, decision: ApprovalDecision) -> None:
-        self.decision = decision
-        self.requests: list[ApprovalRequest] = []
-
-    async def require(self, request: ApprovalRequest) -> ApprovalDecision:
-        self.requests.append(request)
-        return self.decision
 
 
 class FakeSchwabOrders:
@@ -68,10 +59,10 @@ class FakeSchwabOrders:
 
 def registered_cancel_tool(
     decision: ApprovalDecision,
-) -> tuple[Tool, MCPContext, FakeSchwabOrders, FixedApprovalManager]:
+) -> tuple[Tool, MCPContext, FakeSchwabOrders, RecordingApprovalManager]:
     server = MCPServer(name="approval-registration")
     client = FakeSchwabOrders()
-    approvals = FixedApprovalManager(decision)
+    approvals = RecordingApprovalManager(decision)
     lifespan_context = SchwabServerContext(
         client=cast(AsyncClient, client),
         approval_manager=approvals,
@@ -92,7 +83,7 @@ def registered_cancel_tool(
     return tool, context, client, approvals
 
 
-def assert_cancel_request(approvals: FixedApprovalManager) -> None:
+def assert_cancel_request(approvals: RecordingApprovalManager) -> None:
     assert len(approvals.requests) == 1
     request = approvals.requests[0]
     assert request.tool_name == "cancel_order"

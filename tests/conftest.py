@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import asyncio
-from collections.abc import Callable
+from collections.abc import Awaitable, Callable
 from pathlib import Path
 from types import SimpleNamespace
 from typing import Any, NoReturn, cast
@@ -20,6 +20,20 @@ from schwab_mcp.context import SchwabContext, SchwabServerContext
 class DummyApprovalManager(ApprovalManager):
     async def require(self, request: ApprovalRequest) -> ApprovalDecision:  # noqa: ARG002
         return ApprovalDecision.APPROVED
+
+
+class RecordingApprovalManager(ApprovalManager):
+    """Approval double that records each request and returns a fixed decision."""
+
+    def __init__(self, decision: ApprovalDecision = ApprovalDecision.APPROVED) -> None:
+        """Store the decision to return and an empty request log."""
+        self.decision = decision
+        self.requests: list[ApprovalRequest] = []
+
+    async def require(self, request: ApprovalRequest) -> ApprovalDecision:
+        """Record the request and return the configured decision."""
+        self.requests.append(request)
+        return self.decision
 
 
 class CliFakeAsyncClient:
@@ -210,6 +224,11 @@ def make_ctx(client: Any) -> SchwabContext:
 
 def run(coro: Any) -> Any:
     return asyncio.run(coro)
+
+
+async def call_through(func: Callable[..., Awaitable[Any]], *args: Any, **kwargs: Any) -> Any:
+    """Stand in for call() by awaiting the client method directly."""
+    return await func(*args, **kwargs)
 
 
 @pytest.fixture

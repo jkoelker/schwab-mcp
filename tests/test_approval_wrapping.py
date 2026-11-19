@@ -6,28 +6,17 @@ from types import SimpleNamespace
 from typing import Any, TypeVar, cast
 
 import pytest
+from conftest import RecordingApprovalManager
 from mcp.server.mcpserver import Context as MCPContext
 from schwab.client import AsyncClient
 
 from schwab_mcp.approvals import (
     ApprovalDecision,
-    ApprovalManager,
-    ApprovalRequest,
     DiscordApprovalManager,
     DiscordApprovalSettings,
 )
 from schwab_mcp.context import SchwabContext, SchwabServerContext
 from schwab_mcp.tools import _registration
-
-
-class RecordingApprovalManager(ApprovalManager):
-    def __init__(self, decision: ApprovalDecision) -> None:
-        self.decision = decision
-        self.requests: list[ApprovalRequest] = []
-
-    async def require(self, request: ApprovalRequest) -> ApprovalDecision:
-        self.requests.append(request)
-        return self.decision
 
 
 class DummySession:
@@ -53,7 +42,7 @@ class DummySession:
         )
 
 
-def make_ctx(
+def make_approval_ctx(
     decision: ApprovalDecision,
     *,
     progress_token: str | None = None,
@@ -102,7 +91,7 @@ def await_result(awaitable: Awaitable[T]) -> T:
 
 
 def test_write_tool_runs_when_approved() -> None:
-    ctx, approval_manager, session, _ = make_ctx(ApprovalDecision.APPROVED)
+    ctx, approval_manager, session, _ = make_approval_ctx(ApprovalDecision.APPROVED)
     tool, calls = wrapped_tool()
 
     result = await_result(tool(ctx, "spy"))
@@ -118,7 +107,7 @@ def test_write_tool_runs_when_approved() -> None:
 
 def test_write_tool_denied_raises_permission_error(caplog: pytest.LogCaptureFixture) -> None:
     """Log the denial message and raise a permission error."""
-    ctx, approval_manager, session, _ = make_ctx(ApprovalDecision.DENIED)
+    ctx, approval_manager, session, _ = make_approval_ctx(ApprovalDecision.DENIED)
     tool, calls = wrapped_tool()
 
     with pytest.raises(PermissionError):
@@ -134,7 +123,7 @@ def test_write_tool_denied_raises_permission_error(caplog: pytest.LogCaptureFixt
 
 def test_write_tool_timeout_raises_timeout_error(caplog: pytest.LogCaptureFixture) -> None:
     """Log the expiration message and raise a timeout error."""
-    ctx, approval_manager, session, _ = make_ctx(ApprovalDecision.EXPIRED)
+    ctx, approval_manager, session, _ = make_approval_ctx(ApprovalDecision.EXPIRED)
     tool, calls = wrapped_tool()
 
     with pytest.raises(TimeoutError):
@@ -150,7 +139,7 @@ def test_write_tool_timeout_raises_timeout_error(caplog: pytest.LogCaptureFixtur
 
 def test_write_tool_logs_approved_decision_exactly_once(caplog: pytest.LogCaptureFixture) -> None:
     """The decision is logged once, so the wrapper must not repeat run_approval's log."""
-    ctx, _, _, _ = make_ctx(ApprovalDecision.APPROVED)
+    ctx, _, _, _ = make_approval_ctx(ApprovalDecision.APPROVED)
     tool, _ = wrapped_tool()
 
     with caplog.at_level(logging.INFO, logger="schwab_mcp.tools._registration"):
@@ -162,7 +151,7 @@ def test_write_tool_logs_approved_decision_exactly_once(caplog: pytest.LogCaptur
 
 
 def test_write_tool_accepts_base_context() -> None:
-    _, approval_manager, session, request_context = make_ctx(ApprovalDecision.APPROVED)
+    _, approval_manager, session, request_context = make_approval_ctx(ApprovalDecision.APPROVED)
     base_ctx = MCPContext.model_construct(
         _request_context=cast(Any, request_context),
         _mcp_server=None,
@@ -177,7 +166,7 @@ def test_write_tool_accepts_base_context() -> None:
 
 
 def test_progress_notifications_emitted_when_supported() -> None:
-    ctx, approval_manager, session, _ = make_ctx(ApprovalDecision.APPROVED, progress_token="token-1")
+    ctx, approval_manager, session, _ = make_approval_ctx(ApprovalDecision.APPROVED, progress_token="token-1")
     tool, _ = wrapped_tool()
 
     result = await_result(tool(ctx, "spy"))
@@ -246,7 +235,7 @@ def test_wrap_with_approval_handles_sync_result() -> None:
         return value.upper()
 
     wrapped = _registration._wrap_with_approval(sync_tool)  # type: ignore[arg-type]
-    ctx, _, _, _ = make_ctx(ApprovalDecision.APPROVED)
+    ctx, _, _, _ = make_approval_ctx(ApprovalDecision.APPROVED)
 
     result = await_result(wrapped(ctx, "spy"))
     assert result == "SPY"
@@ -259,7 +248,7 @@ def test_wrap_with_approval_handles_sync_result() -> None:
 
 def test_keepalive_task_sends_progress_and_cancels_cleanly(monkeypatch) -> None:
     """The keepalive task emits progress pings and exits on cancellation."""
-    ctx, _, session, _ = make_ctx(ApprovalDecision.APPROVED, progress_token="tok-keepalive")
+    ctx, _, session, _ = make_approval_ctx(ApprovalDecision.APPROVED, progress_token="tok-keepalive")
     monkeypatch.setattr(_registration, "_APPROVAL_PROGRESS_INTERVAL", 0.001)
 
     async def runner() -> None:
@@ -279,7 +268,7 @@ def test_keepalive_task_sends_progress_and_cancels_cleanly(monkeypatch) -> None:
 
 def test_keepalive_not_started_without_progress_token() -> None:
     """No keepalive task is created when the context has no progress token."""
-    ctx, _, _, _ = make_ctx(ApprovalDecision.APPROVED)  # no progress_token
+    ctx, _, _, _ = make_approval_ctx(ApprovalDecision.APPROVED)  # no progress_token
 
     async def runner() -> None:
         task = _registration._start_approval_keepalive(ctx)

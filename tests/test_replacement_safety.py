@@ -7,7 +7,7 @@ from typing import Any, cast
 
 import httpx
 import pytest
-from conftest import make_ctx, run
+from conftest import call_through, make_ctx, run
 from schwab.client import AsyncClient as SchwabAsyncClient
 
 from schwab_mcp.approvals import ApprovalDecision, ApprovalManager, ApprovalRequest
@@ -76,10 +76,6 @@ def replacement_description() -> orders._OrderDescInput:
     )
 
 
-async def call_fake_client(func: Any, *args: Any, **kwargs: Any) -> Any:
-    return await func(*args, **kwargs)
-
-
 def mock_schwab_client(transport: httpx.AsyncBaseTransport) -> tuple[SchwabAsyncClient, httpx.AsyncClient]:
     session = httpx.AsyncClient(transport=transport)
     return SchwabAsyncClient("test-api-key", session), session
@@ -90,7 +86,7 @@ def test_replacement_uses_immutable_preview_and_exact_bound_target(monkeypatch: 
     ctx = make_ctx(client)
     approval_manager = RecordingApproval()
     ctx.schwab.approval_manager = approval_manager
-    monkeypatch.setattr(orders, "call", call_fake_client)
+    monkeypatch.setattr(orders, "call", call_through)
     replacement: dict[str, Any] = {
         "symbol": "SPY 251219C500",
         "quantity": 2,
@@ -179,7 +175,7 @@ def test_approval_summary_matches_canonical_price_and_settings(
     ctx = make_ctx(client)
     approval_manager = RecordingApproval()
     ctx.schwab.approval_manager = approval_manager
-    monkeypatch.setattr(orders, "call", call_fake_client)
+    monkeypatch.setattr(orders, "call", call_through)
     preview = run(orders.preview_replacement_order(ctx, "account", "target", cast(orders._OrderDescInput, replacement)))
 
     run(orders.replace_previewed_order(ctx, "account", preview["preview_id"]))
@@ -193,7 +189,7 @@ def test_wrong_account_does_not_consume_replacement_preview(monkeypatch: pytest.
     approval_manager = RecordingApproval()
     ctx.schwab.approval_manager = approval_manager
 
-    monkeypatch.setattr(orders, "call", call_fake_client)
+    monkeypatch.setattr(orders, "call", call_through)
     result = run(
         orders.preview_replacement_order(
             ctx,
@@ -226,7 +222,7 @@ def test_wrong_operation_preserves_replacement_preview_for_replace(monkeypatch: 
     ctx = make_ctx(client)
     approval_manager = RecordingApproval()
     ctx.schwab.approval_manager = approval_manager
-    monkeypatch.setattr(orders, "call", call_fake_client)
+    monkeypatch.setattr(orders, "call", call_through)
     result = run(orders.preview_replacement_order(ctx, "account", "target", replacement_description()))
 
     with pytest.raises(ValueError, match="operation mismatch"):
@@ -246,7 +242,7 @@ def test_wrong_operation_preserves_placement_preview_for_place(monkeypatch: pyte
     ctx = make_ctx(client)
     approval_manager = RecordingApproval()
     ctx.schwab.approval_manager = approval_manager
-    monkeypatch.setattr(orders, "call", call_fake_client)
+    monkeypatch.setattr(orders, "call", call_through)
     result = run(
         orders.preview_option_order(
             ctx,
@@ -276,7 +272,7 @@ def test_unavailable_preview_has_no_approval_or_write(monkeypatch: pytest.Monkey
     ctx = make_ctx(client)
     approval_manager = RecordingApproval()
     ctx.schwab.approval_manager = approval_manager
-    monkeypatch.setattr(orders, "call", call_fake_client)
+    monkeypatch.setattr(orders, "call", call_through)
     now = [100.0]
     monkeypatch.setattr(previews, "time", SimpleNamespace(monotonic=lambda: now[0]))
     result = run(orders.preview_replacement_order(ctx, "account", "target", replacement_description()))
@@ -313,7 +309,7 @@ def test_failed_approval_consumes_preview_without_writing(
     if outcome == "raised-timeout":
         approval_manager.error = TimeoutError("approval transport timed out")
     ctx.schwab.approval_manager = approval_manager
-    monkeypatch.setattr(orders, "call", call_fake_client)
+    monkeypatch.setattr(orders, "call", call_through)
     result = run(orders.preview_replacement_order(ctx, "account", "target", replacement_description()))
 
     with pytest.raises(expected_error):
@@ -337,7 +333,7 @@ def test_concurrent_reuse_has_one_approval_and_admission_survives_expiry(
     monkeypatch.setattr(previews, "time", SimpleNamespace(monotonic=lambda: now[0]))
     approval_manager = RecordingApproval()
     ctx.schwab.approval_manager = approval_manager
-    monkeypatch.setattr(orders, "call", call_fake_client)
+    monkeypatch.setattr(orders, "call", call_through)
     result = run(orders.preview_replacement_order(ctx, "account", "target", replacement_description()))
 
     async def scenario() -> None:
@@ -501,7 +497,7 @@ def test_replacement_refuses_prices_it_cannot_send_exactly(
 ) -> None:
     client = ReplacementClient()
     ctx = make_ctx(client)
-    monkeypatch.setattr(orders, "call", call_fake_client)
+    monkeypatch.setattr(orders, "call", call_through)
     replacement: dict[str, Any] = {
         "symbol": "AAPL",
         "quantity": 1,
