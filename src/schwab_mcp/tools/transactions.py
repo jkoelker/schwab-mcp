@@ -8,7 +8,7 @@ from mcp.server.mcpserver import MCPServer
 from schwab_mcp.context import SchwabContext
 from schwab_mcp.tools._dates import parse_date
 from schwab_mcp.tools._registration import register_tool
-from schwab_mcp.tools.utils import JSONType, call, validate_identifier
+from schwab_mcp.tools.utils import JSONType, call, enum_member, split_csv, validate_identifier
 
 
 async def get_transactions(
@@ -37,9 +37,9 @@ async def get_transactions(
 
     transaction_type_enums = None
     if transaction_type is not None:
-        if isinstance(transaction_type, str):
-            transaction_type = [t.strip() for t in transaction_type.split(",")]
-        transaction_type_enums = [client.Transactions.TransactionType[t.upper()] for t in transaction_type]
+        transaction_type_enums = [
+            enum_member(client.Transactions.TransactionType, t, "transaction_type") for t in split_csv(transaction_type)
+        ]
 
     # Corrected function name to client.get_transactions and keyword arg to transaction_types
     return await call(

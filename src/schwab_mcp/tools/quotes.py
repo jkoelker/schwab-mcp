@@ -8,7 +8,7 @@ from mcp.server.mcpserver import MCPServer
 
 from schwab_mcp.context import SchwabContext
 from schwab_mcp.tools._registration import register_tool
-from schwab_mcp.tools.utils import JSONType, call
+from schwab_mcp.tools.utils import JSONType, call, enum_member, split_csv
 
 _COMPACT_QUOTE_FIELDS = (
     "lastPrice",
@@ -81,16 +81,11 @@ async def get_quotes(
     """
     client = ctx.quotes
 
-    if isinstance(symbols, str):
-        symbols = [s.strip() for s in symbols.split(",")]
-
-    symbols = [_normalize_option_symbol(s) for s in symbols]
+    symbols = [_normalize_option_symbol(s) for s in split_csv(symbols)]
 
     field_enums = None
     if fields:
-        if isinstance(fields, str):
-            fields = [f.strip() for f in fields.split(",")]
-        field_enums = [client.Quote.Fields[f.upper()] for f in fields]
+        field_enums = [enum_member(client.Quote.Fields, f, "fields") for f in split_csv(fields)]
 
     result = await call(
         client.get_quotes,

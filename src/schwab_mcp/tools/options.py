@@ -11,7 +11,7 @@ from schwab_mcp.context import SchwabContext
 from schwab_mcp.tools._dates import parse_date
 from schwab_mcp.tools._protocols import OptionsClient
 from schwab_mcp.tools._registration import register_tool
-from schwab_mcp.tools.utils import JSONType, call
+from schwab_mcp.tools.utils import JSONType, call, enum_member
 
 _EXPIRATION_WINDOW_DAYS = 60
 
@@ -190,7 +190,9 @@ async def get_option_chain(
     return await _get_option_chain(
         client,
         symbol,
-        contract_type=client.Options.ContractType[contract_type] if contract_type else None,
+        contract_type=enum_member(client.Options.ContractType, contract_type, "contract_type")
+        if contract_type
+        else None,
         strike_count=strike_count,
         include_underlying_quote=include_underlying_quote,
         from_date=from_date,

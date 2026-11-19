@@ -16,6 +16,32 @@ def validate_identifier(value: str, name: str) -> str:
     return value
 
 
+def enum_member(enum_cls: Any, value: str, field: str) -> Any:
+    """Look up an enum member by case-insensitive name.
+
+    Raises ``ValueError`` naming ``field`` and listing every valid member when
+    ``value`` matches none, instead of a bare ``KeyError``.
+    """
+    # 🔎 Schwab enum names are upper case, so ignore the caller's letter case.
+    try:
+        return enum_cls[value.upper()]
+    except KeyError as exc:
+        choices = ", ".join(member.name for member in enum_cls)
+        raise ValueError(f"Invalid {field}: {value}. Must be one of: {choices}") from exc
+
+
+def split_csv(value: str | list[str]) -> list[str]:
+    """Split a comma-separated string into stripped items; lists pass through.
+
+    Empty items are kept on purpose, so the result matches the inline split
+    these tools used before.
+    """
+    # ✂️ Only strings need splitting. Lists come from MCP as-is.
+    if isinstance(value, str):
+        return [item.strip() for item in value.split(",")]
+    return value
+
+
 JSONPrimitive = str | int | float | bool | None
 JSONType: TypeAlias = JSONPrimitive | dict[str, Any] | list[Any]
 

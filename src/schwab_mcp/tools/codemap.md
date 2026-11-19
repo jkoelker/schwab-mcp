@@ -28,7 +28,10 @@ compact defaults with `verbose=True` escape hatches where response size matters.
 - `utils.py` owns shared API behavior: `call()` awaits Schwab client methods,
   raises `SchwabAPIError` with status/url/body on non-2xx responses, handles
   empty 201/204 bodies, supports endpoint-specific response handlers, and
-  exposes the JSON type alias used by all tools.
+  exposes the JSON type alias used by all tools. Its input helpers are
+  `enum_member()`, which maps a user string to a Schwab enum and raises
+  `ValueError` listing the choices, and `split_csv()`, which splits
+  comma-separated strings.
 - `_dates.py` holds date and datetime parsing helpers (`parse_date`,
   `parse_datetime`) used by tools that accept user-friendly date strings.
 - `normalize.py` holds result-payload normalization helpers such as
