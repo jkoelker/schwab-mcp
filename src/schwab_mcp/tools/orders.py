@@ -59,7 +59,7 @@ from schwab_mcp.tools.order_helpers import (
     option_sell_to_open_limit,
     option_sell_to_open_market,
 )
-from schwab_mcp.tools.utils import JSONType, ResponseHandler, SchwabAPIError, call, validate_identifier
+from schwab_mcp.tools.utils import JSONType, ResponseHandler, SchwabAPIError, call, enum_member, validate_identifier
 
 logger = logging.getLogger(__name__)
 # Symbols reach the approval prompt and Schwab's order payload. Allow the
@@ -1239,7 +1239,7 @@ async def get_orders(
     if status:
         if isinstance(status, str):
             # Single status: direct API call
-            kwargs["status"] = client.Order.Status[status.upper()]
+            kwargs["status"] = enum_member(client.Order.Status, status, "status")
             result: JSONType = await call(
                 client.get_orders_for_account,
                 account_hash,
@@ -1251,7 +1251,7 @@ async def get_orders(
             all_orders: list[Any] = []
             seen_order_ids: set[str] = set()
             for s in status:
-                kwargs["status"] = client.Order.Status[s.upper()]
+                kwargs["status"] = enum_member(client.Order.Status, s, "status")
                 partial = await call(
                     client.get_orders_for_account,
                     account_hash,

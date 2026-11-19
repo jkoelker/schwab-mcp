@@ -1,10 +1,14 @@
 from __future__ import annotations
 
+from enum import Enum
+
 import pytest
 
 from schwab_mcp.tools.utils import (
     SchwabAPIError,
     call,
+    enum_member,
+    split_csv,
 )
 
 
@@ -224,3 +228,17 @@ class TestJSONParseFailure:
             run(call(fake_endpoint))
 
         assert exc_info.value.__cause__ is not None
+
+
+def test_enum_member_matches_name_case_insensitively():
+    """Look up an enum member by name regardless of letter case."""
+    Color = Enum("Color", "RED GREEN")
+
+    assert enum_member(Color, "green", "color") is Color.GREEN
+
+
+def test_split_csv_strips_items_and_passes_lists_through():
+    """Split comma-separated strings, keep empty items, and return lists unchanged."""
+    assert split_csv(" AAPL, msft ") == ["AAPL", "msft"]
+    assert split_csv("A,,B") == ["A", "", "B"]
+    assert split_csv(["AAPL", " msft"]) == ["AAPL", " msft"]

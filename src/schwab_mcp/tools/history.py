@@ -8,7 +8,7 @@ from mcp.server.mcpserver import MCPServer
 from schwab_mcp.context import SchwabContext
 from schwab_mcp.tools._dates import parse_datetime
 from schwab_mcp.tools._registration import register_tool
-from schwab_mcp.tools.utils import JSONType, call
+from schwab_mcp.tools.utils import JSONType, call, enum_member
 
 
 async def get_advanced_price_history(
@@ -58,9 +58,11 @@ async def get_advanced_price_history(
     end_dt = parse_datetime(end_datetime)
 
     # Normalize enum-like strings
-    period_type_enum = client.PriceHistory.PeriodType[period_type.upper()] if period_type else None
-    period_enum = client.PriceHistory.Period[period.upper()] if period else None
-    frequency_type_enum = client.PriceHistory.FrequencyType[frequency_type.upper()] if frequency_type else None
+    period_type_enum = enum_member(client.PriceHistory.PeriodType, period_type, "period_type") if period_type else None
+    period_enum = enum_member(client.PriceHistory.Period, period, "period") if period else None
+    frequency_type_enum = (
+        enum_member(client.PriceHistory.FrequencyType, frequency_type, "frequency_type") if frequency_type else None
+    )
 
     # Coerce frequency to int if provided as string
     if isinstance(frequency, str):

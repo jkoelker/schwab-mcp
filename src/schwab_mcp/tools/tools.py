@@ -10,7 +10,7 @@ from mcp.server.mcpserver import MCPServer
 from schwab_mcp.context import SchwabContext
 from schwab_mcp.tools._dates import parse_date
 from schwab_mcp.tools._registration import register_tool
-from schwab_mcp.tools.utils import JSONType, call
+from schwab_mcp.tools.utils import JSONType, call, enum_member, split_csv
 
 
 async def get_datetime() -> str:
@@ -33,10 +33,7 @@ async def get_market_hours(
     """Get market hours for specified markets (EQUITY, OPTION, etc.) on a given date (YYYY-MM-DD, default today)."""
     client = ctx.tools
 
-    if isinstance(markets, str):
-        markets = [m.strip() for m in markets.split(",")]
-
-    market_enums = [client.MarketHours.Market[m.upper()] for m in markets]
+    market_enums = [enum_member(client.MarketHours.Market, m, "markets") for m in split_csv(markets)]
 
     date_obj = parse_date(date)
 
@@ -62,9 +59,9 @@ async def get_movers(
 
     return await call(
         client.get_movers,
-        client.Movers.Index[index.upper()],
-        sort_order=client.Movers.SortOrder[sort.upper()] if sort else None,
-        frequency=client.Movers.Frequency[frequency.upper()] if frequency else None,
+        enum_member(client.Movers.Index, index, "index"),
+        sort_order=enum_member(client.Movers.SortOrder, sort, "sort") if sort else None,
+        frequency=enum_member(client.Movers.Frequency, frequency, "frequency") if frequency else None,
     )
 
 

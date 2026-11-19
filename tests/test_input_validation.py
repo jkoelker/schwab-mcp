@@ -10,7 +10,7 @@ import pytest
 from conftest import make_ctx, run
 
 from schwab_mcp.context import SchwabContext
-from schwab_mcp.tools import account, orders, transactions
+from schwab_mcp.tools import account, history, options, orders, quotes, tools, transactions
 
 ACCOUNT = "A" * 64
 GOOD_LEG: dict[str, Any] = {"symbol": "AAPL", "quantity": 1, "instruction": "BUY", "order_type": "MARKET"}
@@ -28,6 +28,21 @@ class RecordingClient:
 
     class Order:
         Status = Enum("Status", "WORKING FILLED")
+
+    class MarketHours:
+        Market = Enum("Market", "EQUITY OPTION BOND")
+
+    class PriceHistory:
+        PeriodType = Enum("PeriodType", "DAY MONTH YEAR YEAR_TO_DATE")
+
+    class Quote:
+        Fields = Enum("Fields", "QUOTE FUNDAMENTAL")
+
+    class Transactions:
+        TransactionType = Enum("TransactionType", "TRADE DIVIDEND_OR_INTEREST")
+
+    class Options:
+        ContractType = Enum("ContractType", "CALL PUT ALL")
 
     def __init__(self) -> None:
         self.calls: list[str] = []
@@ -202,3 +217,74 @@ def test_valid_reads_reach_the_client(client: RecordingClient) -> None:
     run(transactions.get_transaction(ctx, ACCOUNT, "98765"))
 
     assert client.calls == ["get_order", "get_transaction"]
+
+
+@pytest.mark.parametrize(
+    ("tool", "args", "kwargs", "field", "choices"),
+    [
+        pytest.param(
+            tools.get_market_hours,
+            ("EQUITY, BOGUS",),
+            {},
+            "markets",
+            "EQUITY, OPTION, BOND",
+            id="market-hours-csv",
+        ),
+        pytest.param(
+            history.get_advanced_price_history,
+            ("AAPL",),
+            {"period_type": "BOGUS"},
+            "period_type",
+            "DAY, MONTH, YEAR, YEAR_TO_DATE",
+            id="price-history-period-type",
+        ),
+        pytest.param(
+            quotes.get_quotes,
+            ("AAPL",),
+            {"fields": "QUOTE, BOGUS"},
+            "fields",
+            "QUOTE, FUNDAMENTAL",
+            id="quotes-fields-csv",
+        ),
+        pytest.param(
+            transactions.get_transactions,
+            ("A" * 64,),
+            {"transaction_type": "TRADE, BOGUS"},
+            "transaction_type",
+            "TRADE, DIVIDEND_OR_INTEREST",
+            id="transactions-type-csv",
+        ),
+        pytest.param(
+            options.get_option_chain,
+            ("SPY",),
+            {"contract_type": "BOGUS"},
+            "contract_type",
+            "CALL, PUT, ALL",
+            id="option-chain-contract-type",
+        ),
+        pytest.param(
+            orders.get_orders,
+            ("A" * 64,),
+            {"status": "BOGUS"},
+            "status",
+            "WORKING, FILLED",
+            id="orders-status",
+        ),
+    ],
+)
+def test_unknown_enum_name_raises_value_error_before_client_call(
+    client: RecordingClient,
+    tool: Callable[..., Awaitable[Any]],
+    args: tuple[Any, ...],
+    kwargs: dict[str, Any],
+    field: str,
+    choices: str,
+) -> None:
+    """Unknown enum names raise ValueError that lists the choices, not a bare KeyError."""
+    ctx = make_ctx(client)
+
+    with pytest.raises(ValueError) as exc_info:
+        run(tool(ctx, *args, **kwargs))
+
+    assert str(exc_info.value) == f"Invalid {field}: BOGUS. Must be one of: {choices}"
+    assert client.calls == []
