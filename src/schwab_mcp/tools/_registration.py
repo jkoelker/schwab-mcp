@@ -139,6 +139,22 @@ def ensure_approval_capacity(context: SchwabContext, tool_name: str) -> None:
         raise PermissionError(message)
 
 
+def raise_unless_approved(decision: ApprovalDecision, *, denied: str, expired: str) -> None:
+    """Return on APPROVED; otherwise log and raise (fail closed).
+
+    A DENIED decision logs ``denied`` and raises ``PermissionError``. Any other
+    non-approved decision logs ``expired`` and raises ``TimeoutError``, so an
+    unknown decision never runs the write.
+    """
+    if decision is ApprovalDecision.APPROVED:
+        return
+    message = denied if decision is ApprovalDecision.DENIED else expired
+    logger.warning(message)
+    if decision is ApprovalDecision.DENIED:
+        raise PermissionError(message)
+    raise TimeoutError(message)
+
+
 async def run_approval(context: SchwabContext, request: ApprovalRequest) -> ApprovalDecision:
     """Run an approval request through progress reporting and the configured
     :class:`ApprovalManager`, returning the resulting decision.
@@ -228,22 +244,15 @@ def _wrap_with_approval(func: ToolFn) -> ToolFn:
         )
 
         decision = await run_approval(context, request)
-        if decision is ApprovalDecision.APPROVED:
-            result = func(*bound.args, **bound.kwargs)
-            if inspect.isawaitable(result):
-                return await result
-            return result
-
-        message = (
-            f"Write operation for tool '{func.__name__}' denied by reviewer."
-            if decision is ApprovalDecision.DENIED
-            else f"Approval request for tool '{func.__name__}' expired."
+        raise_unless_approved(
+            decision,
+            denied=f"Write operation for tool '{func.__name__}' denied by reviewer.",
+            expired=f"Approval request for tool '{func.__name__}' expired.",
         )
-        logger.warning(message)
-
-        if decision is ApprovalDecision.DENIED:
-            raise PermissionError(message)
-        raise TimeoutError(message)
+        result = func(*bound.args, **bound.kwargs)
+        if inspect.isawaitable(result):
+            return await result
+        return result
 
     wrapper_globals = cast(dict[str, Any], getattr(wrapper, "__globals__", {}))
     module = inspect.getmodule(func)
