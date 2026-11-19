@@ -29,6 +29,9 @@ class DummyTransactionsClient:
         return None
 
 
+TransactionType = DummyTransactionsClient.Transactions.TransactionType
+
+
 class TestGetTransactions:
     @pytest.fixture
     def client(self):
@@ -38,11 +41,14 @@ class TestGetTransactions:
     def ctx(self, client):
         return make_ctx(client)
 
-    def test_calls_client_with_account_hash(self, monkeypatch, ctx, client, fake_call_factory):
-        captured, fake_call = fake_call_factory(return_value=[])
-
+    @pytest.fixture
+    def captured(self, monkeypatch, fake_call_factory) -> dict[str, Any]:
+        """Stub call() to return an empty list and record what it receives."""
+        recorded, fake_call = fake_call_factory(return_value=[])
         monkeypatch.setattr(transactions, "call", fake_call)
+        return recorded
 
+    def test_calls_client_with_account_hash(self, ctx, captured):
         result = run(transactions.get_transactions(ctx, "hash123"))
 
         assert result == []
@@ -52,11 +58,7 @@ class TestGetTransactions:
         assert captured["kwargs"]["transaction_types"] is None
         assert captured["kwargs"]["symbol"] is None
 
-    def test_parses_date_strings(self, monkeypatch, ctx, client, fake_call_factory):
-        captured, fake_call = fake_call_factory(return_value=[])
-
-        monkeypatch.setattr(transactions, "call", fake_call)
-
+    def test_parses_date_strings(self, ctx, captured):
         run(
             transactions.get_transactions(
                 ctx,
@@ -69,62 +71,28 @@ class TestGetTransactions:
         assert captured["kwargs"]["start_date"] == datetime.date(2024, 1, 15)
         assert captured["kwargs"]["end_date"] == datetime.date(2024, 2, 15)
 
-    def test_maps_single_transaction_type_string(self, monkeypatch, ctx, client, fake_call_factory):
-        captured, fake_call = fake_call_factory(return_value=[])
+    @pytest.mark.parametrize(
+        "transaction_type,expected",
+        [
+            pytest.param("trade", [TransactionType.TRADE], id="single-string"),
+            pytest.param(
+                "trade, dividend_or_interest",
+                [TransactionType.TRADE, TransactionType.DIVIDEND_OR_INTEREST],
+                id="comma-separated",
+            ),
+            pytest.param(
+                ["ACH_RECEIPT", "ACH_DISBURSEMENT"],
+                [TransactionType.ACH_RECEIPT, TransactionType.ACH_DISBURSEMENT],
+                id="list",
+            ),
+        ],
+    )
+    def test_maps_transaction_type_input(self, ctx, captured, transaction_type, expected):
+        run(transactions.get_transactions(ctx, "hash123", transaction_type=transaction_type))
 
-        monkeypatch.setattr(transactions, "call", fake_call)
+        assert captured["kwargs"]["transaction_types"] == expected
 
-        run(
-            transactions.get_transactions(
-                ctx,
-                "hash123",
-                transaction_type="trade",
-            )
-        )
-
-        assert captured["kwargs"]["transaction_types"] == [client.Transactions.TransactionType.TRADE]
-
-    def test_maps_comma_separated_transaction_types(self, monkeypatch, ctx, client, fake_call_factory):
-        captured, fake_call = fake_call_factory(return_value=[])
-
-        monkeypatch.setattr(transactions, "call", fake_call)
-
-        run(
-            transactions.get_transactions(
-                ctx,
-                "hash123",
-                transaction_type="trade, dividend_or_interest",
-            )
-        )
-
-        assert captured["kwargs"]["transaction_types"] == [
-            client.Transactions.TransactionType.TRADE,
-            client.Transactions.TransactionType.DIVIDEND_OR_INTEREST,
-        ]
-
-    def test_maps_list_of_transaction_types(self, monkeypatch, ctx, client, fake_call_factory):
-        captured, fake_call = fake_call_factory(return_value=[])
-
-        monkeypatch.setattr(transactions, "call", fake_call)
-
-        run(
-            transactions.get_transactions(
-                ctx,
-                "hash123",
-                transaction_type=["ACH_RECEIPT", "ACH_DISBURSEMENT"],
-            )
-        )
-
-        assert captured["kwargs"]["transaction_types"] == [
-            client.Transactions.TransactionType.ACH_RECEIPT,
-            client.Transactions.TransactionType.ACH_DISBURSEMENT,
-        ]
-
-    def test_passes_symbol_filter(self, monkeypatch, ctx, client, fake_call_factory):
-        captured, fake_call = fake_call_factory(return_value=[])
-
-        monkeypatch.setattr(transactions, "call", fake_call)
-
+    def test_passes_symbol_filter(self, ctx, captured):
         run(
             transactions.get_transactions(
                 ctx,
