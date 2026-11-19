@@ -11,6 +11,10 @@ from types import MappingProxyType
 
 logger = logging.getLogger(__name__)
 
+# ⏱️ Default seconds a reviewer has to answer an approval request. Backends and
+# CLI flags use this as their default so the value lives in one place.
+DEFAULT_APPROVAL_TIMEOUT_SECONDS: float = 600.0
+
 
 class ApprovalDecision(str, Enum):
     """Decision returned by an approval workflow."""

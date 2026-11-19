@@ -11,6 +11,7 @@ from schwab.client import AsyncClient
 
 from schwab_mcp import auth as schwab_auth, tokens
 from schwab_mcp.approvals import (
+    DEFAULT_APPROVAL_TIMEOUT_SECONDS,
     ApprovalManager,
     DiscordApprovalManager,
     DiscordApprovalSettings,
@@ -238,7 +239,7 @@ def _select_write_mode(
 @click.option(
     "--discord-timeout",
     type=int,
-    default=600,
+    default=int(DEFAULT_APPROVAL_TIMEOUT_SECONDS),
     show_default=True,
     envvar="SCHWAB_MCP_DISCORD_TIMEOUT",
     help="Seconds to wait for Discord approval before timing out.",
@@ -286,7 +287,7 @@ def _select_write_mode(
 @click.option(
     "--signal-timeout",
     type=int,
-    default=600,
+    default=int(DEFAULT_APPROVAL_TIMEOUT_SECONDS),
     show_default=True,
     envvar="SCHWAB_MCP_SIGNAL_TIMEOUT",
     help="Seconds to wait for Signal approval before timing out.",

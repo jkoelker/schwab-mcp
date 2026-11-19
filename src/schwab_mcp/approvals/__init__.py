@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from schwab_mcp.approvals.base import (
+    DEFAULT_APPROVAL_TIMEOUT_SECONDS,
     ApprovalDecision,
     ApprovalManager,
     ApprovalRequest,
@@ -18,6 +19,7 @@ from schwab_mcp.approvals.signal import (
 )
 
 __all__ = [
+    "DEFAULT_APPROVAL_TIMEOUT_SECONDS",
     "ApprovalDecision",
     "ApprovalManager",
     "ApprovalRequest",

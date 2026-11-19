@@ -15,6 +15,7 @@ from typing import Any
 import httpx
 
 from schwab_mcp.approvals.base import (
+    DEFAULT_APPROVAL_TIMEOUT_SECONDS,
     ApprovalDecision,
     ApprovalManager,
     ApprovalRequest,
@@ -66,7 +67,7 @@ class SignalApprovalSettings:
     api_url: str
     account: str
     approver_numbers: frozenset[str]
-    timeout_seconds: float = 600.0
+    timeout_seconds: float = DEFAULT_APPROVAL_TIMEOUT_SECONDS
     account_names: Mapping[str, str] = field(default_factory=lambda: _EMPTY_NAMES)
     """Map of last-4-chars of account_hash to a friendly name (e.g. ``5805 ->
     "Rollover IRA"``). Used by the per-tool message renderers to refer to
