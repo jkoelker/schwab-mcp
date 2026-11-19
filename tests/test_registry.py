@@ -5,13 +5,13 @@ from types import SimpleNamespace
 from typing import Annotated, Any, cast
 
 import pytest
+from conftest import DummyApprovalManager
 from mcp.server.mcpserver import Context as MCPContext, MCPServer
 from mcp.server.mcpserver.tools import Tool
 from mcp.types import ToolAnnotations
 from schwab.client import AsyncClient
 
 import schwab_mcp.tools as tools_module
-from schwab_mcp.approvals import ApprovalDecision, ApprovalManager, ApprovalRequest
 from schwab_mcp.context import SchwabContext, SchwabServerContext
 from schwab_mcp.tools import _registration
 from schwab_mcp.tools._registration import (
@@ -240,15 +240,10 @@ def test_format_argument_short_values_unchanged() -> None:
 # ---------------------------------------------------------------------------
 
 
-class _DummyApprovalManager(ApprovalManager):
-    async def require(self, request: ApprovalRequest) -> ApprovalDecision:  # noqa: ARG002
-        return ApprovalDecision.APPROVED
-
-
 def _make_request_context() -> Any:
     lifespan_context = SchwabServerContext(
         client=cast(AsyncClient, object()),
-        approval_manager=_DummyApprovalManager(),
+        approval_manager=DummyApprovalManager(),
     )
     return SimpleNamespace(
         lifespan_context=lifespan_context,

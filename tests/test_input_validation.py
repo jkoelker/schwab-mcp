@@ -7,7 +7,7 @@ from enum import Enum
 from typing import Any, cast
 
 import pytest
-from conftest import make_ctx, run
+from conftest import call_through, make_ctx, run
 
 from schwab_mcp.context import SchwabContext
 from schwab_mcp.tools import account, history, options, orders, quotes, tools, transactions
@@ -57,11 +57,8 @@ class RecordingClient:
 
 @pytest.fixture
 def client(monkeypatch: pytest.MonkeyPatch) -> RecordingClient:
-    async def call(func: Callable[..., Awaitable[Any]], *args: Any, **kwargs: Any) -> Any:
-        return await func(*args, **kwargs)
-
     for module in (orders, account, transactions):
-        monkeypatch.setattr(module, "call", call)
+        monkeypatch.setattr(module, "call", call_through)
     return RecordingClient()
 
 

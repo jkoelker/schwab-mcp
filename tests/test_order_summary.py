@@ -7,7 +7,7 @@ from enum import Enum
 from typing import Any, cast
 
 import pytest
-from conftest import make_ctx, run
+from conftest import call_through, make_ctx, run
 
 from schwab_mcp.approvals import ApprovalDecision
 from schwab_mcp.approvals.discord import DiscordApprovalManager
@@ -39,10 +39,7 @@ class SummaryClient:
 
 @pytest.fixture
 def fake_call(monkeypatch: pytest.MonkeyPatch) -> None:
-    async def call(func: Callable[..., Awaitable[Any]], *args: Any, **kwargs: Any) -> Any:
-        return await func(*args, **kwargs)
-
-    monkeypatch.setattr(orders, "call", call)
+    monkeypatch.setattr(orders, "call", call_through)
 
 
 def _stored_entry(

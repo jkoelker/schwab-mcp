@@ -12,28 +12,18 @@ from types import SimpleNamespace
 from typing import Any, cast
 
 import pytest
-from conftest import run
+from conftest import RecordingApprovalManager, call_through, run
 from mcp.server.mcpserver import Context as MCPContext, MCPServer
 from mcp.server.mcpserver.exceptions import ToolError
 from schwab.client import AsyncClient
 
 from schwab_mcp import tools as tools_module
-from schwab_mcp.approvals import ApprovalDecision, ApprovalManager, ApprovalRequest
 from schwab_mcp.context import SchwabServerContext
 from schwab_mcp.server import SchwabMCPServer
 from schwab_mcp.tools import _registration, orders
 
 ACCOUNT = "A" * 64
 UNKNOWN = "zz_unknown_argument"
-
-
-class RecordingApprovals(ApprovalManager):
-    def __init__(self) -> None:
-        self.requests: list[ApprovalRequest] = []
-
-    async def require(self, request: ApprovalRequest) -> ApprovalDecision:
-        self.requests.append(request)
-        return ApprovalDecision.APPROVED
 
 
 class RecordingClient:
@@ -57,7 +47,7 @@ class Harness:
     def __init__(self) -> None:
         self.server = MCPServer(name="registered-arguments")
         self.client = RecordingClient()
-        self.approvals = RecordingApprovals()
+        self.approvals = RecordingApprovalManager()
         tools_module.register_tools(
             self.server, cast(AsyncClient, self.client), allow_write=True, enable_technical=True
         )
@@ -79,10 +69,7 @@ class Harness:
 
 @pytest.fixture
 def harness(monkeypatch: pytest.MonkeyPatch) -> Harness:
-    async def passthrough(func: Callable[..., Awaitable[Any]], *args: Any, **kwargs: Any) -> Any:
-        return await func(*args, **kwargs)
-
-    monkeypatch.setattr(orders, "call", passthrough)
+    monkeypatch.setattr(orders, "call", call_through)
     return Harness()
 
 
@@ -91,7 +78,7 @@ def _production_server(client: Any = None) -> MCPServer:
     schwab_server = SchwabMCPServer(
         "registered-arguments",
         cast(AsyncClient, client if client is not None else RecordingClient()),
-        RecordingApprovals(),
+        RecordingApprovalManager(),
         allow_write=True,
         enable_technical_tools=True,
         use_json=True,
