@@ -64,8 +64,8 @@ compact defaults with `verbose=True` escape hatches where response size matters.
     lookup failures log a warning and fall through to Schwab-side validation),
     submit Schwab `preview_order`, cache the spec in `ctx.previews`, and return
     `preview_id` plus reviewer/user action text. The guard lives in
-    `_finalize_preview` and in `preview_replacement_order`, so every preview
-    path shares it. Preview account hashes are validated before asset lookup
+    `_checked_preview`, which `_finalize_preview` and `preview_replacement_order`
+     both call, so every preview path shares it. Preview account hashes are validated before asset lookup
     or preview requests; replacement target IDs use the same safe identifier
     rule (`utils.validate_identifier`), which the read tools (`get_order`,
     `get_orders`, `get_account`, `get_transactions`, `get_transaction`) also

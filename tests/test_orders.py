@@ -2581,6 +2581,7 @@ class TestAssetTypeGuard:
                 )
             )
         assert client.captured is None
+        assert ctx.previews._entries == {}
 
 
 class TestEquityLegSymbols:
