@@ -345,9 +345,9 @@ def _equity_leg_symbols(order_spec: dict[str, Any]) -> list[str]:
 async def _require_spec_supported_asset_types(client: ToolsClient, order_spec: dict[str, Any]) -> None:
     """Apply the upfront assetType guard to every EQUITY leg in a built spec.
 
-    Called from _finalize_preview and preview_replacement_order so every
-    preview path fails fast, before Schwab's previewOrder is invoked. Specs
-    without EQUITY legs (pure option orders) make no lookup at all.
+    Called from _checked_preview so every preview path fails fast, before
+    Schwab's previewOrder is invoked. Specs without EQUITY legs (pure option
+    orders) make no lookup at all.
     """
     for symbol in _equity_leg_symbols(order_spec):
         await _require_supported_asset_type(client, symbol)
@@ -1122,23 +1122,37 @@ def _preview_action(account_hash: str, preview_id: str) -> str:
     )
 
 
+async def _checked_preview(
+    ctx: SchwabContext,
+    account_hash: str,
+    order_spec: dict[str, Any],
+) -> tuple[str, JSONType]:
+    """Run the pre-preview gates, then Schwab's previewOrder. Returns (summary, preview).
+
+    Every preview path must go through this helper so no gate can be skipped
+    by copy and paste. The order of the steps is part of the contract.
+    """
+    # 🧾 Render the summary first so an order that cannot be shown is never previewed.
+    summary = _spec_summary(order_spec)
+    await _require_spec_supported_asset_types(ctx.tools, order_spec)
+    preview = await call(ctx.orders.preview_order, account_hash=account_hash, order_spec=order_spec)
+    return summary, preview
+
+
 async def _finalize_preview(
     ctx: SchwabContext,
     account_hash: str,
     order_spec: dict[str, Any],
     tool_name: str,
 ) -> dict[str, Any]:
-    """Preview an order and cache its successful result.
+    """Validate the account, run the shared preview gates, and cache the result.
 
-    Applies the upfront assetType guard before Schwab's previewOrder is
-    invoked, so every preview tool (current and future) is covered by the
-    single call here. The reviewer summary is rendered from the spec itself
-    before any API call, so an order that cannot be shown is never previewed.
+    The gates run through _checked_preview, which renders the reviewer summary
+    and applies the assetType guard before Schwab's previewOrder is invoked.
+    The preview is cached only after that call succeeds.
     """
     validate_identifier(account_hash, "account_hash")
-    summary = _spec_summary(order_spec)
-    await _require_spec_supported_asset_types(ctx.tools, order_spec)
-    preview = await call(ctx.orders.preview_order, account_hash=account_hash, order_spec=order_spec)
+    summary, preview = await _checked_preview(ctx, account_hash, order_spec)
     preview_id = ctx.previews.put(
         account_hash,
         order_spec,
@@ -1671,9 +1685,7 @@ async def preview_replacement_order(
     validate_identifier(account_hash, "account_hash")
     normalized_order_id = validate_identifier(order_id.strip(), "order_id")
     order_spec, _ = _prepare_replacement_order(cast(dict[str, Any], replacement_order))
-    summary = _spec_summary(order_spec)
-    await _require_spec_supported_asset_types(ctx.tools, order_spec)
-    preview = await call(ctx.orders.preview_order, account_hash=account_hash, order_spec=order_spec)
+    summary, preview = await _checked_preview(ctx, account_hash, order_spec)
     preview_id = ctx.previews.put(
         account_hash,
         order_spec,
