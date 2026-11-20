@@ -12,6 +12,7 @@ from types import MappingProxyType
 import discord
 
 from schwab_mcp.approvals.base import (
+    DEFAULT_APPROVAL_TIMEOUT_SECONDS,
     ApprovalDecision,
     ApprovalManager,
     ApprovalRequest,
@@ -32,7 +33,7 @@ class DiscordApprovalSettings:
     token: str
     channel_id: int
     approver_ids: frozenset[int] = frozenset()
-    timeout_seconds: float = 600.0
+    timeout_seconds: float = DEFAULT_APPROVAL_TIMEOUT_SECONDS
     account_names: Mapping[str, str] = field(default_factory=lambda: MappingProxyType({}))
     """Map the last four characters of an account hash to a friendly name."""
 
