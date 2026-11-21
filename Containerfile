@@ -25,9 +25,15 @@ WORKDIR /app
 COPY pyproject.toml README.md uv.lock ./
 COPY src ./src
 
+# Runtime dependencies only: --no-dev keeps pytest, pyright, mutmut, ruff and
+# vulture out of the image; the signal extra brings websockets for Signal
+# approvals.
 RUN uv build --wheel --out-dir /dist && \
     uv export \
         --format requirements-txt \
+        --frozen \
+        --no-dev \
+        --extra signal \
         --group ta \
         --no-emit-project \
         --output-file /dist/requirements.txt
@@ -55,8 +61,21 @@ WORKDIR /workspace
 COPY --from=builder /dist/ /tmp/dist/
 
 RUN uv pip install --system --no-cache -r /tmp/dist/requirements.txt \
-    && uv pip install --system --no-cache /tmp/dist/*.whl \
+    && uv pip install --system --no-cache --no-deps /tmp/dist/*.whl \
     && rm -rf /tmp/dist
+
+# Run as an unprivileged user. The token and credentials live under
+# $HOME/.local/share/schwab-mcp, which is the mount point for a host token
+# directory. UID 1000 matches the usual first desktop user; podman's
+# --userns=keep-id or docker's --user map other UIDs.
+ENV HOME=/home/schwab
+RUN useradd --uid 1000 --user-group --create-home --home-dir /home/schwab schwab \
+    && mkdir -p /home/schwab/.local/share/schwab-mcp \
+    && chown -R schwab:schwab /home/schwab \
+    && chmod 0700 /home/schwab/.local/share/schwab-mcp
+
+USER 1000:1000
+WORKDIR /home/schwab
 
 LABEL org.opencontainers.image.title="Schwab MCP Server" \
       org.opencontainers.image.description="Model Context Protocol server for Schwab built on schwab-mcp." \
